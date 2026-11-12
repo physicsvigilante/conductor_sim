@@ -94,7 +94,42 @@ class SolidSphere:
         return self.radius_m
 
 
-Conductor: TypeAlias = SphericalShell | SolidSphere
+
+@dataclass(frozen=True, slots=True)
+class ConductingPlane:
+    """Ideal infinite grounded conductor occupying the negative-normal half-space.
+
+    ``point_m`` lies on the boundary; ``normal`` points into the physical
+    vacuum half-space (where charges may be placed). The plane has no finite
+    area and cannot have a prescribed *total* charge. Solvers remain free to
+    reject more complicated configurations involving this component.
+    """
+    point_m: Vector3 = ORIGIN
+    normal: Vector3 = (0.0, 0.0, 1.0)
+    constraint: ElectricalConstraint = Grounded()
+    name: str = "plane"
+
+    def __post_init__(self) -> None:
+        from math import hypot
+        object.__setattr__(self, "point_m", _position(self.point_m, "plane point"))
+        vector = _position(self.normal, "plane normal")
+        magnitude = hypot(*vector)
+        if not isfinite(magnitude) or magnitude == 0:
+            raise ValueError("plane normal must be finite and nonzero")
+        object.__setattr__(self, "normal", tuple(v / magnitude for v in vector))
+        if not isinstance(self.constraint, Grounded):
+            raise TypeError("an infinite conducting plane only supports Grounded()")
+        if (not isinstance(self.name, str) or not self.name.strip()
+                or self.name == "<None>"
+                or any(ord(c) < 32 or c in '"\\' for c in self.name)):
+            raise ValueError("invalid conducting-plane name")
+
+    def signed_distance_m(self, point_m: Vector3) -> float:
+        """Positive in vacuum; zero at metal surface; negative inside metal."""
+        point = _position(point_m, "point")
+        return sum((point[i] - self.point_m[i]) * self.normal[i] for i in range(3))
+
+Conductor: TypeAlias = SphericalShell | SolidSphere | ConductingPlane
 
 @dataclass(frozen=True, slots=True)
 class ElectrostaticProblem:
@@ -109,7 +144,7 @@ class ElectrostaticProblem:
             raise ValueError("permittivity must be positive")
         if any(not isinstance(c, PointCharge) for c in self.charges):
             raise TypeError("all charges must be PointCharge objects")
-        if any(not isinstance(c, (SphericalShell, SolidSphere)) for c in self.conductors):
+        if any(not isinstance(c, (SphericalShell, SolidSphere, ConductingPlane)) for c in self.conductors):
             raise TypeError("all conductors must be supported objects")
         names = [c.name for c in self.conductors]
         if len(names) != len(set(names)):

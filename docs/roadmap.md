@@ -48,3 +48,9 @@ See [M8 design](m8.md) and [numerical acceptance](m8-acceptance.md). All 52 earl
 M9 — **Accepted for multiple external charges (68 real FEMM tests, including 9 M9 cases):** exact Kelvin image superposition for arbitrary source locations outside one grounded/isolated solid sphere, separate FEMM charged source cores for axisymmetric sites, strict non-collinear numerical refusal and offline four-state visualization. See [M9 design](m9.md) and [acceptance](m9-acceptance.md).
 
 M10 — Candidate next: reusable charged conducting plane and image-charge boundary conditions. Extend external geometry by physics capabilities rather than writing new per-problem scripts. Full 3D conductor geometry, coupled physical spheres and particle dynamics remain separate future areas.
+
+M10 — **Live numerical validation passed; final PR review pending:** grounded infinite conducting half-space,
+exact multiple-charge mirror-image analytical solution, reusable plane/sphere
+sampling geometry, flat viewer rendering/profiles, and actual axisymmetric
+FEMM 5 approximation for one charge with finite-domain sensitivity checks.
+See [M10 design](m10.md). Multiple charges are analytic-only in M10.

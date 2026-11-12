@@ -132,3 +132,14 @@ The offline procedural viewer is already supported as M5.
 The session has no built-in hard process timeout for arbitrary untrusted
 problems; GitHub Actions live tests use an external deadline. This engine
 should not yet run uncontrolled LLM-authored models in production.
+
+## M10 numerical grounded-plane candidate
+
+A separate `Femm5PlaneBackend` uses a finite quarter-disk axisymmetric
+meridian with one grounded plane segment, one finite charged source core,
+and a dipole-matched outer Robin boundary. The plane is **infinite only in
+the analytical ideal**; numerical net charge and surface-density profiles
+must be assessed for sensitivity to the outer domain and sampling offset.
+The numeric capability is limited to one active external source above one
+plane; `GroundedPlaneBackend` supports non-collinear source superposition
+analytically. See [M10](m10.md). Initial pinned real FEMM CI passed 75 tests; see [M10 acceptance](m10-acceptance.md).
