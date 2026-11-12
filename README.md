@@ -236,3 +236,24 @@ plane is approximated by a *finite numerical domain*. FEMM reports charge on
 the truncated modeled plane; this must be compared to the exact finite-disk
 integral, not to the charge on the infinite plane. See
 [M10 design](docs/m10.md) and [acceptance evidence](docs/m10-acceptance.md).
+
+## M11 — Multiple external charges above one grounded plane
+
+The same physically authored `ElectrostaticProblem`, `ConductingPlane`,
+`PointCharge`, and `Grounded` components can now use **multiple distinct
+FEMM 5 source spheres** on one plane-normal axis. The independent exact
+image backend remains fully three-dimensional, including non-collinear
+positions. Axisymmetric FEMM cannot represent charges at different lateral
+projections; it rejects them before starting a session. Coincident charges
+combine exactly, while distinct cancelling sources remain separately solved.
+
+```bash
+python examples/femm5_multi_plane.py --output output/m11-plane.html
+python examples/femm5_multi_plane.py --backend femm --output output/m11-femm.html
+```
+
+The second command requires the pinned FEMM 5 binding. Each output includes
+three stored equilibria and the plane's spatial density profile. A real FEMM
+conductor integrates charge on a **finite disk**, not the ideal infinite plane: see
+[physical/numerical distinctions](docs/m11.md). This does not expand numerical
+capability to arbitrary 3D, parallel plates, or browser-time solving.

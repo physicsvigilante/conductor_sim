@@ -54,3 +54,8 @@ exact multiple-charge mirror-image analytical solution, reusable plane/sphere
 sampling geometry, flat viewer rendering/profiles, and actual axisymmetric
 FEMM 5 approximation for one charge with finite-domain sensitivity checks.
 See [M10 design](m10.md). Multiple charges are analytic-only in M10.
+
+M11 — **Candidate for live acceptance:** multiple distinct point charges above a single
+grounded conducting plane. Real FEMM 5 uses up to 16 independent source cores
+sharing one normal-line footpoint, with no false 2D rings or silent fallback.
+Non-collinear charges remain analytically supported. See [M11 design](m11.md).
