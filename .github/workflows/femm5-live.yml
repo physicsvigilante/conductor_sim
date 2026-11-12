@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch v5.0.20261101 https://github.com/dcm3c/.femm-upstream.git "$FEMM_ROOT"
+          git clone --depth 1 --branch v5.0.20261101 https://github.com/dcm3c/femm-qt.git "$FEMM_ROOT"
           actual="$(git -C "$FEMM_ROOT" rev-parse HEAD)"
           test "$actual" = "$FEMM_COMMIT"
           printf 'Pinned FEMM 5 source: %s\n' "$actual"
