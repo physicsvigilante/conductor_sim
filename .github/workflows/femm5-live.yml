@@ -62,3 +62,4 @@ jobs:
           test -f "$FEMM5_BINDING"
           timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py -vv -rA -s
           python examples/femm5_empty_shell.py
+          python examples/femm5_centered_charge.py

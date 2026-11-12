@@ -1,6 +1,6 @@
 # FEMM 5 (femm-qt) setup and live benchmark
 
-**Status: M2a accepted for its narrow empty-shell domain.** The real FEMM 5
+**Status: M2a accepted; M2b centered-source/grounded extension under numerical review.** The real FEMM 5
 headless solver was built from the pinned November 1, 2026 release and both
 integration benchmarks passed in GitHub Actions (Ubuntu 24.04). See
 [M2a acceptance evidence](m2a-acceptance.md). The ordinary Python job still
@@ -37,7 +37,8 @@ by the upstream [binding instructions](https://femm.info/doku/doku.php?id=pyfemm
 
 ## Explicitly supported physics
 
-- Exactly one isolated conducting spherical shell with **fixed net charge** and **no point charges**.
+- M2a (accepted): exactly one isolated conducting spherical shell with **fixed net charge** and **no point charges**.
+- M2b candidate: the same shell with **Grounded()** or **FixedNetCharge**, plus only centered point charges; finite concentric source core with measured source charge and excluded interior. See [M2b design](m2b.md).
 - A uniform permittivity throughout space. The same problem object is supported
   by the independent `ConcentricShellBackend`.
 - The sphere center can be anywhere in world coordinates: compilation translates it
@@ -87,9 +88,7 @@ and all tests run (no skips). Acceptance of M2a means only that the defined
 empty-shell benchmarks pass their stated tolerances; it does not imply full
 mesh-convergence certification or correctness for unsupported arrangements.
 
-The backend **does not** yet solve central/off-center point charges, ground
-constraints, multiple conductors, general planar geometry, or arbitrary 3D.
-All such problems are rejected rather than silently approximated.
+The M2b backend implements *centered* charges and grounding, pending real numerical acceptance. It **does not** solve off-center charges, multiple conductors, general planar geometry, or arbitrary 3D. Unsupported problems are rejected rather than silently approximated.
 
 Upstream references: [FEMM 5 pyfemm-qt](https://femm.info/doku/doku.php?id=pyfemm-qt),
 [FEMM electrostatics tutorial](https://femm.info/doku/doku.php?id=electrostaticstutorial),

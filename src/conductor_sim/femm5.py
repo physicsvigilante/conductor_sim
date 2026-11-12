@@ -1,6 +1,6 @@
-"""FEMM 5 electrostatics adapter: an empty isolated spherical conductor.
+"""FEMM 5 electrostatics adapter: one spherical shell and centered charges.
 
-This is a deliberately narrow numerical vertical slice.  It produces a real
+This is a deliberately limited, axisymmetric numerical vertical slice.  It produces a real
 FEMM 5 axisymmetric solve, *not* a disguised analytical solution.  FEMM is an
 optional external application; no FEMM import is performed at package import.
 
@@ -19,8 +19,11 @@ from socket import AF_INET, SOCK_STREAM, socket
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
-from .model import EPSILON_0, ElectrostaticProblem, FixedNetCharge, SphericalShell, Vector3
+from .model import EPSILON_0, ElectrostaticProblem, FixedNetCharge, Grounded, SphericalShell, Vector3
 from .solver import ConductorResult, SingularField, UnsupportedProblem
+
+
+_SOURCE_CORE = "__conductor_sim_source_core"  # purely numerical, NOT a user conductor
 
 
 class Femm5Unavailable(RuntimeError):
@@ -107,6 +110,7 @@ class Femm5Settings:
     arc_degrees: float = 5.0
     mesh_scale: float = 1.0
     solver_precision: float = 1e-9
+    source_radius_fraction: float = 0.10  # radius / cavity radius, centered-source regularization
 
     def __post_init__(self) -> None:
         if not (isfinite(self.outer_radius_factor) and self.outer_radius_factor >= 3):
@@ -117,6 +121,8 @@ class Femm5Settings:
             raise ValueError("mesh_scale must lie in (0, 5]")
         if not (isfinite(self.solver_precision) and 0 < self.solver_precision < 1):
             raise ValueError("solver_precision must lie in (0, 1)")
+        if not (isfinite(self.source_radius_fraction) and .02 <= self.source_radius_fraction <= .2):
+            raise ValueError("source_radius_fraction must lie in [0.02, 0.2]")
 
 
 def _label_air(client: Any, x: float, size: float) -> None:
@@ -140,48 +146,70 @@ def _mark_arcs(client: Any, radius: float, degrees: float, boundary: str, conduc
         client.ei_clearselected()
 
 
-def _compile_empty_shell(client: Any, problem: ElectrostaticProblem, settings: Femm5Settings) -> float:
-    """Emit an axisymmetric vacuum shell; return outer computational radius.
+def _compile_shell(
+    client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
+) -> tuple[float, float | None]:
+    """Emit one axisymmetric shell, with optional *finite spherical source core*.
 
-    The metal region is meshed with a charge-free dielectric for numerical
-    convenience, but its inner/outer boundaries are *one* equipotential FEMM
-    conductor.  Since both interfaces belong to that same conductor, the
-    interior field should be zero (to mesh accuracy).  It is not modelled as
-    a second independent conductor.
+    A centered ideal point charge is represented for the FEMM solve by a tiny
+    concentric conductor carrying the source's *total fixed charge*. This is
+    NOT a literal off-axis 2D FEMM point property, which would revolve into
+    a ring. For spherical symmetry the field and potential at radii greater
+    than the source core match the ideal centered point charge; sampling
+    inside the numerical core is rejected.
+
+    Physical shell inner and outer surfaces use one connected conductor
+    property. The source core is a separate, artificial FEMM conductor and
+    must never appear as a physical shell in the returned problem result.
     """
     shell = problem.conductors[0]
-    assert isinstance(shell.constraint, FixedNetCharge)
     a, b = shell.inner_radius_m, shell.outer_radius_m
     R = b * settings.outer_radius_factor
     d = settings.arc_degrees
+    q = sum(charge.charge_c for charge in problem.charges)
+    source_radius = a * settings.source_radius_fraction if q != 0.0 else None
 
-    client.newdocument(1)  # FEMM: electrostatics
+    client.newdocument(1)  # FEMM electrostatics
     client.ei_probdef("meters", "axi", settings.solver_precision)
     relative_eps = problem.permittivity_f_per_m / EPSILON_0
     client.ei_addmaterial("Vacuum", relative_eps, relative_eps, 0)
-    client.ei_addconductorprop(shell.name, 0, shell.constraint.charge_c, 0)  # 0 = fixed total charge
-    # Robin open boundary for a monopole: epsilon*dV/dn + (epsilon/R)*V = 0.
-    # This does *not* prescribe the unknown shell potential.
+    if isinstance(shell.constraint, FixedNetCharge):
+        client.ei_addconductorprop(shell.name, 0, shell.constraint.charge_c, 0)  # total Q fixed
+    else:
+        assert isinstance(shell.constraint, Grounded)
+        client.ei_addconductorprop(shell.name, 0, 0, 1)  # fixed V=0; total Q is unknown
+    if source_radius is not None:
+        client.ei_addconductorprop(_SOURCE_CORE, 0, q, 0)  # total source Q fixed
+
+    # Outer Robin condition for the net monopole; is valid when grounded
+    # because outside a grounded spherical shell the solution is V=0.
     client.ei_addboundprop("open_robin", 0, 0, problem.permittivity_f_per_m / R, 0, 1)
 
-    for r in (a, b, R):
-        for x, z in ((0, -r), (r, 0), (0, r)):
+    radii = ((source_radius,) if source_radius is not None else ()) + (a, b, R)
+    for radius in radii:
+        for x, z in ((0, -radius), (radius, 0), (0, radius)):
             client.ei_addnode(x, z)
-        _half_circle(client, r, d)
+        _half_circle(client, radius, d)
 
-    axis_heights = (-R, -b, -a, a, b, R)
+    axis_heights = sorted({z for radius in radii for z in (-radius, radius)})
     for z0, z1 in zip(axis_heights, axis_heights[1:]):
         client.ei_addsegment(0, z0, 0, z1)
 
-    # Same connected conductor name, on BOTH physical interfaces.
-    for r in (a, b):
-        _mark_arcs(client, r, d, "<None>", shell.name)
+    for radius in (a, b):
+        _mark_arcs(client, radius, d, "<None>", shell.name)
+    if source_radius is not None:
+        _mark_arcs(client, source_radius, d, "<None>", _SOURCE_CORE)
     _mark_arcs(client, R, d, "open_robin", "<None>")
 
-    _label_air(client, a * 0.5, (a / 8) * settings.mesh_scale)
+    if source_radius is not None:
+        _label_air(client, source_radius / 2, source_radius / 6 * settings.mesh_scale)
+        _label_air(client, (source_radius + a) / 2,
+                   min((a - source_radius) / 8, a / 8) * settings.mesh_scale)
+    else:
+        _label_air(client, a / 2, (a / 8) * settings.mesh_scale)
     _label_air(client, (a + b) / 2, min((b - a) / 2, b / 12) * settings.mesh_scale)
     _label_air(client, (b + R) / 2, (b / 4) * settings.mesh_scale)
-    return R
+    return R, source_radius
 
 
 def _as_finite_values(data: Any, size: int, description: str) -> tuple[float, ...]:
@@ -211,6 +239,8 @@ class Femm5Solution:
     _session: Any = field(repr=False)
     _client: Any = field(repr=False)
     _workspace: TemporaryDirectory[str] = field(repr=False)
+    source_radius_m: float | None = None
+    numerical_source_charge_c: float | None = None
     _closed: bool = field(default=False, init=False, repr=False)
 
     def __enter__(self) -> Femm5Solution:
@@ -245,8 +275,12 @@ class Femm5Solution:
         cx, cy, cz = self.shell.center_m
         dx, dy, dz = point_m[0] - cx, point_m[1] - cy, point_m[2] - cz
         r = hypot(dx, dy)
-        if hypot(r, dz) >= self.outer_radius_m:
+        distance = hypot(r, dz)
+        if distance >= self.outer_radius_m:
             raise UnsupportedProblem("sample point lies outside FEMM's finite computational domain")
+        if self.source_radius_m is not None and distance <= self.source_radius_m:
+            raise UnsupportedProblem("sample point lies in the regularized source core; "
+                                     "only the ideal-charge exterior is represented")
         values = self._client.eo_getpointvalues(r, dz)
         return _as_finite_values(values, 8, "electrostatic point values")
 
@@ -258,8 +292,10 @@ class Femm5Solution:
         dx, dy, dz = point_m[0] - cx, point_m[1] - cy, point_m[2] - cz
         r = hypot(dx, dy)
         distance = hypot(r, dz)
-        if any(isclose(distance, radius, rel_tol=1e-12) for radius in
-               (self.shell.inner_radius_m, self.shell.outer_radius_m)):
+        surfaces = (self.shell.inner_radius_m, self.shell.outer_radius_m)
+        if self.source_radius_m is not None:
+            surfaces += (self.source_radius_m,)
+        if any(isclose(distance, radius, rel_tol=1e-12) for radius in surfaces):
             raise SingularField("electric field has a one-sided jump at the conductor surface")
         _, _, _, er, ez, _, _, _ = self._sample(point_m)
         if r == 0:
@@ -268,11 +304,12 @@ class Femm5Solution:
 
 
 class Femm5Backend:
-    """FEMM 5 adapter for one empty isolated spherical shell in uniform vacuum.
+    """FEMM 5 backend for one spherical shell and centered point charges.
 
-    The pure-Python tests inject a fake session to check command compilation.
-    They do NOT certify FEMM solver accuracy.  The live integration test only
-    runs when FEMM5_BINDING is explicitly configured.
+    Grounded or fixed-shell-charge constraints are supported. Any nonzero
+    centered point charges are represented by *one* concentric numerical
+    source core. General 3D/off-center charges are rejected, not approximated.
+    Real FEMM numerical accuracy is checked separately from fake-client tests.
     """
 
     def __init__(
@@ -286,34 +323,54 @@ class Femm5Backend:
         self._session_factory = session_factory or (lambda: Femm5Session(binding_path))
 
     def supports(self, problem: ElectrostaticProblem) -> bool:
+        if len(problem.conductors) != 1:
+            return False
+        shell = problem.conductors[0]
         return (
-            len(problem.conductors) == 1
-            and not problem.charges
-            and isinstance(problem.conductors[0], SphericalShell)
-            and isinstance(problem.conductors[0].constraint, FixedNetCharge)
+            isinstance(shell, SphericalShell)
+            and isinstance(shell.constraint, (Grounded, FixedNetCharge))
+            and shell.name != _SOURCE_CORE
+            and all(charge.position_m == shell.center_m for charge in problem.charges)
+            and isfinite(sum(charge.charge_c for charge in problem.charges))
         )
 
     def solve(self, problem: ElectrostaticProblem) -> Femm5Solution:
         if not self.supports(problem):
             raise UnsupportedProblem(
-                "FEMM 5 M2 supports exactly one empty spherical shell with "
-                "FixedNetCharge; point charges and grounded shells are not yet supported"
+                "FEMM 5 supports one spherical shell with Grounded or FixedNetCharge "
+                "and only centered point charges (no arbitrary 3D/off-center charges)"
             )
         session = self._session_factory()
         workspace = TemporaryDirectory(prefix="conductor_sim_femm5_")
         try:
             client = session.open()
-            radius = _compile_empty_shell(client, problem, self.settings)
+            radius, source_radius = _compile_shell(client, problem, self.settings)
             client.ei_saveas((Path(workspace.name) / "charged_shell.fee").as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
             shell = problem.conductors[0]
-            voltage, charge = _as_finite_values(
-                client.eo_getconductorproperties(shell.name), 2, "conductor results"
+            voltage, shell_charge = _as_finite_values(
+                client.eo_getconductorproperties(shell.name), 2, "shell conductor results"
             )
-            # Gauss-law inference for the empty cavity; FEMM reports only total Q.
-            conductor = ConductorResult(shell.name, voltage, charge, 0.0, charge)
-            return Femm5Solution(shell, radius, (conductor,), session, client, workspace)
+            source_charge: float | None = None
+            if source_radius is not None:
+                _, source_charge = _as_finite_values(
+                    client.eo_getconductorproperties(_SOURCE_CORE), 2,
+                    "regularized source charge results"
+                )
+            # Surface charge partition follows from Gauss's law, using FEMM's
+            # measured Q_source and Q_shell. The local surface sigma(r,z) is
+            # not independently sampled by this API.
+            inner = -(source_charge if source_charge is not None else 0.0)
+            conductor = ConductorResult(
+                shell.name, voltage, shell_charge, inner, shell_charge - inner
+            )
+            return Femm5Solution(
+                shell=shell, outer_radius_m=radius,
+                conductor_results=(conductor,), _session=session, _client=client,
+                _workspace=workspace, source_radius_m=source_radius,
+                numerical_source_charge_c=source_charge,
+            )
         except Exception as exc:
             try:
                 session.close()
@@ -321,4 +378,4 @@ class Femm5Backend:
                 workspace.cleanup()
             if isinstance(exc, (Femm5Unavailable, UnsupportedProblem, Femm5ExecutionError)):
                 raise
-            raise Femm5ExecutionError(f"FEMM 5 empty-shell solve failed: {exc}") from exc
+            raise Femm5ExecutionError(f"FEMM 5 spherical-shell solve failed: {exc}") from exc

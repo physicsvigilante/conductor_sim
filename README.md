@@ -3,12 +3,12 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1 accepted; M2a real FEMM 5 empty-shell benchmark accepted on Linux.**
+**Status: M1 and M2a accepted; M2b centered-source extension is under live FEMM review.**
 The analytical reference solves one spherical shell with charges at its center. The
-FEMM 5 numerical backend currently solves **one empty isolated spherical shell
-with prescribed total charge**, and no other geometry. The M2a live-solver job
-has passed, but point charges, grounded conductors and off-center arrangements
-still require new numerical implementations.
+M2a FEMM 5 backend was validated for an empty isolated charged shell.
+The M2b branch adds **centered point charge(s)** and **grounding**, but its
+numerical acceptance is pending actual FEMM 5 runs. Off-center and arbitrary
+3D geometries are not implemented.
 
 ## Quick start
 
@@ -85,3 +85,15 @@ with Femm5Backend().solve(problem) as solution:
 Requires local FEMM 5 and `FEMM5_BINDING` configured to the **FEMM 5**
 `pyfemm/femm.py` file (this is not the older PyPI `pyfemm` package).
 See [setup, limitations, and live validation](docs/femm5.md).
+
+## M2b experimental: centered charge and grounded shell
+
+Construct the **same** `ElectrostaticProblem` as in the analytical example
+above, then use `with Femm5Backend().solve(problem) as solution:`.
+The numerical backend translates centered point charge(s) into a small
+concentric charged source sphere, enforcing their net charge and disallowing
+field/potential sampling inside the artificial source core.
+For M2b source, grounded and isolated-shell examples see
+[docs/m2b.md](docs/m2b.md) and
+[examples/femm5_centered_charge.py](examples/femm5_centered_charge.py).
+This branch is unaccepted until its real FEMM integration tests succeed.
