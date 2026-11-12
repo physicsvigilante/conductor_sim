@@ -159,7 +159,7 @@ def test_strict_capability_boundary():
         ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=(SphericalShell(.1,.12,Grounded(),name=_SOURCE_CORE),)),
         ElectrostaticProblem(conductors=(
             SphericalShell(.1,.12,FixedNetCharge(0),name="a"),
-            SphericalShell(.2,.3,FixedNetCharge(0),name="b"),
+            SphericalShell(.11,.3,FixedNetCharge(0),name="b"),
         )),
     ]
     for p in bad:

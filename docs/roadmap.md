@@ -19,7 +19,7 @@ M3 — **Accepted for single off-centre source location; 17 live FEMM 5 tests pa
 
 M4a — **Accepted (23 real FEMM 5 tests, including all 17 M2/M3 regressions):** distinct charge positions along one common symmetry axis in one spherical shell; independent numerical source cores, exact analytical superposition, and explicit rejection of non-collinear FEMM problems. See [M4a](m4a.md) and [numerical acceptance](m4a-acceptance.md).
 
-M4b — Compatible *concentric nested spherical shells* with independent grounding/net-charge constraints and rigorous live numerical checks; this is a separate expansion, not implied by M4a acceptance.
+M4b — **Accepted (32 real FEMM 5 tests, including 9 new nested-shell cases):** strictly nested concentric spherical shells, independently grounded/fixed-net-charge, source charges inside innermost cavity, with an independent exact radial/image reference and explicit capability checks. See [M4b](m4b.md) and [numerical acceptance](m4b-acceptance.md).
 
 M5 — Procedural visualization separate from FEMM (potential maps, field lines,
 surface charge density, parameter sweeps).

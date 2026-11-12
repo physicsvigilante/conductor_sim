@@ -1,19 +1,59 @@
-# Architecture
+# conductor_sim architecture
 
-LLM-authored Python -> immutable ElectrostaticProblem -> solver backend -> FieldSolution -> procedural viewer.
+`ElectrostaticProblem` is an immutable collection of physical charges,
+whole connected conductors, and electrical constraints, expressed in SI
+world-space 3D coordinates. It is independent of FEMM and any viewer.
 
-- Models are in SI units and 3D coordinates, independent of FEMM (r,z).
-- Grounded and fixed-net-charge refer to entire connected conductors.
-- Solver declares support and refuses unsupported geometry.
-- M1 ships exact concentric spherical shell reference physics only.
-- FEMM 5 numerical backend, viewer, off-center charges and nested shells are **not yet implemented**.
+```text
+LLM-authored typed Python models
+  -> geometry/symmetry capability validation
+  -> ElectrostaticBackend (analytical or FEMM 5)
+  -> FieldSolution: V(x), E(x), measured/predicted conductor properties
+  -> future procedural visualization (M5)
+```
 
-For a shell of inner radius a and outer radius b, central charge q, net conductor charge Q:
-inner induced charge = -q; outer charge = Q+q; shell potential = (Q+q)/(4*pi*epsilon*b).
-For grounded shell, Q = -q.
-Within the cavity, V(r)=V_shell + q/(4*pi*epsilon)*(1/r-1/a).
-In the metal, V=V_shell. Outside, V=(Q+q)/(4*pi*epsilon*r).
+## Composition
 
-Beware that an axisymmetric FEMM point away from the axis represents a ring of revolution, **not** a point charge in 3D. Numerical source regularization and validation are required before off-center cases.
+- `PointCharge` components may be combined without authoring FEMM commands.
+  Same-position charges combine exactly. FEMM accepts up to 16 distinct active
+  sites only when they lie on a **common line through the shell centre**.
+- Multiple physical `SphericalShell` components can be composed with
+  independent `Grounded()` and `FixedNetCharge(Q)`. FEMM requires concentric
+  nonintersecting shells, up to eight, and all sources in the innermost cavity.
+- For FEMM, each active site becomes a small separately charged spherical
+  numerical core. These are not physical model conductors and are excluded
+  from interior field sampling.
+- One FEMM conductor property controls BOTH faces of each physically connected
+  metal shell. FEMM computes each physical conductor's potential and net charge.
+  Inner/outer integrated surface-charge results are subsequently inferred using
+  Gauss's law; local density is separately estimated from near-surface numerical E.
+- World-space sampling is projected to FEMM's axisymmetric `(r,z)` plane
+  using a deterministic common axis. Non-axisymmetric arrangements are
+  rejected, not silently approximated. The FEMM solver remains optional and
+  is used in headless TCP mode through the FEMM 5 binding.
+- Numerical source core radius, mesh scale and outer computational boundary
+  are tunable for convergence/sensitivity experiments.
 
-At a charged surface, E has a jump; surface samples are deliberately rejected.
+## Independent physics
+
+`ConcentricShellBackend`, `ImageChargeShellBackend`,
+`MultiImageShellBackend`, and `NestedShellBackend` compute independent
+analytical reference solutions in their supported domains.
+
+`NestedShellBackend` solves the coupled radial shell charge equations,
+including mixed independent grounded/fixed-charge conductors, with
+Kelvin images used for fields inside the innermost spherical cavity.
+Unlike axisymmetric FEMM, the reference can superpose charges at arbitrary
+3D locations in that cavity.
+
+## Verification
+
+Each incremental acceptance milestone has pinned real FEMM 5
+numerical tests **separate** from mocked command-contract tests.
+See [numerical evidence](m4b-acceptance.md) for the latest set and its
+limitations. FEMM numerical acceptance uses finite mesh/source-radius
+tolerances; it is not an analytic error bound.
+
+**Not implemented:** a viewer, scene graph, genuinely general 3D FEMM backend,
+eccentric/nonconcentric conductors, sources in gaps or outside shell nests,
+and production-grade isolation/timeouts for untrusted authored problems.

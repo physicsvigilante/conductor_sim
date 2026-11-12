@@ -1,21 +1,20 @@
-# FEMM 5 (femm-qt) setup and live benchmark
+# FEMM 5 setup, supported domains and numerical evidence
 
-**Status: M2a, M2b and M3 accepted in their documented limited domains.** The real FEMM 5
-headless solver was built from the pinned November 1, 2026 release. All **17 real FEMM numerical tests passed** in GitHub Actions (Ubuntu 24.04). See
-[M2a acceptance](m2a-acceptance.md), [M2b acceptance](m2b-acceptance.md), and [M3 acceptance](m3-acceptance.md). The ordinary Python job still
-uses fake clients; only the separate **FEMM 5 real-solver validation** workflow
-provides numerical evidence.
+**Status: M2a, M2b, M3, M4a and M4b accepted within their documented scopes.**
+A dedicated GitHub Actions workflow compiles the pinned real FEMM 5 headless
+solver, runs its electrostatics solver, and compares actual results against
+independent analytical references. The latest M4b execution passed
+**32 real FEMM numerical tests** on Ubuntu 24.04.
 
 ## Installation
 
-Use [FEMM 5](https://femm.info/doku/doku.php?id=download5), not FEMM 4.2.
-FEMM 5 provides a TCP Python binding called `pyfemm-qt`. It has the same
-import name `femm` as FEMM 4.2's incompatible `pyfemm` package. The adapter
-requires the path to **FEMM 5's own `femm.py`** and loads it under a distinct
-private name, avoiding pollution of global `import femm`. It requires the
-`FemmSession` class documented by FEMM 5.
+Use [FEMM 5](https://femm.info/doku/doku.php?id=download5), **not FEMM 4.2**.
+The FEMM 5 `pyfemm-qt` TCP binding shares the Python import name `femm`
+with FEMM 4.2's incompatible PyPI binding. Set `FEMM5_BINDING` to the
+official FEMM 5 `pyfemm/femm.py` file. The adapter privately loads this
+file and checks for the `FemmSession` class.
 
-After installing FEMM 5, in a PowerShell window:
+On Windows PowerShell after installing FEMM 5:
 
 ```powershell
 git clone https://github.com/physicsvigilante/conductor_sim.git
@@ -24,68 +23,84 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[test]"
 $env:FEMM5_BINDING = 'C:\femm-qt\pyfemm\femm.py'
-# Set FEMM_DIR only if FEMM 5 is not in its default installation directory.
+# Set FEMM_DIR if the installed FEMM binaries are not on PATH:
 # $env:FEMM_DIR = 'C:\femm-qt\build\bin'
-python examples/femm5_empty_shell.py
-python -m pytest -m femm5 -v
+python examples/femm5_nested_shells.py
+python -m pytest -m femm5 -vv
 ```
 
-Adjust `FEMM5_BINDING` and `FEMM_DIR` to **actual installed locations**.
-On Linux/macOS use shell environment variables and a FEMM 5 build, as described
-by the upstream [binding instructions](https://femm.info/doku/doku.php?id=pyfemm-qt).
+Adjust installation paths to the actual FEMM 5 locations. On Linux/macOS,
+use upstream's [binding documentation](https://femm.info/doku/doku.php?id=pyfemm-qt).
+The default Python-only CI uses fake FEMM clients; a skipped live test is
+not proof of numerical correctness.
 
-## Explicitly supported physics
+## Numerical solver capabilities
 
-- M2a (accepted): exactly one isolated conducting spherical shell with **fixed net charge** and **no point charges**.
-- M2b (live-validated): the same shell with **Grounded()** or **FixedNetCharge**, plus only centered point charges; finite concentric source core with measured source charge and excluded interior. See [M2b design](m2b.md).
-- M3 (live-validated): one off-centre point-charge location anywhere inside the spherical cavity, transformed to a local FEMM axis, with `Grounded()` or `FixedNetCharge`. The finite charged source sphere approximates an ideal point; see [M3 design](m3.md).
-- Uniform permittivity throughout space. Independent analytical benchmarks use `ConcentricShellBackend` for centred sources and `ImageChargeShellBackend` for one displaced source.
-- The sphere center can be anywhere in world coordinates: compilation translates it
-  to the symmetry origin; field samples transform axisymmetric (E_r,E_z) back to 3D.
-- The outer spherical boundary is assigned a Robin/mixed condition
-  `epsilon*dV/dn + (epsilon/R)*V = 0`, appropriate to a monopolar field.
-  It does not inject the reference potential into the model.
-- Both inner and outer spherical surfaces share **one FEMM conductor property**.
-  The interior metal is meshed as source-free dielectric but held equipotential
-  at its surfaces; this should give zero field there.
+- Zero or more point-charge components *inside the innermost cavity*.
+  FEMM only accepts distinct nonzero-net source locations on one common
+  axis through the shared conductor centre, and uses small independently
+  charged spherical conductors to approximate each ideal point. The core
+  radius is bounded by nearest-source and cavity-wall clearance. Sampling
+  on/inside any source core is rejected.
+- One or more **strictly nonintersecting, concentric** spherical conducting
+  shells with separately assigned `Grounded()` or `FixedNetCharge(Q)`
+  constraints. Each connected metal shell uses ONE FEMM conductor property
+  on both inner and outer physical faces. Up to eight shells and 16 active
+  axial source sites are allowed in the present bounded backend.
+- Field/potential queries in world-space 3D coordinates are transformed to
+  the automatically selected axisymmetric FEMM half-plane and back.
+- `conductor_results` is in authored order, `conductor_by_name` finds
+  an individual shell, and `numerical_sources` reports measured FEMM
+  source-core charge and geometry. `source_radius_m` is retained for
+  single-source compatibility; for multi-site problems use
+  `numerical_sources` instead.
+- `surface_charge_density("inner"|"outer", theta,conductor_name="...")`
+  estimates local sigma using the appropriate **one-sided FEMM electric
+  field** just outside the chosen metal surface. The nearest-surface
+  sampling offset respects the available dielectric gap. For a single
+  physical shell, `conductor_name` can be omitted. For several shells, it
+  is required. Local sigma is not a direct boundary-element extraction.
 
-Total inner/outer surface charges in `ConductorResult` are inferred from Gauss's law using FEMM's measured source and shell total charges, not from a direct surface integral. M3 separately adds `Femm5Solution.surface_charge_density(surface, theta_rad)`: a **near-boundary estimate from FEMM's one-sided field**, compared to the independent image-charge density and numerically integrated in live tests. This is not a direct boundary-element density extraction, and results depend on mesh and sampling offset.
+FEMM directly measures physical conductor **net charge and potential**,
+plus the numerical source-core charges. Reported *integrated*
+inner/outer surface-charge totals are inferred using Gauss's law; they
+are not separately measured integrations.
 
-## Geometry and sampling
+Each finite numerical source core is a **conducting sphere, not an exact point**.
+Off-centre source cores polarize, and near-surface sigma depends on
+mesh and offset. Core-radius, mesh and domain checks assess representative
+sensitivity but are not universal guarantees. Field sampling *exactly*
+on a conducting surface is rejected because it has two one-sided limits.
 
-FEMM is built on a 2D half-plane `(r,z)` and rotates it around the `z` axis.
-Three two-arc semicircles represent shell inner radius `a`, outer radius `b`,
-and computational radius `R`. The symmetry axis is subdivided at each interface.
-The cavity, metal, and exterior regions are meshed with uniform permittivity.
-The FEMM session remains open while the returned solution is used:
+## Independent analytic references
 
-```python
-with Femm5Backend().solve(problem) as solution:
-    potential = solution.potential_at((0.18, 0, 0))
-    field = solution.electric_field_at((0.18, 0, 0))
-```
+- `ConcentricShellBackend`: central charges and one shell.
+- `ImageChargeShellBackend`: one point charge at any position inside
+  one spherical cavity (Kelvin image method).
+- `MultiImageShellBackend`: arbitrary number of charges, even at
+  **non-collinear 3D positions**, inside one spherical cavity.
+- `NestedShellBackend`: nested concentric shells with mixed grounding
+  and fixed-charge constraints; arbitrary 3D point-charge positions in
+  the innermost cavity. It solves the concentric radial equations and
+  uses Kelvin-image superposition in the innermost cavity.
 
-Do not sample the electric field **on** a conductor surface; there is a
-jump between one-sided limits. Samples beyond the computational boundary
-are rejected. To clean up resources predictably, always use the `with` block.
-FEMM is given a fresh high TCP port for each session. **There is not yet a
-hard external timeout** for hung solver processes; one will be needed for
-untrusted/batch problem execution. For now run only trusted, bounded models.
+The analytical backends' general 3D charge arrangement capability does
+**not** extend FEMM's axisymmetric numerical geometry support.
 
-## Acceptance criteria and limitations
+## Acceptance and remaining work
 
-The tests in `tests/test_femm5_adapter.py` validate FEMM command construction,
-version collision avoidance, response handling, unsupported geometry, and
-failure cleanup, without running FEMM. Tests in `tests/test_femm5_live.py`
-require a real FEMM 5 installation and compare potential, field, charge, and
-sensitivity to mesh/domain settings. These tests are skipped by ordinary CI unless `FEMM5_BINDING` is configured.
-In the dedicated FEMM CI job, the real solver and binding are built/present
-and all tests run (no skips). M2a, M2b and M3 acceptance is limited to their
-specified geometries and stated numerical tolerances; it does not establish
-arbitrarily fine mesh convergence or correctness for unsupported arrangements.
+- [M2a numerical acceptance](m2a-acceptance.md)
+- [M2b numerical acceptance](m2b-acceptance.md)
+- [M3 numerical acceptance](m3-acceptance.md)
+- [M4a numerical acceptance](m4a-acceptance.md)
+- [M4b numerical acceptance](m4b-acceptance.md)
+- [Pinned FEMM live CI workflow](../.github/workflows/femm5-live.yml)
 
-M2b validated centred charges and grounding; [M3](m3-acceptance.md) adds a single off-centre charge position and numerical density profiles. The backend **does not** solve multiple distinct charge locations, multiple physical conductors, general planar geometry, or arbitrary 3D. These are rejected rather than silently approximated; near-wall charge positions require additional source-core and mesh validation.
+Unsupported (rather than silently approximated): eccentric or intersecting
+spherical conductors, charges between shells or outside the innermost cavity,
+non-collinear numerical FEMM arrangements, arbitrary engineering 3D,
+general planar geometry, a procedural viewer and scene graph.
 
-Upstream references: [FEMM 5 pyfemm-qt](https://femm.info/doku/doku.php?id=pyfemm-qt),
-[FEMM electrostatics tutorial](https://femm.info/doku/doku.php?id=electrostaticstutorial),
-[FEMM command reference](https://femm.drsz.pl/doku.php/users_manual).
+The session has no built-in hard process timeout for arbitrary untrusted
+problems; GitHub Actions live tests use an external deadline. This engine
+should not yet run uncontrolled LLM-authored models in production.
