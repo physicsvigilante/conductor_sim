@@ -142,4 +142,4 @@ the analytical ideal**; numerical net charge and surface-density profiles
 must be assessed for sensitivity to the outer domain and sampling offset.
 The numeric capability is limited to one active external source above one
 plane; `GroundedPlaneBackend` supports non-collinear source superposition
-analytically. See [M10](m10.md). Acceptance requires actual FEMM CI.
+analytically. See [M10](m10.md). Initial pinned real FEMM CI passed 75 tests; see [M10 acceptance](m10-acceptance.md).

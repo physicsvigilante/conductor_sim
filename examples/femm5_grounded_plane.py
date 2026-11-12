@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from math import hypot
 from pathlib import Path
 
 from conductor_sim import (ConductingPlane, ElectrostaticProblem, Grounded,
@@ -41,9 +42,17 @@ def main():
         exact=GroundedPlaneBackend().solve(problem)
         measured=frame['conductor_results'][0]
         print(label)
-        print('  backend',args.backend,'plane Q (nC)',f"{measured['net_charge_c']*1e9:.6f}",
-              'V (V)',f"{measured['potential_v']:.6f}",
-              'image-charge expected Q (nC)',f"{exact.conductor_results[0].net_charge_c*1e9:.6f}")
+        h=problem.charges[0].position_m[2]
+        R=h*8.0  # matches default Femm5Settings.outer_radius_factor
+        truncated_exact=-1e-9*(1-h/hypot(h,R))
+        print('  backend',args.backend,'plane reported Q (nC)',
+              f"{measured['net_charge_c']*1e9:.6f}",
+              'V (V)',f"{measured['potential_v']:.6f}")
+        if args.backend=='femm':
+            print('  EXACT charge on only the modeled disk (rho <= R), nC:',
+                  f'{truncated_exact*1e9:.6f}', 'R (m):', f'{R:.4f}')
+        print('  ideal infinite-plane total Q (nC)',
+              f'{exact.conductor_results[0].net_charge_c*1e9:.6f}')
         print('  exact force on the source (N)',exact.induced_force_on_charge_n)
     print('export:',args.output)
 

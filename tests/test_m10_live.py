@@ -28,7 +28,12 @@ def test_real_femm_grounded_plane_potential_field_and_induced_charge(q):
         assert got.numerical_source_charge_c==pytest.approx(q,rel=.05)
         conductor=got.conductor_results[0]
         assert conductor.potential_v==pytest.approx(0,abs=.3)
-        assert conductor.net_charge_c==pytest.approx(-q,rel=.28,abs=2e-11)
+        # FEMM measures only the finite plane segment from rho=0 to R.
+        # The exact image-charge density integrates over that disk to
+        # -q*(1-h/sqrt(h*h+R*R)), NOT the infinite-plane total -q.
+        R=got.outer_radius_m
+        exact_finite=-q*(1-.15/sqrt(.15**2+R**2))
+        assert conductor.net_charge_c==pytest.approx(exact_finite,rel=.06,abs=2e-11)
         for pt in ((0,0,.035),(.04,0,.06),(.07,0,.11),(.04,0,.24),(.11,0,.2)):
             assert got.potential_at(pt)==pytest.approx(exact.potential_at(pt),rel=.24,abs=2.5)
             assert got.electric_field_at(pt)==pytest.approx(exact.electric_field_at(pt),
@@ -67,7 +72,9 @@ def test_real_femm_plane_outer_boundary_mesh_and_source_size():
                     Femm5Settings(outer_radius_factor=10,source_radius_fraction=.1,arc_degrees=3)):
         with Femm5PlaneBackend(settings=setting).solve(problem) as sol:
             readings.append(sol.potential_at(point))
-            assert sol.conductor_results[0].net_charge_c==pytest.approx(-1e-9,rel=.35)
+            R=sol.outer_radius_m
+            exact_finite=-1e-9*(1-.15/sqrt(.15**2+R*R))
+            assert sol.conductor_results[0].net_charge_c==pytest.approx(exact_finite,rel=.09)
     expected=exact.potential_at(point)
     assert all(x==pytest.approx(expected,rel=.26,abs=2.5) for x in readings)
     assert max(readings)-min(readings) <= .22*max(abs(expected),2.0)

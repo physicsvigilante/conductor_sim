@@ -231,6 +231,8 @@ python examples/femm5_grounded_plane.py --backend femm --resolution 25 \
     --output output/grounded_plane_femm.html
 ```
 
-**M10c acceptance remains pending the actual solver CI run.** The infinite
-plane is approximated by a *finite numerical domain*; see
-[M10 design and limitations](docs/m10.md).
+**M10c passed its first real FEMM CI run (75 live tests).** The final PR-head regression is the merge gate. The infinite
+plane is approximated by a *finite numerical domain*. FEMM reports charge on
+the truncated modeled plane; this must be compared to the exact finite-disk
+integral, not to the charge on the infinite plane. See
+[M10 design](docs/m10.md) and [acceptance evidence](docs/m10-acceptance.md).

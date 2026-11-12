@@ -49,7 +49,7 @@ M9 — **Accepted for multiple external charges (68 real FEMM tests, including 9
 
 M10 — Candidate next: reusable charged conducting plane and image-charge boundary conditions. Extend external geometry by physics capabilities rather than writing new per-problem scripts. Full 3D conductor geometry, coupled physical spheres and particle dynamics remain separate future areas.
 
-M10 — **Under numerical review:** grounded infinite conducting half-space,
+M10 — **Live numerical validation passed; final PR review pending:** grounded infinite conducting half-space,
 exact multiple-charge mirror-image analytical solution, reusable plane/sphere
 sampling geometry, flat viewer rendering/profiles, and actual axisymmetric
 FEMM 5 approximation for one charge with finite-domain sensitivity checks.
