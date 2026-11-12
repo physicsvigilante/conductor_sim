@@ -207,14 +207,15 @@ force/energy convention and acceptance limits. **M9 passed 68 actual FEMM tests*
 plus independently validated analytical superposition and Chromium review.
 See [M9 acceptance](docs/m9-acceptance.md) for scoped evidence and limitations.
 
-## M10 candidate: a charge above an infinite grounded conducting plane
+## M10 accepted baseline: a charge above an infinite grounded conducting plane
 
 `ConductingPlane(point_m, normal, Grounded())` defines an infinite metal
 half-space in the same typed physical problem model. The independent exact
 `GroundedPlaneBackend` supports arbitrary 3D charge placements above one plane;
-`Femm5PlaneBackend` supports one source numerically using a finite axisymmetric
-upper-half-space FEMM geometry. Invalid multi-source numerical configurations
-are rejected, not silently approximated or replaced by analytic results.
+At M10, `Femm5PlaneBackend` supported one source numerically using a finite
+axisymmetric upper-half-space geometry. M11 extends it to multiple charge sites
+sharing the **same plane-normal axis**. Non-axisymmetric numerical configurations
+are still rejected, not silently approximated or replaced by analytic results.
 
 The existing M5 viewer now renders a true planar boundary and a signed-distance
 surface-charge profile, with no scene graph. Try an **analytical offline preview**:
@@ -231,7 +232,7 @@ python examples/femm5_grounded_plane.py --backend femm --resolution 25 \
     --output output/grounded_plane_femm.html
 ```
 
-**M10c passed its first real FEMM CI run (75 live tests).** The final PR-head regression is the merge gate. The infinite
+**M10c was accepted with 75 real FEMM 5 tests.** The infinite
 plane is approximated by a *finite numerical domain*. FEMM reports charge on
 the truncated modeled plane; this must be compared to the exact finite-disk
 integral, not to the charge on the infinite plane. See
@@ -255,5 +256,6 @@ python examples/femm5_multi_plane.py --backend femm --output output/m11-femm.htm
 The second command requires the pinned FEMM 5 binding. Each output includes
 three stored equilibria and the plane's spatial density profile. A real FEMM
 conductor integrates charge on a **finite disk**, not the ideal infinite plane: see
-[physical/numerical distinctions](docs/m11.md). This does not expand numerical
+[physical/numerical distinctions](docs/m11.md) and [M11 numerical acceptance](docs/m11-acceptance.md)
+(83 real FEMM 5 tests, zero skipped). This does not expand numerical
 capability to arbitrary 3D, parallel plates, or browser-time solving.
