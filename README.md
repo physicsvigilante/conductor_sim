@@ -3,11 +3,10 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1, M2a, and M2b accepted for their explicitly limited domains.**
+**Status: M1, M2a, M2b, and M3 accepted for their explicitly limited domains.**
 The analytical reference solves one spherical shell with charges at its center. The
 M2a FEMM 5 backend was validated for an empty isolated charged shell.
-M2b adds **centered point charge(s)** and **grounding**, with all nine real FEMM 5 numerical tests passing.
-Off-center and arbitrary 3D geometries are not implemented.
+M2b adds **centered point charge(s)** and **grounding**. M3 adds **a single off-centre source location** inside the spherical cavity, with rotation of the symmetry axis automatically handled by the backend. Multiple distinct source positions, non-spherical conductors, and arbitrary 3D geometries are not implemented.
 
 ## Quick start
 
@@ -97,3 +96,9 @@ For M2b source, grounded and isolated-shell examples see
 [examples/femm5_centered_charge.py](examples/femm5_centered_charge.py).
 **Real FEMM 5 numerical acceptance passed:** nine live tests (no skips).
 See [M2b acceptance evidence](docs/m2b-acceptance.md).
+
+## M3: live-validated off-centre charge induction
+
+The **accepted M3 numerical backend** adds an axisymmetric off-center point-charge approximation: a finite charged sphere positioned along the automatically chosen symmetry axis. This supports a point charge at any orientation inside the spherical cavity, with grounded or fixed-net-charge shell constraints, while rejecting multiple distinct charge locations. `ImageChargeShellBackend` provides an **independent exact Kelvin image-charge reference** for potential, field and induced surface-charge density.
+
+Numerical `solution.surface_charge_density("inner", theta_rad)` estimates the **local induced surface density from FEMM's one-sided near-surface electric field**, not from an analytical formula or direct boundary-element extraction. The artificial source size and mesh must be sensitivity-checked. See [M3 design](docs/m3.md) and [real FEMM acceptance evidence](docs/m3-acceptance.md). **17 live FEMM tests passed, without skips**, including eight new off-centre cases and nine retained M2 regressions.

@@ -1,4 +1,4 @@
-"""FEMM 5 electrostatics adapter: one spherical shell and centered charges.
+"""FEMM 5 electrostatics adapter: one sphere and one localized axisymmetric source.
 
 This is a deliberately limited, axisymmetric numerical vertical slice.  It produces a real
 FEMM 5 axisymmetric solve, *not* a disguised analytical solution.  FEMM is an
@@ -12,18 +12,56 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib import util
-from math import hypot, isclose, isfinite, sqrt
+from math import cos, hypot, isclose, isfinite, pi, sin, sqrt
 from os import environ
 from pathlib import Path
 from socket import AF_INET, SOCK_STREAM, socket
 from tempfile import TemporaryDirectory
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from .model import EPSILON_0, ElectrostaticProblem, FixedNetCharge, Grounded, SphericalShell, Vector3
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 
 _SOURCE_CORE = "__conductor_sim_source_core"  # purely numerical, NOT a user conductor
+
+
+def _dot(a: Vector3, b: Vector3) -> float:
+    return sum(x*y for x, y in zip(a,b))
+
+
+def _norm(v: Vector3) -> float:
+    return sqrt(_dot(v,v))
+
+
+def _difference(a: Vector3, b: Vector3) -> Vector3:
+    return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+
+
+def _source_frame(problem: ElectrostaticProblem) -> tuple[Vector3, float]:
+    """Rotate local +z through the center-to-charge displacement.
+
+    Every source must occupy the same position; if they do, their total
+    charge can be represented by a single small off-center sphere. This is a
+    symmetry detection/compiler decision, not a restriction on world axes.
+    """
+    shell = problem.conductors[0]
+    if not problem.charges:
+        return (0.0, 0.0, 1.0), 0.0
+    delta = _difference(problem.charges[0].position_m, shell.center_m)
+    distance = _norm(delta)
+    if distance == 0:
+        return (0.0, 0.0, 1.0), 0.0
+    return (tuple(v/distance for v in delta), distance)
+
+
+def _perpendicular(axis: Vector3) -> Vector3:
+    """Deterministic unit vector in the plane perpendicular to the axis."""
+    reference = (1.0, 0.0, 0.0) if abs(axis[0]) < 0.9 else (0.0, 1.0, 0.0)
+    projection = _dot(reference, axis)
+    out = tuple(reference[i] - projection*axis[i] for i in range(3))
+    length = _norm(out)
+    return tuple(v/length for v in out)
 
 
 class Femm5Unavailable(RuntimeError):
@@ -110,7 +148,7 @@ class Femm5Settings:
     arc_degrees: float = 5.0
     mesh_scale: float = 1.0
     solver_precision: float = 1e-9
-    source_radius_fraction: float = 0.10  # radius / cavity radius, centered-source regularization
+    source_radius_fraction: float = 0.10  # radius / cavity radius, numerical source regularization
 
     def __post_init__(self) -> None:
         if not (isfinite(self.outer_radius_factor) and self.outer_radius_factor >= 3):
@@ -125,22 +163,23 @@ class Femm5Settings:
             raise ValueError("source_radius_fraction must lie in [0.02, 0.2]")
 
 
-def _label_air(client: Any, x: float, size: float) -> None:
-    client.ei_addblocklabel(x, 0)
-    client.ei_selectlabel(x, 0)
+def _label_air(client: Any, x: float, size: float, z: float = 0.0) -> None:
+    client.ei_addblocklabel(x, z)
+    client.ei_selectlabel(x, z)
     client.ei_setblockprop("Vacuum", 0, size, 0)
     client.ei_clearselected()
 
 
-def _half_circle(client: Any, radius: float, degrees: float) -> None:
-    """Two quarter-arcs spanning the right half-plane, r >= 0."""
-    client.ei_addarc(0, -radius, radius, 0, 90, degrees)
-    client.ei_addarc(radius, 0, 0, radius, 90, degrees)
+def _half_circle(client: Any, radius: float, degrees: float, z_center: float = 0.0) -> None:
+    """Two quarter-arcs representing a 3D sphere on the r >= 0 half-plane."""
+    client.ei_addarc(0, z_center-radius, radius, z_center, 90, degrees)
+    client.ei_addarc(radius, z_center, 0, z_center+radius, 90, degrees)
 
 
-def _mark_arcs(client: Any, radius: float, degrees: float, boundary: str, conductor: str) -> None:
+def _mark_arcs(client: Any, radius: float, degrees: float, boundary: str,
+               conductor: str, z_center: float = 0.0) -> None:
     midpoint = radius / sqrt(2)
-    for z in (-midpoint, midpoint):
+    for z in (z_center-midpoint, z_center+midpoint):
         client.ei_selectarcsegment(midpoint, z)
         client.ei_setarcsegmentprop(degrees, boundary, 0, 0, conductor)
         client.ei_clearselected()
@@ -148,15 +187,15 @@ def _mark_arcs(client: Any, radius: float, degrees: float, boundary: str, conduc
 
 def _compile_shell(
     client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
-) -> tuple[float, float | None]:
+) -> tuple[float, float | None, Vector3, float]:
     """Emit one axisymmetric shell, with optional *finite spherical source core*.
 
-    A centered ideal point charge is represented for the FEMM solve by a tiny
-    concentric conductor carrying the source's *total fixed charge*. This is
-    NOT a literal off-axis 2D FEMM point property, which would revolve into
-    a ring. For spherical symmetry the field and potential at radii greater
-    than the source core match the ideal centered point charge; sampling
-    inside the numerical core is rejected.
+    A point charge is represented by a small charged *sphere* centered on
+    the symmetry axis. For off-center positions the true point-charge limit
+    requires source-core radius convergence: an off-center finite conductor
+    polarizes in the shell's field, unlike an ideal point source. The FEMM
+    source is NOT a point placed at nonzero cylindrical radius (a ring).
+    Field and potential samples inside the artificial source are rejected.
 
     Physical shell inner and outer surfaces use one connected conductor
     property. The source core is a separate, artificial FEMM conductor and
@@ -167,7 +206,11 @@ def _compile_shell(
     R = b * settings.outer_radius_factor
     d = settings.arc_degrees
     q = sum(charge.charge_c for charge in problem.charges)
-    source_radius = a * settings.source_radius_fraction if q != 0.0 else None
+    symmetry_axis, source_offset = _source_frame(problem)
+    # Reserve clearance near the inner shell, and ensure even the closest
+    # part of the numerical source is separated from the conductor wall.
+    source_radius = (min(a * settings.source_radius_fraction, (a-source_offset)/4)
+                     if q != 0.0 else None)
 
     client.newdocument(1)  # FEMM electrostatics
     client.ei_probdef("meters", "axi", settings.solver_precision)
@@ -185,31 +228,41 @@ def _compile_shell(
     # because outside a grounded spherical shell the solution is V=0.
     client.ei_addboundprop("open_robin", 0, 0, problem.permittivity_f_per_m / R, 0, 1)
 
-    radii = ((source_radius,) if source_radius is not None else ()) + (a, b, R)
+    # All three physical/outer boundaries share the shell-centered axis;
+    # the numerical source's arcs are translated by its axial displacement.
+    radii = (a, b, R)
     for radius in radii:
         for x, z in ((0, -radius), (radius, 0), (0, radius)):
             client.ei_addnode(x, z)
         _half_circle(client, radius, d)
-
-    axis_heights = sorted({z for radius in radii for z in (-radius, radius)})
+    axis_heights = {z for radius in radii for z in (-radius, radius)}
+    if source_radius is not None:
+        for x, z in ((0, source_offset-source_radius),
+                     (source_radius, source_offset), (0, source_offset+source_radius)):
+            client.ei_addnode(x, z)
+        _half_circle(client, source_radius, d, source_offset)
+        axis_heights.update((source_offset-source_radius, source_offset+source_radius))
+    axis_heights = sorted(axis_heights)
     for z0, z1 in zip(axis_heights, axis_heights[1:]):
         client.ei_addsegment(0, z0, 0, z1)
 
     for radius in (a, b):
         _mark_arcs(client, radius, d, "<None>", shell.name)
     if source_radius is not None:
-        _mark_arcs(client, source_radius, d, "<None>", _SOURCE_CORE)
+        _mark_arcs(client, source_radius, d, "<None>", _SOURCE_CORE, source_offset)
     _mark_arcs(client, R, d, "open_robin", "<None>")
 
     if source_radius is not None:
-        _label_air(client, source_radius / 2, source_radius / 6 * settings.mesh_scale)
-        _label_air(client, (source_radius + a) / 2,
-                   min((a - source_radius) / 8, a / 8) * settings.mesh_scale)
+        _label_air(client, source_radius / 2, source_radius / 6 * settings.mesh_scale,
+                   source_offset)
+        cavity_label_r = (source_offset + source_radius + a) / 2
+        _label_air(client, cavity_label_r,
+                   min((a - source_offset - source_radius) / 8, a / 8) * settings.mesh_scale)
     else:
         _label_air(client, a / 2, (a / 8) * settings.mesh_scale)
     _label_air(client, (a + b) / 2, min((b - a) / 2, b / 12) * settings.mesh_scale)
     _label_air(client, (b + R) / 2, (b / 4) * settings.mesh_scale)
-    return R, source_radius
+    return R, source_radius, symmetry_axis, source_offset
 
 
 def _as_finite_values(data: Any, size: int, description: str) -> tuple[float, ...]:
@@ -241,6 +294,9 @@ class Femm5Solution:
     _workspace: TemporaryDirectory[str] = field(repr=False)
     source_radius_m: float | None = None
     numerical_source_charge_c: float | None = None
+    symmetry_axis: Vector3 = (0.0, 0.0, 1.0)
+    source_displacement_m: float = 0.0
+    permittivity_f_per_m: float = EPSILON_0
     _closed: bool = field(default=False, init=False, repr=False)
 
     def __enter__(self) -> Femm5Solution:
@@ -267,49 +323,97 @@ class Femm5Solution:
             except Exception:
                 pass
 
-    def _sample(self, point_m: Vector3) -> tuple[float, ...]:
+    def _coordinate_data(self, point_m: Vector3) -> tuple[float, float, Vector3, Vector3]:
         if self._closed:
             raise RuntimeError("FEMM solution has been closed")
         if len(point_m) != 3 or any(not isfinite(v) for v in point_m):
             raise ValueError("sample point must be three finite coordinates")
-        cx, cy, cz = self.shell.center_m
-        dx, dy, dz = point_m[0] - cx, point_m[1] - cy, point_m[2] - cz
-        r = hypot(dx, dy)
-        distance = hypot(r, dz)
-        if distance >= self.outer_radius_m:
+        delta = _difference(point_m, self.shell.center_m)
+        z = _dot(delta, self.symmetry_axis)
+        rho = tuple(delta[i]-z*self.symmetry_axis[i] for i in range(3))
+        r = _norm(rho)
+        if _norm(delta) >= self.outer_radius_m:
             raise UnsupportedProblem("sample point lies outside FEMM's finite computational domain")
-        if self.source_radius_m is not None and distance <= self.source_radius_m:
-            raise UnsupportedProblem("sample point lies in the regularized source core; "
-                                     "only the ideal-charge exterior is represented")
-        values = self._client.eo_getpointvalues(r, dz)
+        if self.source_radius_m is not None and hypot(r, z-self.source_displacement_m) <= self.source_radius_m:
+            raise UnsupportedProblem("sample lies in/on the regularized source core; "
+                                     "only the point-charge exterior is represented")
+        return r, z, delta, rho
+
+    def _sample(self, point_m: Vector3) -> tuple[float, ...]:
+        r, z, _, _ = self._coordinate_data(point_m)
+        values = self._client.eo_getpointvalues(r, z)
         return _as_finite_values(values, 8, "electrostatic point values")
 
     def potential_at(self, point_m: Vector3) -> float:
         return self._sample(point_m)[0]
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
-        cx, cy, cz = self.shell.center_m
-        dx, dy, dz = point_m[0] - cx, point_m[1] - cy, point_m[2] - cz
-        r = hypot(dx, dy)
-        distance = hypot(r, dz)
-        surfaces = (self.shell.inner_radius_m, self.shell.outer_radius_m)
+        if len(point_m) != 3 or any(not isfinite(v) for v in point_m):
+            raise ValueError("sample point must be three finite coordinates")
+        delta_pre = _difference(point_m, self.shell.center_m)
+        # A one-sided jump is a more precise failure than core exclusion.
         if self.source_radius_m is not None:
-            surfaces += (self.source_radius_m,)
-        if any(isclose(distance, radius, rel_tol=1e-12) for radius in surfaces):
-            raise SingularField("electric field has a one-sided jump at the conductor surface")
-        _, _, _, er, ez, _, _, _ = self._sample(point_m)
-        if r == 0:
-            return (0.0, 0.0, ez)
-        return (er * dx / r, er * dy / r, ez)
+            dz = _dot(delta_pre, self.symmetry_axis) - self.source_displacement_m
+            transverse = tuple(delta_pre[i] - _dot(delta_pre, self.symmetry_axis)*self.symmetry_axis[i]
+                               for i in range(3))
+            if isclose(hypot(_norm(transverse), dz), self.source_radius_m, rel_tol=1e-12):
+                raise SingularField("field has a jump at source-core surface")
+        r, z, delta, rho = self._coordinate_data(point_m)
+        distance = _norm(delta)
+        if any(isclose(distance, radius, rel_tol=1e-12) for radius in
+               (self.shell.inner_radius_m, self.shell.outer_radius_m)):
+            raise SingularField("field has distinct one-sided conductor surface limits")
+        if self.source_radius_m is not None and isclose(
+                hypot(r, z-self.source_displacement_m), self.source_radius_m, rel_tol=1e-12):
+            raise SingularField("field is discontinuous at source-core surface")
+        values = _as_finite_values(self._client.eo_getpointvalues(r, z), 8,
+                                   "electrostatic point values")
+        er, ez = values[3], values[4]
+        return tuple(ez*self.symmetry_axis[i] + (er*rho[i]/r if r else 0.0)
+                     for i in range(3))
+
+    def surface_charge_density(
+        self, surface: Literal["inner", "outer"], theta_rad: float,
+        *, offset_fraction: float = 0.02,
+    ) -> float:
+        """Estimate sigma from FEMM one-sided E close to the shell surface.
+
+        The metal outward normal points *toward cavity* on the inner face.
+        theta is relative to the positive center-to-charge symmetry axis.
+        This is a near-boundary field estimate, not a direct FEMM surface-
+        element density integral; inspect offset/mesh sensitivity before use.
+        """
+        if surface not in ("inner", "outer"):
+            raise ValueError("surface must be 'inner' or 'outer'")
+        if not isfinite(theta_rad) or not 0 <= theta_rad <= pi:
+            raise ValueError("theta_rad must be in [0, pi]")
+        if not isfinite(offset_fraction) or not 0 < offset_fraction <= 0.10:
+            raise ValueError("offset_fraction must be in (0, 0.10]")
+        a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
+        if surface == "inner":
+            gap = min(a * offset_fraction,
+                      (a-self.source_displacement_m-(self.source_radius_m or 0)) / 5)
+            radius = a-gap
+            normal_sign = -1
+        else:
+            radius = b*(1+offset_fraction)
+            normal_sign = +1
+        radial = _perpendicular(self.symmetry_axis)
+        normal = tuple(cos(theta_rad)*self.symmetry_axis[i] +
+                       sin(theta_rad)*radial[i] for i in range(3))
+        point = tuple(self.shell.center_m[i] + radius*normal[i] for i in range(3))
+        field = self.electric_field_at(point)
+        return normal_sign*self.permittivity_f_per_m * _dot(field, normal)
 
 
 class Femm5Backend:
-    """FEMM 5 backend for one spherical shell and centered point charges.
+    """FEMM 5 backend for one sphere and a single point-source location.
 
-    Grounded or fixed-shell-charge constraints are supported. Any nonzero
-    centered point charges are represented by *one* concentric numerical
-    source core. General 3D/off-center charges are rejected, not approximated.
-    Real FEMM numerical accuracy is checked separately from fake-client tests.
+    Grounded or fixed-net-charge shell. Any number of point charges at *the
+    same location* are merged into one charged source core. An arbitrary
+    source direction is rotated into the local FEMM axis (and rotated back
+    on field sampling). Multiple different source locations are not yet
+    supported, even if collinear; they need separate source geometries.
     """
 
     def __init__(
@@ -330,7 +434,9 @@ class Femm5Backend:
             isinstance(shell, SphericalShell)
             and isinstance(shell.constraint, (Grounded, FixedNetCharge))
             and shell.name != _SOURCE_CORE
-            and all(charge.position_m == shell.center_m for charge in problem.charges)
+            and len({charge.position_m for charge in problem.charges}) <= 1
+            and all(_norm(_difference(charge.position_m, shell.center_m)) < shell.inner_radius_m
+                    for charge in problem.charges)
             and isfinite(sum(charge.charge_c for charge in problem.charges))
         )
 
@@ -338,13 +444,16 @@ class Femm5Backend:
         if not self.supports(problem):
             raise UnsupportedProblem(
                 "FEMM 5 supports one spherical shell with Grounded or FixedNetCharge "
-                "and only centered point charges (no arbitrary 3D/off-center charges)"
+                "and one source position strictly inside the cavity; "
+                "multiple independent source positions are not yet supported"
             )
         session = self._session_factory()
         workspace = TemporaryDirectory(prefix="conductor_sim_femm5_")
         try:
             client = session.open()
-            radius, source_radius = _compile_shell(client, problem, self.settings)
+            radius, source_radius, axis, displacement = _compile_shell(
+                client, problem, self.settings
+            )
             client.ei_saveas((Path(workspace.name) / "charged_shell.fee").as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
@@ -370,6 +479,8 @@ class Femm5Backend:
                 conductor_results=(conductor,), _session=session, _client=client,
                 _workspace=workspace, source_radius_m=source_radius,
                 numerical_source_charge_c=source_charge,
+                symmetry_axis=axis, source_displacement_m=displacement,
+                permittivity_f_per_m=problem.permittivity_f_per_m,
             )
         except Exception as exc:
             try:

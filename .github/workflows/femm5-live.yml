@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  femm5-empty-shell:
+  femm5-conductor-physics:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -63,3 +63,4 @@ jobs:
           timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py -vv -rA -s
           python examples/femm5_empty_shell.py
           python examples/femm5_centered_charge.py
+          timeout --signal=TERM --kill-after=15s 120s python examples/femm5_offcenter.py
