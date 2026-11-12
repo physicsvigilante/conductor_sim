@@ -27,7 +27,7 @@ def context_for_solution(problem, solution):
     masks = []
     conductor_method = 'Supplied solver conductor properties; provenance not specified.'
     if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution)):
-        conductor_method = ('FEMM net charge and voltage; ground sphere outer charge is measured.'
+        conductor_method = ('FEMM net charge and voltage; solid sphere outer charge is measured.'
                             if isinstance(solution,Femm5ExternalSphereSolution) else
                             'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.')
         radius = solution.outer_radius_m
@@ -39,8 +39,11 @@ def context_for_solution(problem, solution):
             cosine = dot(normal,solution.symmetry_axis)/hypot(*normal)
             return solution.surface_charge_density(face,acos(max(-1.,min(1.,cosine))),conductor_name=name)
         method = 'FEMM one-sided near-surface E estimate (mesh/offset dependent)'
-        notes += ['FEMM finite charged source spheres approximate ideal points; their interiors are excluded.',
-                  'Conductor surface-charge totals are Gauss-law inferences, not local-density integrals.']
+        notes += ['FEMM finite charged source spheres approximate ideal points; their interiors are excluded.']
+        if isinstance(solution, Femm5ExternalSphereSolution):
+            notes.append('Solid sphere total/outer charge is FEMM-measured; local density uses near-surface E.')
+        else:
+            notes.append('Shell inner/outer surface-charge totals are Gauss-law inferences, not local-density integrals.')
     else:
         sites = {}
         for source in problem.charges:

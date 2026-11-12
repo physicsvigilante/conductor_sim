@@ -108,6 +108,11 @@ class ExternalGroundedSphereSolution:
         return tuple(multiplier*x for x in v)
 
     @property
+    def force_on_charge_n(self) -> Vector3:
+        """Total physical force on the charge due to the conducting sphere."""
+        return self.induced_force_on_charge_n
+
+    @property
     def interaction_energy_j(self) -> float:
         """Induced-charge interaction energy, with its physical factor 1/2."""
         return self._k*self.source.charge_c*self.image_charge_c/(2*_norm(
