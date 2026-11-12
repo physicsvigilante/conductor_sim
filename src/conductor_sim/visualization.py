@@ -112,6 +112,7 @@ class SamplingContext:
     density_at: Density | None = None
     density_method: str = 'unavailable'
     notes: tuple[str, ...] = ()
+    conductor_results_method: str = 'Supplied solver conductor properties; provenance not specified.'
 
     def region(self, point):
         if self.domain_radius_m is not None and hypot(*sub(point, self.domain_center_m)) >= self.domain_radius_m:
@@ -357,7 +358,8 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             'conductor_results':[asdict(c) for c in context.solution.conductor_results],
             'source_masks':[asdict(m) for m in context.masks],
             'domain_radius_m':context.domain_radius_m,'display_clip_v':clip,
-            'notes':list(context.notes),'density_method':context.density_method}
+            'notes':list(context.notes),'density_method':context.density_method,
+            'conductor_results_method':context.conductor_results_method}
 
 
 def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, plane=None, resolution=61,

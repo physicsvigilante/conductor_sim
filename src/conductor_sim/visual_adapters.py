@@ -23,7 +23,9 @@ def context_for_solution(problem, solution):
              'Profiles follow a great circle, not an automatically integrated spherical charge.',
              'The colour scale is shared across frames; display clipping does not alter exported values.']
     masks = []
+    conductor_method = 'Supplied solver conductor properties; provenance not specified.'
     if isinstance(solution, Femm5Solution):
+        conductor_method = 'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.'
         radius = solution.outer_radius_m
         center = solution.shell.center_m
         masks = [SourceMask(s.position_m,s.radius_m,'numerical-core') for s in solution.numerical_sources]
@@ -43,6 +45,8 @@ def context_for_solution(problem, solution):
             if fsum(charges) != 0:
                 masks.append(SourceMask(point,a*.015,'display-exclusion'))
         known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,ImageChargeShellSolution,ConcentricShellSolution))
+        if known:
+            conductor_method = 'Analytical reference conductor properties.'
         notes += [('Analytical reference samples, not FEMM output.' if known else
                    'Custom solver samples; configure SamplingContext for its numerical domain and exclusions.'),
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
@@ -67,4 +71,5 @@ def context_for_solution(problem, solution):
                 r = solution.shell.inner_radius_m if face == 'inner' else solution.shell.outer_radius_m
                 return q/(4*pi*r*r)
             method = 'uniform analytical density from conductor surface total'
-    return SamplingContext(problem,solution,type(solution).__name__,tuple(masks),center,radius,density,method,tuple(notes))
+    return SamplingContext(problem,solution,type(solution).__name__,tuple(masks),center,radius,density,method,tuple(notes),
+                           conductor_results_method=conductor_method)

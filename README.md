@@ -8,10 +8,10 @@ spherical shells, with point charges in the innermost cavity. FEMM supports
 collinear sources on a common axis through the shell centre; independent exact
 analytical backends also support non-collinear cavity sources.
 
-**M5 candidate:** an offline procedural viewer with potential maps,
+**M5 visualization:** an offline procedural viewer with potential maps,
 equipotentials, directed field lines, conductor results, surface-density profiles,
 and stored parameter sweeps. Review and live numerical/browser evidence are
-recorded in [docs/m5.md](docs/m5.md). No scene graph has been introduced.
+recorded in [docs/m5.md](docs/m5.md) and [the acceptance scope](docs/m5-acceptance.md). No scene graph has been introduced.
 
 ## First visual preview (no FEMM installation required)
 
