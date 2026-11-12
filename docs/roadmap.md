@@ -1,10 +1,26 @@
-# Roadmap
+# Milestones
 
-1. M1: reusable physical objects and analytical concentric-shell reference; tests.
-2. M2: real FEMM 5 adapter, validated 2D/axisymmetric geometry, conductor charge/potential boundary conditions, mesh convergence.
-3. M3: off-center charges in axisymmetric spherical shells; source regularization and Gauss-law checks.
-4. M4: multiple nested and compatible conductors; robust composition and capability checks.
-5. M5: independent field/equipotential/induced-charge viewer with sliders and parameter sweeps.
-6. M6: LLM authoring over reusable components.
+M1 — **Complete, GitHub CI green:** solver-independent immutable models,
+analytical solution for a centered charge in one conducting shell, tests.
 
-Never claim FEMM tests passed without running FEMM. General 3D problems require another backend.
+M2a — **Accepted for empty-shell scope; real FEMM 5 Linux benchmark passed:** FEMM 5 binding/session isolation,
+axisymmetric empty isolated charged shell, fixed conductor charge, Robin
+outer boundary, numerical field sampling and live comparative tests. See
+[`femm5.md`](femm5.md) for setup and [M2a acceptance](m2a-acceptance.md)
+for run evidence. Normal Python CI uses fake command recorders; the dedicated
+FEMM workflow builds and executes a real solver.
+
+M2b — Grounded empty conductor and centered point-charge source; regularization
+and convergence checks before accepting charge-specific numerical accuracy.
+
+M3 — Off-center axisymmetric point charge; nontrivial induced charge density
+and Gauss-law/analytical validation, with conductor/cavity surface identity.
+
+M4 — Multiple compatible conductors and geometry composability with explicit
+capability checks.
+
+M5 — Procedural visualization separate from FEMM (potential maps, field lines,
+surface charge density, parameter sweeps).
+
+M6 — LLM authoring in terms of physical components; backend selection and
+observability without embedding FEMM commands in authored problems.
