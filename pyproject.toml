@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Composable electrostatic problems and reference solutions for JEE conductor simulations"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{name = "conductor_sim contributors"}]
 dependencies = []
 
 [project.optional-dependencies]
@@ -19,3 +20,4 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = ["femm5: requires a real local FEMM 5 application and its TCP Python binding"]
