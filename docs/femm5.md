@@ -1,10 +1,10 @@
 # FEMM 5 setup, supported domains and numerical evidence
 
-**Status: M2–M7 accepted within documented domains; M8 external fixed-Q sphere accepted in its bounded domain.**
+**Status: M2–M9 accepted within documented geometries and tested tolerances.**
 A dedicated GitHub Actions workflow compiles the pinned real FEMM 5 headless
 solver, runs its electrostatics solver, and compares actual results against
 independent analytical references. The accepted M7 run passed **52 real FEMM numerical tests** on Ubuntu 24.04.
-M8 passed **59 real FEMM 5 tests**, including all 52 earlier regressions and 7 new isolated-sphere cases. See [M8 acceptance](m8-acceptance.md).
+M8 passed 59 tests; M9 expanded the real live numerical suite to **68 tests**, including 9 multi-source external cases. See [M8 acceptance](m8-acceptance.md) and [M9 acceptance](m9-acceptance.md).
 
 ## Installation
 
@@ -72,15 +72,15 @@ mesh and offset. Core-radius, mesh and domain checks assess representative
 sensitivity but are not universal guarantees. Field sampling *exactly*
 on a conducting surface is rejected because it has two one-sided limits.
 
-## Exterior solid-sphere (M7 and M8)
+## Exterior solid-sphere (M7, M8 and M9)
 
 The separate `Femm5ExternalSphereBackend` uses the same headless numerical
 session and a genuine `SolidSphere` physical conductor, distinct from the
-interior-shell compiler. It supports exactly one nonzero source strictly
-outside one solid sphere, with either `Grounded()` (M7 accepted) or
-`FixedNetCharge(Q)` (M8 live-validated). The real sphere is represented as a
-single fixed-voltage (grounded) or fixed-total-charge (isolated) conductor;
-the external point source becomes a small finite fixed-Q conductor on the
+interior-shell compiler. It supports one or more active external point-charge sites with either
+`Grounded()` or `FixedNetCharge(Q)`. **FEMM requires all sites collinear with
+the sphere centre**, accepting up to 16 distinct grouped sites. The physical
+sphere is one fixed-voltage (grounded) or fixed-total-charge (isolated) FEMM
+conductor; each external source is a separate small fixed-Q conductor on the
 symmetry axis. In the isolated case FEMM must **solve the metal potential**,
 not force it to zero. The outer Robin boundary is approximate for multipoles;
 source-core and computational-domain sensitivity checks remain necessary.
@@ -97,8 +97,12 @@ force and interaction energy. **Force is not measured by FEMM here.**
 - `MultiImageShellBackend`: arbitrary number of charges, even at
   **non-collinear 3D positions**, inside one spherical cavity.
 - `ExternalGroundedSphereBackend`: one external charge and grounded solid sphere (M7).
-- `ExternalIsolatedSphereBackend` and `ExternalSphereBackend`: fixed-Q or
-  grounded external solid sphere (M8 analytic reference).
+- `ExternalIsolatedSphereBackend`: one external charge and fixed-Q solid sphere (M8).
+- `ExternalMultiSphereBackend`: multiple external charges anywhere in 3D outside
+  a grounded or fixed-Q solid sphere; exact Kelvin image superposition, induced
+  density, per-source forces and interaction energy (M9).
+- `ExternalSphereBackend`: exact dispatch between the M7/M8 single-charge and
+  M9 multi-charge analytical references.
 - `NestedShellBackend`: nested concentric shells with mixed grounding
   and fixed-charge constraints; arbitrary 3D point-charge positions in
   the innermost cavity. It solves the concentric radial equations and
@@ -114,11 +118,14 @@ The analytical backends' general 3D charge arrangement capability does
 - [M3 numerical acceptance](m3-acceptance.md)
 - [M4a numerical acceptance](m4a-acceptance.md)
 - [M4b numerical acceptance](m4b-acceptance.md)
+- [M7 acceptance](m7-acceptance.md)
+- [M8 acceptance](m8-acceptance.md)
+- [M9 acceptance](m9-acceptance.md)
 - [Pinned FEMM live CI workflow](../.github/workflows/femm5-live.yml)
 
 Unsupported (rather than silently approximated): eccentric or intersecting
 spherical conductors, charges between shells or outside the innermost cavity,
-non-collinear numerical FEMM arrangements, multiple external source sites,
+non-collinear numerical FEMM arrangements (including multiple external sites),
 arbitrary engineering 3D, general planar geometry and a scene graph.
 The offline procedural viewer is already supported as M5.
 

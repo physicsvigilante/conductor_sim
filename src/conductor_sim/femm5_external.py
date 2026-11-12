@@ -7,7 +7,7 @@ it, then returns values measured by FEMM's own electrostatic postprocessor.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import cos, hypot, isclose, isfinite, pi, sin, sqrt
+from math import cos, fsum, hypot, isclose, isfinite, pi, sin, sqrt
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Literal
@@ -20,6 +20,7 @@ from .femm5 import (
 from .model import EPSILON_0, ElectrostaticProblem, Grounded, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 from .external_isolated import ExternalSphereBackend
+from .external_multi import active_external_sites, difference as _multi_difference, norm as _multi_norm
 
 _SOURCE_NAME = '__conductor_sim_external_source'
 
@@ -28,49 +29,85 @@ def _difference(a: Vector3, b: Vector3) -> Vector3:
     return tuple(a[i]-b[i] for i in range(3))
 
 
+@dataclass(frozen=True, slots=True)
+class _ExternalSourceCore:
+    """Prescribed finite source geometry BEFORE FEMM, never a measured result."""
+    name: str
+    position_m: Vector3
+    axial_offset_m: float
+    radius_m: float
+    prescribed_charge_c: float
+
+
+def _sites_with_axis(problem: ElectrostaticProblem):
+    """Return deterministic common axis and axial coordinates of grouped sites.
+
+    Must only be called after supports() validates the arrangement.
+    """
+    sphere=problem.conductors[0]
+    sites=active_external_sites(problem)
+    far=max(sites,key=lambda p:(_multi_norm(_multi_difference(p.position_m,sphere.center_m)),
+                                p.position_m))
+    vector=_multi_difference(far.position_m,sphere.center_m)
+    length=_multi_norm(vector)
+    axis=tuple(x/length for x in vector)
+    axial=sorted(((_dot(_multi_difference(p.position_m,sphere.center_m),axis),p)
+                  for p in sites),key=lambda pair:(pair[0],pair[1].position_m))
+    return axis,tuple(axial)
+
+
 def _compile(client: Any, problem: ElectrostaticProblem, settings: Femm5Settings):
-    sphere, source = problem.conductors[0], problem.charges[0]
+    sphere=problem.conductors[0]
     b=sphere.radius_m
-    displacement=_difference(source.position_m,sphere.center_m)
-    d=_norm(displacement)
-    axis=tuple(x/d for x in displacement)
-    clearance=d-b
-    # Source remains a distinct FINITE charged conductor, not FEMM pointprop
-    # (which could otherwise turn into an azimuthal ring).
-    source_radius=min(b*settings.source_radius_fraction, clearance/6)
-    if not isfinite(source_radius) or source_radius<=0:
-        raise UnsupportedProblem('external charge has insufficient geometric clearance')
-    R=max(b*settings.outer_radius_factor, (d+source_radius)*2.5)
+    axis,sites=_sites_with_axis(problem)
+    cores=[]
+    for i,(z,source) in enumerate(sites):
+        clearance=abs(z)-b
+        neighbor=min((abs(z-other_z) for j,(other_z,_) in enumerate(sites) if i!=j),
+                     default=float('inf'))
+        radius=min(b*settings.source_radius_fraction,clearance/6,neighbor/4)
+        if not isfinite(radius) or radius<=0:
+            raise UnsupportedProblem('external numerical cores require finite, nonoverlapping clearance')
+        name=_SOURCE_NAME if len(sites)==1 else f'{_SOURCE_NAME}_{i+1}'
+        cores.append(_ExternalSourceCore(name,source.position_m,z,radius,source.charge_c))
+    R=max(b*settings.outer_radius_factor,
+          2.5*max(abs(c.axial_offset_m)+c.radius_m for c in cores))
     if not isfinite(R):
-        raise UnsupportedProblem('nonfinite FEMM domain')
+        raise UnsupportedProblem('nonfinite FEMM outer domain')
     delta=settings.arc_degrees
     client.newdocument(1)
     client.ei_probdef('meters','axi',settings.solver_precision)
     rel_eps=problem.permittivity_f_per_m/EPSILON_0
     client.ei_addmaterial('Vacuum',rel_eps,rel_eps,0)
     if isinstance(sphere.constraint, Grounded):
-        client.ei_addconductorprop(sphere.name,0,0,1)  # fixed 0 V, net Q unknown
+        client.ei_addconductorprop(sphere.name,0,0,1)
     else:
         assert isinstance(sphere.constraint, FixedNetCharge)
-        client.ei_addconductorprop(sphere.name,0,sphere.constraint.charge_c,0)  # fixed total Q, V unknown
-    client.ei_addconductorprop(_SOURCE_NAME,0,source.charge_c,0)  # fixed source net Q
-    # Monopolar open-boundary approximation; vary R to assess multipolar error.
+        client.ei_addconductorprop(sphere.name,0,sphere.constraint.charge_c,0)
+    for core in cores:
+        client.ei_addconductorprop(core.name,0,core.prescribed_charge_c,0)
+    # Robin boundary approximates open space, including multipoles. Domain
+    # enlargement is explicitly compared against exact images in live tests.
     client.ei_addboundprop('open_robin',0,0,problem.permittivity_f_per_m/R,0,1)
-    for rad, zcenter in ((b,0.0),(source_radius,d),(R,0.0)):
+    for rad,zcenter in ((b,0.0),*((c.radius_m,c.axial_offset_m) for c in cores),(R,0.0)):
         for rho,z in ((0,zcenter-rad),(rad,zcenter),(0,zcenter+rad)):
             client.ei_addnode(rho,z)
         _half_circle(client,rad,delta,zcenter)
-    heights=sorted((-R,-b,b,d-source_radius,d+source_radius,R))
+    heights=sorted({-R,-b,b,R,*(
+        z for c in cores for z in (c.axial_offset_m-c.radius_m,
+                                    c.axial_offset_m+c.radius_m))})
     for low,high in zip(heights,heights[1:]):
         client.ei_addsegment(0,low,0,high)
     _mark_arcs(client,b,delta,'<None>',sphere.name)
-    _mark_arcs(client,source_radius,delta,'<None>',_SOURCE_NAME,d)
+    for core in cores:
+        _mark_arcs(client,core.radius_m,delta,'<None>',core.name,core.axial_offset_m)
     _mark_arcs(client,R,delta,'open_robin','<None>')
     _label_air(client,b/2,b/8*settings.mesh_scale)
-    _label_air(client,source_radius/2,source_radius/6*settings.mesh_scale,z=d)
-    # External vacuum label along the equator, safely away from axial source.
+    for core in cores:
+        _label_air(client,core.radius_m/2,core.radius_m/6*settings.mesh_scale,
+                   z=core.axial_offset_m)
     _label_air(client,(b+R)/2,b/4*settings.mesh_scale)
-    return R, source_radius, axis, d
+    return R,tuple(cores),axis
 
 
 @dataclass(slots=True)
@@ -154,8 +191,8 @@ class Femm5ExternalSphereSolution:
         if not isfinite(offset_fraction) or not 0<offset_fraction<=.1:
             raise ValueError('offset_fraction must lie in (0,0.1]')
         b=self.sphere.radius_m
-        distance=self.numerical_sources[0].axial_offset_m
-        clearance=distance-b-self.numerical_sources[0].radius_m
+        clearance=min(abs(c.axial_offset_m)-b-c.radius_m
+                      for c in self.numerical_sources)
         gap=min(b*offset_fraction,clearance/5)
         radius=b+gap
         tangent=_perpendicular(self.symmetry_axis)
@@ -166,7 +203,7 @@ class Femm5ExternalSphereSolution:
 
 
 class Femm5ExternalSphereBackend:
-    """Numerical backend for one charge outside a grounded OR isolated solid sphere."""
+    """Numerical backend for axial sources outside one grounded or isolated sphere."""
 
     def __init__(self, *, settings: Femm5Settings | None=None,
                  binding_path: str | Path | None=None,
@@ -175,32 +212,52 @@ class Femm5ExternalSphereBackend:
         self._session_factory=session_factory or (lambda:Femm5Session(binding_path))
 
     def supports(self,problem:ElectrostaticProblem) -> bool:
-        return (ExternalSphereBackend().supports(problem) and
-                problem.conductors[0].name != _SOURCE_NAME)
+        if not ExternalSphereBackend().supports(problem):
+            return False
+        sphere=problem.conductors[0]
+        if sphere.name.startswith(_SOURCE_NAME):
+            return False
+        sites=active_external_sites(problem)
+        if not 1 <= len(sites) <= 16:
+            return False
+        axis,_=_sites_with_axis(problem)
+        for site in sites:
+            delta=_difference(site.position_m,sphere.center_m)
+            z=_dot(delta,axis)
+            transverse=tuple(delta[i]-z*axis[i] for i in range(3))
+            if _norm(transverse)>1e-11*sphere.radius_m:
+                return False
+        return True
 
     def solve(self,problem:ElectrostaticProblem) -> Femm5ExternalSphereSolution:
         if not self.supports(problem):
             raise UnsupportedProblem(
-                'FEMM 5 exterior sphere requires exactly one external nonzero point '
-                'charge and one Grounded or FixedNetCharge SolidSphere; other geometries unsupported')
+                'FEMM 5 exterior sphere requires one Grounded or FixedNetCharge SolidSphere '
+                'and up to 16 grouped external charge sites on a common central axis; '
+                'non-collinear arrangements require an analytical or 3D numerical backend')
         session=self._session_factory()
         workspace=TemporaryDirectory(prefix='conductor_sim_femm_external_')
         try:
             client=session.open()
-            R,source_radius,axis,d=_compile(client,problem,self.settings)
+            R,cores,axis=_compile(client,problem,self.settings)
             client.ei_saveas((Path(workspace.name)/'external_sphere.fee').as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
-            sphere,charge=problem.conductors[0],problem.charges[0]
+            sphere=problem.conductors[0]
             v,net=_as_finite_values(client.eo_getconductorproperties(sphere.name),2,
                                     'solid sphere conductor properties')
-            _,measured=_as_finite_values(client.eo_getconductorproperties(_SOURCE_NAME),2,
-                                          'external source conductor properties')
+            measured=[]
+            for core in cores:
+                _,charge=_as_finite_values(client.eo_getconductorproperties(core.name),2,
+                                            f'external source {core.name} charge')
+                measured.append(NumericalSource(core.name,core.position_m,
+                                                core.axial_offset_m,core.radius_m,charge))
+            total=fsum(s.measured_charge_c for s in measured)
             results=(ConductorResult(sphere.name,v,net,0.0,net),)
-            source=(NumericalSource(_SOURCE_NAME,charge.position_m,d,source_radius,measured),)
+            source_radius=measured[0].radius_m if len(measured)==1 else None
             return Femm5ExternalSphereSolution(
-                sphere,R,results,session,client,workspace,source,
-                source_radius,measured,axis,problem.permittivity_f_per_m)
+                sphere,R,results,session,client,workspace,tuple(measured),
+                source_radius,total,axis,problem.permittivity_f_per_m)
         except Exception as exc:
             try:
                 session.close()

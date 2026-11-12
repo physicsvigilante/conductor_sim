@@ -45,7 +45,6 @@ numerical E/V/sigma, force and energy from the independent analytical
 reference. Grounded and isolated cases use the same FEMM compiler.
 See [M8 design](m8.md) and [numerical acceptance](m8-acceptance.md). All 52 earlier numerical regressions retained.
 
-M9 — Extend external geometry/charge-site composition only after validating
-M8: multiple independent external sources on the axis, a new conducting plane
-component, and charge/ring field components. Charged-particle dynamics remain
-a separate physical engine.
+M9 — **Accepted for multiple external charges (68 real FEMM tests, including 9 M9 cases):** exact Kelvin image superposition for arbitrary source locations outside one grounded/isolated solid sphere, separate FEMM charged source cores for axisymmetric sites, strict non-collinear numerical refusal and offline four-state visualization. See [M9 design](m9.md) and [acceptance](m9-acceptance.md).
+
+M10 — Candidate next: reusable charged conducting plane and image-charge boundary conditions. Extend external geometry by physics capabilities rather than writing new per-problem scripts. Full 3D conductor geometry, coupled physical spheres and particle dynamics remain separate future areas.

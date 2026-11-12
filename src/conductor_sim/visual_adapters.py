@@ -9,6 +9,7 @@ from .femm5 import Femm5Solution
 from .femm5_external import Femm5ExternalSphereSolution
 from .external_sphere import ExternalGroundedSphereSolution
 from .external_isolated import ExternalIsolatedSphereSolution
+from .external_multi import ExternalMultiSphereSolution
 from .visualization import SamplingContext, SourceMask, dot, sub
 
 
@@ -56,13 +57,16 @@ def context_for_solution(problem, solution):
                 masks.append(SourceMask(point,a*.015,'display-exclusion'))
         known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
                                     ImageChargeShellSolution,ConcentricShellSolution,
-                                    ExternalGroundedSphereSolution))
+                                    ExternalGroundedSphereSolution, ExternalMultiSphereSolution))
         if known:
             conductor_method = 'Analytical reference conductor properties.'
         notes += [('Analytical reference samples, not FEMM output.' if known else
                    'Custom solver samples; configure SamplingContext for its numerical domain and exclusions.'),
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
-        if isinstance(solution,ExternalGroundedSphereSolution):
+        if isinstance(solution,ExternalMultiSphereSolution):
+            density = lambda name,face,point: solution.surface_charge_density_at(face,point)
+            method = 'exact Kelvin multi-image external surface density'
+        elif isinstance(solution,ExternalGroundedSphereSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)
             method = ('exact Kelvin images plus central compensator surface density'
                       if isinstance(solution, ExternalIsolatedSphereSolution) else

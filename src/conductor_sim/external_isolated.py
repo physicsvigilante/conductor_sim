@@ -13,6 +13,7 @@ from .external_sphere import (
 )
 from .model import ElectrostaticProblem, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, UnsupportedProblem
+from .external_multi import ExternalMultiSphereBackend
 
 
 class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
@@ -135,12 +136,15 @@ class ExternalSphereBackend:
 
     def supports(self, problem: ElectrostaticProblem) -> bool:
         return (ExternalGroundedSphereBackend().supports(problem)
-                or ExternalIsolatedSphereBackend().supports(problem))
+                or ExternalIsolatedSphereBackend().supports(problem)
+                or ExternalMultiSphereBackend().supports(problem))
 
     def solve(self, problem: ElectrostaticProblem):
         if ExternalGroundedSphereBackend().supports(problem):
             return ExternalGroundedSphereBackend().solve(problem)
         if ExternalIsolatedSphereBackend().supports(problem):
             return ExternalIsolatedSphereBackend().solve(problem)
-        raise UnsupportedProblem('external sphere: expected one grounded or '
-                                 'fixed-net-charge SolidSphere with one external charge')
+        if ExternalMultiSphereBackend().supports(problem):
+            return ExternalMultiSphereBackend().solve(problem)
+        raise UnsupportedProblem('external sphere: expected one grounded or fixed-net-charge '
+                                 'SolidSphere with one or more external charges')
