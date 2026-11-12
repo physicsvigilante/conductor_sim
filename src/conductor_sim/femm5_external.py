@@ -1,4 +1,4 @@
-"""Real FEMM 5 axial exterior-source solver for a grounded solid sphere.
+"""Real FEMM 5 exterior-source solver for grounded or fixed-charge solid spheres.
 
 This backend never delegates numeric queries to the exact image solver. It
 constructs one real solid sphere and one finite charged source core outside
@@ -17,9 +17,9 @@ from .femm5 import (
     NumericalSource, _as_finite_values, _dot, _half_circle, _label_air,
     _mark_arcs, _norm, _perpendicular,
 )
-from .model import EPSILON_0, ElectrostaticProblem, Grounded, SolidSphere, Vector3, _position
+from .model import EPSILON_0, ElectrostaticProblem, Grounded, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
-from .external_sphere import ExternalGroundedSphereBackend
+from .external_isolated import ExternalSphereBackend
 
 _SOURCE_NAME = '__conductor_sim_external_source'
 
@@ -48,7 +48,11 @@ def _compile(client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
     client.ei_probdef('meters','axi',settings.solver_precision)
     rel_eps=problem.permittivity_f_per_m/EPSILON_0
     client.ei_addmaterial('Vacuum',rel_eps,rel_eps,0)
-    client.ei_addconductorprop(sphere.name,0,0,1)  # fixed 0 V; unknown induced net Q
+    if isinstance(sphere.constraint, Grounded):
+        client.ei_addconductorprop(sphere.name,0,0,1)  # fixed 0 V, net Q unknown
+    else:
+        assert isinstance(sphere.constraint, FixedNetCharge)
+        client.ei_addconductorprop(sphere.name,0,sphere.constraint.charge_c,0)  # fixed total Q, V unknown
     client.ei_addconductorprop(_SOURCE_NAME,0,source.charge_c,0)  # fixed source net Q
     # Monopolar open-boundary approximation; vary R to assess multipolar error.
     client.ei_addboundprop('open_robin',0,0,problem.permittivity_f_per_m/R,0,1)
@@ -162,7 +166,7 @@ class Femm5ExternalSphereSolution:
 
 
 class Femm5ExternalSphereBackend:
-    """Numerical backend for one external charge next to a grounded solid sphere."""
+    """Numerical backend for one charge outside a grounded OR isolated solid sphere."""
 
     def __init__(self, *, settings: Femm5Settings | None=None,
                  binding_path: str | Path | None=None,
@@ -171,25 +175,25 @@ class Femm5ExternalSphereBackend:
         self._session_factory=session_factory or (lambda:Femm5Session(binding_path))
 
     def supports(self,problem:ElectrostaticProblem) -> bool:
-        return (ExternalGroundedSphereBackend().supports(problem) and
+        return (ExternalSphereBackend().supports(problem) and
                 problem.conductors[0].name != _SOURCE_NAME)
 
     def solve(self,problem:ElectrostaticProblem) -> Femm5ExternalSphereSolution:
         if not self.supports(problem):
             raise UnsupportedProblem(
                 'FEMM 5 exterior sphere requires exactly one external nonzero point '
-                'charge and one grounded SolidSphere; other geometries unsupported')
+                'charge and one Grounded or FixedNetCharge SolidSphere; other geometries unsupported')
         session=self._session_factory()
         workspace=TemporaryDirectory(prefix='conductor_sim_femm_external_')
         try:
             client=session.open()
             R,source_radius,axis,d=_compile(client,problem,self.settings)
-            client.ei_saveas((Path(workspace.name)/'external_grounded_sphere.fee').as_posix())
+            client.ei_saveas((Path(workspace.name)/'external_sphere.fee').as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
             sphere,charge=problem.conductors[0],problem.charges[0]
             v,net=_as_finite_values(client.eo_getconductorproperties(sphere.name),2,
-                                    'grounded sphere conductor properties')
+                                    'solid sphere conductor properties')
             _,measured=_as_finite_values(client.eo_getconductorproperties(_SOURCE_NAME),2,
                                           'external source conductor properties')
             results=(ConductorResult(sphere.name,v,net,0.0,net),)
@@ -204,4 +208,4 @@ class Femm5ExternalSphereBackend:
                 workspace.cleanup()
             if isinstance(exc,(Femm5Unavailable,Femm5ExecutionError,UnsupportedProblem)):
                 raise
-            raise Femm5ExecutionError(f'FEMM 5 grounded exterior-sphere solve failed: {exc}') from exc
+            raise Femm5ExecutionError(f'FEMM 5 exterior-sphere solve failed: {exc}') from exc

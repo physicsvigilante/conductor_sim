@@ -41,6 +41,10 @@ jobs:
         run: python examples/femm5_external_sphere.py --resolution 31 --output review-artifacts/m7-external.html
       - name: M7 Chromium export acceptance
         run: python tools/check_viewer.py review-artifacts/m7-external.html --screenshot review-artifacts/m7-external.png > review-artifacts/m7-browser.json
+      - name: M8 grounded and isolated sphere preview (analytical)
+        run: python examples/femm5_isolated_sphere.py --resolution 27 --output review-artifacts/m8-isolated.html
+      - name: M8 offline Chromium viewer acceptance
+        run: python tools/check_viewer.py review-artifacts/m8-isolated.html --screenshot review-artifacts/m8-isolated.png > review-artifacts/m8-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -127,7 +127,6 @@ def test_strict_unsupported_physics_never_silently_fallback():
         ElectrostaticProblem(),
         ElectrostaticProblem((PointCharge(Q,(0,0,A)),),(SolidSphere(A,Grounded()),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,A*.5)),),(SolidSphere(A,Grounded()),)),
-        ElectrostaticProblem((PointCharge(Q,(0,0,D)),),(SolidSphere(A,FixedNetCharge(0)),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,D)),),(SphericalShell(.10,A,Grounded()),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,D)),PointCharge(-Q,(0,0,-D))),
                              (SolidSphere(A,Grounded()),)),
@@ -137,6 +136,12 @@ def test_strict_unsupported_physics_never_silently_fallback():
         for problem in bad:
             assert not backend.supports(problem)
             with pytest.raises(UnsupportedProblem):backend.solve(problem)
+    # M7 remains grounded-only analytically; M8 extends the *numerical*
+    # compiler to accept a genuinely isolated prescribed-net-charge sphere.
+    isolated=ElectrostaticProblem((PointCharge(Q,(0,0,D)),),
+                                  (SolidSphere(A,FixedNetCharge(0)),))
+    assert not ExternalGroundedSphereBackend().supports(isolated)
+    assert Femm5ExternalSphereBackend().supports(isolated)
     reserved=ElectrostaticProblem((PointCharge(Q,(0,0,D)),),
                  (SolidSphere(A,Grounded(),name=_SOURCE_NAME),))
     assert ExternalGroundedSphereBackend().supports(reserved)
@@ -175,7 +180,7 @@ def test_femm_command_sequence_physical_identity_and_resource_cleanup():
     assert calls(fake,'ei_probdef')==[('meters','axi',1e-9)]
     assert calls(fake,'ei_analyze')==[(1,)]
     assert calls(fake,'ei_loadsolution')==[()]
-    assert calls(fake,'ei_saveas')[0][0].endswith('external_grounded_sphere.fee')
+    assert calls(fake,'ei_saveas')[0][0].endswith('external_sphere.fee')
     with pytest.raises(RuntimeError):sol.potential_at((.3,0,0))
 
 

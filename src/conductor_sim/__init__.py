@@ -6,6 +6,8 @@ from .multi_image import MultiImageShellBackend, MultiImageShellSolution
 from .nested_shells import NestedShellBackend, NestedShellSolution
 from .femm5 import Femm5Backend, Femm5ExecutionError, Femm5Settings, Femm5Unavailable
 from .external_sphere import ExternalGroundedSphereBackend, ExternalGroundedSphereSolution
+from .external_isolated import (ExternalIsolatedSphereBackend, ExternalIsolatedSphereSolution,
+                                ExternalSphereBackend)
 from .femm5_external import Femm5ExternalSphereBackend, Femm5ExternalSphereSolution
 from .model import (
     EPSILON_0,
@@ -25,6 +27,9 @@ __all__ = [
     "Femm5ExternalSphereSolution",
     "ExternalGroundedSphereBackend",
     "ExternalGroundedSphereSolution",
+    "ExternalIsolatedSphereBackend",
+    "ExternalIsolatedSphereSolution",
+    "ExternalSphereBackend",
     "Femm5Settings",
     "Femm5Unavailable",
     "Femm5ExecutionError",
