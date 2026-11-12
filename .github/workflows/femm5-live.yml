@@ -1,0 +1,63 @@
+name: FEMM 5 real-solver validation
+
+# This workflow runs an actual FEMM 5 electrostatics solver. The normal
+# Python checks do NOT provide numerical-solver acceptance.
+on:
+  push:
+    branches: [m2-femm5-empty-shell]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  femm5-empty-shell:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      FEMM_ROOT: ${{ runner.temp }}/femm-qt
+      FEMM_COMMIT: 7c31ccfa3d4bcda8123d822cdda31fce929f672e
+    steps:
+      - name: Check out conductor_sim
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch and verify pinned official FEMM 5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v5.0.20261101 https://github.com/dcm3c/femm-qt.git "$FEMM_ROOT"
+          actual="$(git -C "$FEMM_ROOT" rev-parse HEAD)"
+          test "$actual" = "$FEMM_COMMIT"
+          printf 'Pinned FEMM 5 source: %s\n' "$actual"
+
+      - name: Build headless FEMM and electrostatics solver
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S "$FEMM_ROOT" -B "$FEMM_ROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$FEMM_ROOT/build" --target femm_headless belasolv --parallel 2
+          test -x "$FEMM_ROOT/build/bin/femm_headless"
+          test -x "$FEMM_ROOT/build/bin/belasolv"
+          cp "$FEMM_ROOT"/matlibs/*.dat "$FEMM_ROOT/build/bin/"
+          "$FEMM_ROOT/build/bin/femm_headless" --version
+
+      - name: Install conductor_sim
+        run: python -m pip install -e ".[test]"
+
+      - name: Run REAL FEMM 5 electrostatics integration tests
+        shell: bash
+        env:
+          FEMM_DIR: ${{ runner.temp }}/femm-qt/build/bin
+          FEMM5_BINDING: ${{ runner.temp }}/femm-qt/pyfemm/femm.py
+        run: |
+          set -euo pipefail
+          test -x "$FEMM_DIR/femm_headless"
+          test -x "$FEMM_DIR/belasolv"
+          test -f "$FEMM5_BINDING"
+          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py -vv -rA -s
