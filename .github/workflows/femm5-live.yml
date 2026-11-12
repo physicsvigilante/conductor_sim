@@ -4,7 +4,7 @@ name: FEMM 5 real-solver validation
 # Python checks do NOT provide numerical-solver acceptance.
 on:
   push:
-    branches: [m2-femm5-empty-shell]
+    branches: [main, m2-femm5-empty-shell]
   pull_request:
   workflow_dispatch:
 
@@ -61,3 +61,4 @@ jobs:
           test -x "$FEMM_DIR/belasolv"
           test -f "$FEMM5_BINDING"
           timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py -vv -rA -s
+          python examples/femm5_empty_shell.py

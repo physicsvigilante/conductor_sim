@@ -3,8 +3,12 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1 foundation, with an analytical spherical-shell reference solver.**
-This initial commit does **not** yet run FEMM 5, perform numerical meshing, solve off-centre charges, or render field lines. Those are future milestones; the present analytical backend is deliberately limited to one conducting spherical shell with charges at its centre.
+**Status: M1 accepted; M2a real FEMM 5 empty-shell benchmark accepted on Linux.**
+The analytical reference solves one spherical shell with charges at its center. The
+FEMM 5 numerical backend currently solves **one empty isolated spherical shell
+with prescribed total charge**, and no other geometry. The M2a live-solver job
+has passed, but point charges, grounded conductors and off-center arrangements
+still require new numerical implementations.
 
 ## Quick start
 
@@ -52,20 +56,20 @@ All quantities use SI units. `PointCharge.position_m` and `SphericalShell.center
 
 See [architecture](docs/architecture.md) and [roadmap](docs/roadmap.md).
 
-## FEMM 5 installation note (not required for M1)
+## FEMM 5 installation (optional numerical backend)
 
 FEMM 5 provides a separate Python binding from FEMM 4.2. **Do not assume** that `pip install pyfemm` installs the FEMM 5 binding; follow the official binding setup instructions at https://femm.info/doku/doku.php?id=bindingsetup and https://www.femm.info/doku/doku.php?id=pyfemm-qt .
 
-The future FEMM backend will validate axial symmetry before compilation, document the representation of ideal point charges and conductor charge constraints, and check output against this analytical backend.
+The M2a adapter handles the supported axisymmetric empty-shell problem. Extending it to ideal point charges requires validated source modeling and convergence checks.
 
-## M2a: experimental FEMM 5 numerical adapter
+## M2a: live-validated limited FEMM 5 backend
 
 A **limited FEMM 5 adapter** is now implemented for an empty, isolated
 spherical conducting shell with prescribed net charge. It uses the same
 `ElectrostaticProblem` definition as the analytical backend and an
-axisymmetric FEMM 5 geometry compiler. **Real FEMM integration still needs to
-be executed and accepted**; default GitHub CI checks the Python command
-contract, not the numerical solver.
+axisymmetric FEMM 5 geometry compiler. The **real FEMM 5.0.20261101** integration suite passed on Ubuntu 24.04.
+See [the accepted M2a evidence](docs/m2a-acceptance.md). The normal Python CI
+uses command recorders; a **separate FEMM 5 workflow** builds and runs the real solver.
 
 ```python
 from conductor_sim import Femm5Backend, ElectrostaticProblem, SphericalShell, FixedNetCharge

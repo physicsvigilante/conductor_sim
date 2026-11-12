@@ -1,6 +1,11 @@
 # FEMM 5 (femm-qt) setup and live benchmark
 
-**Status:** adapter and its command-sequence tests implemented; **a real FEMM 5 run has not yet been performed or accepted.** The repository's default CI does not install FEMM. A skipped integration test is not a numerical success.
+**Status: M2a accepted for its narrow empty-shell domain.** The real FEMM 5
+headless solver was built from the pinned November 1, 2026 release and both
+integration benchmarks passed in GitHub Actions (Ubuntu 24.04). See
+[M2a acceptance evidence](m2a-acceptance.md). The ordinary Python job still
+uses fake clients; only the separate **FEMM 5 real-solver validation** workflow
+provides numerical evidence.
 
 ## Installation
 
@@ -76,10 +81,11 @@ The tests in `tests/test_femm5_adapter.py` validate FEMM command construction,
 version collision avoidance, response handling, unsupported geometry, and
 failure cleanup, without running FEMM. Tests in `tests/test_femm5_live.py`
 require a real FEMM 5 installation and compare potential, field, charge, and
-sensitivity to mesh/domain settings. These tests are skipped unless
-`FEMM5_BINDING` is configured. A full validated M2 milestone requires passing
-them on a machine with FEMM 5; accuracy tolerances are provisional until
-observed, not a claim of numerical validation.
+sensitivity to mesh/domain settings. These tests are skipped by ordinary CI unless `FEMM5_BINDING` is configured.
+In the dedicated FEMM CI job, the real solver and binding are built/present
+and all tests run (no skips). Acceptance of M2a means only that the defined
+empty-shell benchmarks pass their stated tolerances; it does not imply full
+mesh-convergence certification or correctness for unsupported arrangements.
 
 The backend **does not** yet solve central/off-center point charges, ground
 constraints, multiple conductors, general planar geometry, or arbitrary 3D.

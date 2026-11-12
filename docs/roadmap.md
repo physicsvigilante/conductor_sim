@@ -3,11 +3,12 @@
 M1 — **Complete, GitHub CI green:** solver-independent immutable models,
 analytical solution for a centered charge in one conducting shell, tests.
 
-M2a — **Implemented; live validation pending:** FEMM 5 binding/session isolation,
+M2a — **Accepted for empty-shell scope; real FEMM 5 Linux benchmark passed:** FEMM 5 binding/session isolation,
 axisymmetric empty isolated charged shell, fixed conductor charge, Robin
-outer boundary, numerical field sampling and live comparative tests. Read
-[`femm5.md`](femm5.md) for setup and status. Default CI tests use fake command
-recorders, not a FEMM executable.
+outer boundary, numerical field sampling and live comparative tests. See
+[`femm5.md`](femm5.md) for setup and [M2a acceptance](m2a-acceptance.md)
+for run evidence. Normal Python CI uses fake command recorders; the dedicated
+FEMM workflow builds and executes a real solver.
 
 M2b — Grounded empty conductor and centered point-charge source; regularization
 and convergence checks before accepting charge-specific numerical accuracy.
