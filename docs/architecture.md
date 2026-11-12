@@ -9,7 +9,7 @@ LLM-authored typed Python models
   -> geometry/symmetry capability validation
   -> ElectrostaticBackend (analytical or FEMM 5)
   -> FieldSolution: V(x), E(x), measured/predicted conductor properties
-  -> future procedural visualization (M5)
+  -> procedural visualization (M5 candidate)
 ```
 
 ## Composition
@@ -54,6 +54,8 @@ See [numerical evidence](m4b-acceptance.md) for the latest set and its
 limitations. FEMM numerical acceptance uses finite mesh/source-radius
 tolerances; it is not an analytic error bound.
 
-**Not implemented:** a viewer, scene graph, genuinely general 3D FEMM backend,
+**M5 candidate:** solver-independent slice sampling, contours, bounded field-line tracing, surface profiles and self-contained HTML sweep playback. See [M5](m5.md).
+
+**Not implemented:** a full scene graph, genuinely general 3D FEMM backend,
 eccentric/nonconcentric conductors, sources in gaps or outside shell nests,
 and production-grade isolation/timeouts for untrusted authored problems.

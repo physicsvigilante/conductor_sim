@@ -13,7 +13,11 @@ def _finite(value: float, name: str) -> None:
         raise ValueError(f"{name} must be finite")
 
 def _position(value: Vector3, name: str) -> Vector3:
-    if len(value) != 3 or any(not isfinite(v) for v in value):
+    try:
+        valid = len(value) == 3 and all(isfinite(v) for v in value)
+    except (TypeError, ValueError, OverflowError):
+        valid = False
+    if not valid:
         raise ValueError(f"{name} must contain exactly three finite coordinates")
     return tuple(float(v) for v in value)
 
@@ -52,8 +56,9 @@ class SphericalShell:
             raise ValueError("shell requires 0 < inner radius < outer radius")
         if not isinstance(self.constraint, (Grounded, FixedNetCharge)):
             raise TypeError("unsupported electrical constraint")
-        if not self.name:
-            raise ValueError("conductor name must be nonempty")
+        if (not isinstance(self.name, str) or not self.name.strip()
+                or any(ord(c) < 32 or c in '\"\\' for c in self.name)):
+            raise ValueError("conductor name must be nonempty text without quotes, backslashes or controls")
         object.__setattr__(self, "center_m", _position(self.center_m, "shell center"))
 
 Conductor: TypeAlias = SphericalShell

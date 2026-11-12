@@ -11,6 +11,8 @@ from math import fsum, isclose, isfinite, pi, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell, Vector3
+from .kelvin import image_term
+from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 
@@ -35,40 +37,26 @@ class MultiImageShellSolution:
     def _k(self) -> float:
         return 1/(4*pi*self.permittivity_f_per_m)
 
-    def _sources(self):
-        """Yield real charges and their Kelvin images; handle centered limit."""
-        a = self.shell.inner_radius_m
-        c = self.shell.center_m
-        for source in self.charges:
-            q = source.charge_c
-            if q == 0:
-                continue
-            displacement = _delta(source.position_m, c)
-            d = _norm(displacement)
-            if d == 0:
-                yield q, source.position_m, -q/a, None
-            else:
-                image_pos = tuple(c[i] + (a*a/d**2)*displacement[i] for i in range(3))
-                yield q, source.position_m, -q*a/d, image_pos
-
     def potential_at(self, point_m: Vector3) -> float:
+        point_m = _position(point_m, "sample point")
         center_vec = _delta(point_m, self.shell.center_m)
         r = _norm(center_vec)
         a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
         if r < a:
             v = self.conductor_results[0].potential_v
-            for q, pos, image_q, image_pos in self._sources():
-                dist = _norm(_delta(point_m, pos))
+            for source in self.charges:
+                dist = _norm(_delta(point_m, source.position_m))
                 if dist == 0:
                     raise SingularField("potential is singular at nonzero point source")
-                v += self._k * (q/dist + (image_q if image_pos is None else
-                                        image_q/_norm(_delta(point_m, image_pos))))
+                image_v, _ = image_term(point_m, source.position_m, self.shell.center_m, a)
+                v += self._k*source.charge_c*(1/dist + image_v)
             return v
         if r <= b:
             return self.conductor_results[0].potential_v
         return self._k*self.conductor_results[0].outer_surface_charge_c/r
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        point_m = _position(point_m, "sample point")
         center_vec = _delta(point_m, self.shell.center_m)
         r = _norm(center_vec)
         a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
@@ -80,19 +68,15 @@ class MultiImageShellSolution:
             scale = self._k * self.conductor_results[0].outer_surface_charge_c / r**3
             return tuple(scale*v for v in center_vec)
         field = [0., 0., 0.]
-        for q, pos, image_q, image_pos in self._sources():
-            dv = _delta(point_m, pos)
+        for source in self.charges:
+            dv = _delta(point_m, source.position_m)
             d = _norm(dv)
             if d == 0:
                 raise SingularField("field is singular at nonzero point source")
-            scale = self._k*q/d**3
+            _, image_e = image_term(point_m, source.position_m, self.shell.center_m, a)
+            scale = self._k*source.charge_c
             for i in range(3):
-                field[i] += scale*dv[i]
-            if image_pos is not None:
-                dv = _delta(point_m, image_pos)
-                scale = self._k*image_q/_norm(dv)**3
-                for i in range(3):
-                    field[i] += scale*dv[i]
+                field[i] += scale*(dv[i]/d**3 + image_e[i])
         return tuple(field)
 
     def surface_charge_density_at(self, surface: Literal["inner", "outer"], point_m: Vector3) -> float:

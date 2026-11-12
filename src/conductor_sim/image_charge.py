@@ -12,6 +12,8 @@ from math import isclose, isfinite, pi, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell, Vector3
+from .kelvin import image_term
+from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 
@@ -49,16 +51,8 @@ class ImageChargeShellSolution:
     def displacement_m(self) -> float:
         return _distance(_subtract(self.source.position_m, self.shell.center_m))
 
-    def _image(self) -> tuple[float, Vector3] | None:
-        d = self.displacement_m
-        if d == 0:
-            return None
-        a = self.shell.inner_radius_m
-        delta = _subtract(self.source.position_m, self.shell.center_m)
-        return (-self.source.charge_c * a / d,
-                tuple(self.shell.center_m[i] + (a*a / (d*d)) * delta[i] for i in range(3)))
-
     def potential_at(self, point_m: Vector3) -> float:
+        point_m = _position(point_m, "sample point")
         v_shell = self.conductor_results[0].potential_v
         from_center = _subtract(point_m, self.shell.center_m)
         r = _distance(from_center)
@@ -71,17 +65,15 @@ class ImageChargeShellSolution:
                 raise SingularField("potential is singular at the point source")
             if q == 0:
                 return v_shell
-            if self.displacement_m == 0:
-                return v_shell + self._k * q * (1/distance - 1/a)
-            image_charge, image_position = self._image()  # type: ignore[misc]
-            return v_shell + self._k * (
-                q / distance + image_charge / _distance(_subtract(point_m, image_position))
-            )
+            image_v, _ = image_term(point_m, self.source.position_m,
+                                    self.shell.center_m, a)
+            return v_shell + self._k*q*(1/distance + image_v)
         if r <= b:
             return v_shell
         return self._k * self.conductor_results[0].outer_surface_charge_c / r
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        point_m = _position(point_m, "sample point")
         from_center = _subtract(point_m, self.shell.center_m)
         r = _distance(from_center)
         a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
@@ -100,13 +92,9 @@ class ImageChargeShellSolution:
         if q == 0:
             return (0.0, 0.0, 0.0)
         charge_field = _scaled(from_source, self._k * q / distance**3)
-        image = self._image()
-        if image is None:
-            return charge_field
-        iq, ip = image
-        delta = _subtract(point_m, ip)
-        scale = self._k * iq / _distance(delta)**3
-        return tuple(charge_field[i] + delta[i] * scale for i in range(3))  # type: ignore[return-value]
+        _, image_e = image_term(point_m, self.source.position_m,
+                                self.shell.center_m, a)
+        return tuple(charge_field[i] + self._k*q*image_e[i] for i in range(3))
 
     def surface_charge_density(self, surface: Literal["inner", "outer"], theta_rad: float) -> float:
         if surface not in ("inner", "outer"):
