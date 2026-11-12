@@ -168,7 +168,9 @@ class NestedShellBackend:
         results={}
         for i,s in enumerate(shells):
             inner=-enclosed
-            enclosed+=net[i]
+            # Sum original terms, not a rounded running subtotal. This retains
+            # a small residual when large enclosing charges later cancel.
+            enclosed=fsum((q0, *net[:i+1]))
             flux.append(enclosed)
             outer=enclosed
             results[s.name]=(inner,outer)

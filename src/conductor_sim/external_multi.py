@@ -157,7 +157,7 @@ class ExternalMultiSphereSolution:
         for site in self.sites:
             d = norm(difference(site.position_m, self.sphere.center_m))
             distance = norm(difference(pt, site.position_m))
-            values.append(-site.charge_c*(d*d-a*a)/(4*pi*a*distance**3))
+            values.append(-site.charge_c*(d-a)*(d+a)/(4*pi*a*distance**3))
         values.append(self.central_image_charge_c/(4*pi*a*a))
         return fsum(values)
 

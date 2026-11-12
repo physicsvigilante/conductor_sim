@@ -7,7 +7,7 @@ solid, not a hollow SphericalShell, and supports no interior charge sources.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import cos, isclose, pi, sqrt
+from math import hypot, isclose, pi, sin, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, Grounded, PointCharge, SolidSphere, Vector3, _position
@@ -86,8 +86,10 @@ class ExternalGroundedSphereSolution:
         if not isfinite(theta_rad) or not 0 <= theta_rad <= pi:
             raise ValueError('angle must lie in [0, pi]')
         a,d,q = self.sphere.radius_m, self.source_distance_m, self.source.charge_c
-        length = sqrt(d*d+a*a-2*d*a*cos(theta_rad))
-        return -q*(d*d-a*a)/(4*pi*a*length**3)
+        # Avoid a zero/negative squared distance through cancellation near contact.
+        gap = d-a
+        length = hypot(gap, 2*sqrt(d)*sqrt(a)*sin(theta_rad/2))
+        return -q*gap*(d+a)/(4*pi*a*length**3)
 
     def surface_charge_density_at(self, surface: Literal['outer'], point_m: Vector3) -> float:
         point = _position(point_m,'surface point')

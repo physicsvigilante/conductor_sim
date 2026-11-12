@@ -81,10 +81,16 @@ class SliceSpec:
     def meridian(cls, problem, axis=(0., 0., 1.), *, extent_m=None, resolution=61):
         if not problem.conductors:
             raise ValueError('meridian helper requires a conductor')
-        v = unit(axis)
+        v = unit(_position(axis, 'meridian axis'))
         ref = (1., 0., 0.) if abs(v[0]) < .9 else (0., 1., 0.)
         u = unit(tuple(ref[i]-dot(ref, v)*v[i] for i in range(3)))
-        extent = extent_m if extent_m is not None else 1.55*max(s.outer_radius_m for s in problem.conductors)
+        center = problem.conductors[0].center_m
+        # The default must include exterior sources as well as conductors.
+        # Explicit user bounds remain authoritative.
+        reach = max([hypot(*sub(s.center_m, center))+s.outer_radius_m
+                     for s in problem.conductors] +
+                    [hypot(*sub(p, center)) for p, _ in _sites(problem)])
+        extent = extent_m if extent_m is not None else 1.55*reach
         return cls(problem.conductors[0].center_m, u, v, (-extent, extent), (-extent, extent), resolution)
 
 
@@ -374,6 +380,12 @@ def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, p
     cases = list(islice(iter(cases),25))
     if not 1 <= len(cases) <= 24:
         raise ValueError('a sweep needs 1 to 24 cases')
+    # A generator of authored seeds describes the same sweep in every state.
+    # Consume it once, boundedly, before acquiring any solver resources.
+    if seeds is not None:
+        seeds = tuple(islice(iter(seeds), 97))
+        if len(seeds) > 96:
+            raise ValueError('at most 96 seed traces per frame')
     frames = []
     for label,problem in cases:
         solution = backend.solve(problem)

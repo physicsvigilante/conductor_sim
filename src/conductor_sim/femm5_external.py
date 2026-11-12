@@ -19,6 +19,7 @@ from .femm5 import (
 )
 from .model import EPSILON_0, ElectrostaticProblem, Grounded, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
+from ._resources import cleanup_resources
 from .external_isolated import ExternalSphereBackend
 from .external_multi import active_external_sites, difference as _multi_difference, norm as _multi_norm
 
@@ -130,16 +131,14 @@ class Femm5ExternalSphereSolution:
             raise RuntimeError('FEMM solution has been closed')
         return self
 
-    def __exit__(self,*args):
-        self.close()
+    def __exit__(self, exc_type, exc, traceback):
+        cleanup_resources((("FEMM solution", self.close),), primary=exc)
 
     def close(self):
         if not self._closed:
             self._closed=True
-            try:
-                self._session.close()
-            finally:
-                self._workspace.cleanup()
+            cleanup_resources((("FEMM session", self._session.close),
+                               ("FEMM workspace", self._workspace.cleanup)))
 
     def __del__(self):
         if not getattr(self,'_closed',True):
@@ -215,7 +214,7 @@ class Femm5ExternalSphereBackend:
         if not ExternalSphereBackend().supports(problem):
             return False
         sphere=problem.conductors[0]
-        if sphere.name.startswith(_SOURCE_NAME):
+        if sphere.name.startswith(_SOURCE_NAME) or sphere.name == "<None>":
             return False
         sites=active_external_sites(problem)
         if not 1 <= len(sites) <= 16:
@@ -258,11 +257,13 @@ class Femm5ExternalSphereBackend:
             return Femm5ExternalSphereSolution(
                 sphere,R,results,session,client,workspace,tuple(measured),
                 source_radius,total,axis,problem.permittivity_f_per_m)
-        except Exception as exc:
-            try:
-                session.close()
-            finally:
-                workspace.cleanup()
-            if isinstance(exc,(Femm5Unavailable,Femm5ExecutionError,UnsupportedProblem)):
+        except BaseException as exc:
+            error = exc
+            if isinstance(exc, Exception) and not isinstance(
+                    exc, (Femm5Unavailable, Femm5ExecutionError, UnsupportedProblem)):
+                error = Femm5ExecutionError(f'FEMM 5 exterior-sphere solve failed: {exc}')
+            cleanup_resources((("FEMM session", session.close),
+                               ("FEMM workspace", workspace.cleanup)), primary=error)
+            if error is exc:
                 raise
-            raise Femm5ExecutionError(f'FEMM 5 exterior-sphere solve failed: {exc}') from exc
+            raise error from exc

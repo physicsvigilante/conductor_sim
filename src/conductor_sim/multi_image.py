@@ -98,7 +98,7 @@ class MultiImageShellSolution:
             displacement = _delta(source.position_m, c)
             d = _norm(displacement)
             separation = _norm(_delta(point_m, source.position_m))
-            sigma -= source.charge_c*(a*a-d*d)/(4*pi*a*separation**3)
+            sigma -= source.charge_c*(a-d)*(a+d)/(4*pi*a*separation**3)
         return sigma
 
 
