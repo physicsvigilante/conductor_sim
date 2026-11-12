@@ -2,6 +2,7 @@
 
 from .analytical import ConcentricShellBackend, ConcentricShellSolution
 from .image_charge import ImageChargeShellBackend, ImageChargeShellSolution
+from .multi_image import MultiImageShellBackend, MultiImageShellSolution
 from .femm5 import Femm5Backend, Femm5ExecutionError, Femm5Settings, Femm5Unavailable
 from .model import (
     EPSILON_0,
@@ -28,6 +29,8 @@ __all__ = [
     "ConcentricShellSolution",
     "ImageChargeShellBackend",
     "ImageChargeShellSolution",
+    "MultiImageShellBackend",
+    "MultiImageShellSolution",
     "ConductorResult",
     "ElectrostaticBackend",
     "FieldSolution",

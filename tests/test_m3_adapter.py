@@ -78,11 +78,11 @@ def test_source_near_wall_limits_core_to_clearance():
     # Source sphere ends at 0.094 < a=0.1
 
 
-def test_multi_source_locations_and_outside_cavity_rejected():
+def test_noncollinear_source_locations_and_outside_cavity_rejected():
     backend,_,session=fake_backend()
     shell=problem().conductors
     bad=[
-        ElectrostaticProblem(charges=(PointCharge(1e-9,(0,0,.03)),PointCharge(2e-9,(0,0,.04))),conductors=shell),
+        ElectrostaticProblem(charges=(PointCharge(1e-9,(0,0,.03)),PointCharge(2e-9,(0,.04,0))),conductors=shell),
         ElectrostaticProblem(charges=(PointCharge(1e-9,(.12,0,0)),), conductors=shell),
     ]
     for p in bad:
