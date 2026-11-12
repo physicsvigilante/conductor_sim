@@ -97,3 +97,9 @@ For M2b source, grounded and isolated-shell examples see
 [examples/femm5_centered_charge.py](examples/femm5_centered_charge.py).
 **Real FEMM 5 numerical acceptance passed:** nine live tests (no skips).
 See [M2b acceptance evidence](docs/m2b-acceptance.md).
+
+## M3 candidate: off-centre charge induction
+
+The **M3 review branch** adds an axisymmetric off-center point-charge approximation: a finite charged sphere positioned along the automatically chosen symmetry axis. This supports a point charge at any orientation inside the spherical cavity, with grounded or fixed-net-charge shell constraints, while rejecting multiple distinct charge locations. `ImageChargeShellBackend` provides an **independent exact Kelvin image-charge reference** for potential, field and induced surface-charge density.
+
+Numerical `solution.surface_charge_density("inner", theta_rad)` estimates the **local induced surface density from FEMM's one-sided near-surface electric field**, not from an analytical formula or direct boundary-element extraction. The artificial source size and mesh must be sensitivity-checked. See [M3 design and acceptance gates](docs/m3.md). **Numerical acceptance is pending**, so the existing M2 baseline remains on `main`.

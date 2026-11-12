@@ -144,3 +144,109 @@ def test_real_femm5_grounded_empty_shell():
         for r in (.05,.11,.18):
             assert abs(numeric.potential_at((r,0,0))) < .01
             assert abs(numeric.electric_field_at((r,0,0))[0]) < .02
+
+
+def offcenter_problem(constraint, q=1e-9, position=(0, 0, .04)):
+    return ElectrostaticProblem(
+        charges=(PointCharge(q, position),),
+        conductors=(SphericalShell(.1, .12, constraint),),
+    )
+
+
+@pytest.mark.parametrize("constraint", [Grounded(), FixedNetCharge(0), FixedNetCharge(2e-9)])
+def test_real_femm5_offcenter_potential_field_and_charge(constraint):
+    """Real off-center FEMM fields compared to Kelvin image-charge reference."""
+    from conductor_sim.image_charge import ImageChargeShellBackend
+    p = offcenter_problem(constraint)
+    exact = ImageChargeShellBackend().solve(p)
+    with Femm5Backend().solve(p) as numeric:
+        assert numeric.source_displacement_m == pytest.approx(.04)
+        assert numeric.source_radius_m == pytest.approx(.01)
+        assert numeric.numerical_source_charge_c == pytest.approx(1e-9, rel=.04)
+        e = exact.conductor_results[0]
+        g = numeric.conductor_results[0]
+        assert g.potential_v == pytest.approx(e.potential_v, rel=.09, abs=.75)
+        assert g.net_charge_c == pytest.approx(e.net_charge_c, rel=.05, abs=2e-11)
+        assert g.inner_surface_charge_c == pytest.approx(-1e-9, rel=.04)
+        assert g.outer_surface_charge_c == pytest.approx(e.outer_surface_charge_c, rel=.06, abs=3e-11)
+        for pt in [(.05,0,0), (0,0,-.06), (0,0,.075), (.075,0,.015),
+                   (.11,0,0), (.2,0,.05)]:
+            assert numeric.potential_at(pt) == pytest.approx(
+                exact.potential_at(pt), rel=.16, abs=1.5
+            )
+        for pt in [(.05,0,0), (0,0,-.06), (0,0,.075), (.075,0,.015),
+                   (.11,0,0), (.2,0,.05)]:
+            assert numeric.electric_field_at(pt) == pytest.approx(
+                exact.electric_field_at(pt), rel=.32, abs=130
+            )
+
+
+def test_real_femm5_nonuniform_induced_surface_charge_density():
+    """Local sigma is estimated from the *numerical field*, not analytical inference."""
+    from math import pi, sin
+    from conductor_sim.image_charge import ImageChargeShellBackend
+    p = offcenter_problem(FixedNetCharge(0))
+    exact = ImageChargeShellBackend().solve(p)
+    with Femm5Backend(settings=Femm5Settings(mesh_scale=.7, arc_degrees=3.)).solve(p) as numeric:
+        thetas = (.14, .4, .85, 1.4, 2., 2.65, 3.0)
+        observed = [numeric.surface_charge_density("inner", t) for t in thetas]
+        reference = [exact.surface_charge_density("inner", t) for t in thetas]
+        assert all(value < 0 for value in observed)
+        assert abs(observed[0]) > 3*abs(observed[-1])
+        for got, expected in zip(observed, reference):
+            assert got == pytest.approx(expected, rel=.55)
+        # Numerically integrate FEMM's near-surface E over the inner sphere,
+        # without using FEMM's conductor total charge or Gauss partition result.
+        n = 60
+        integral = sum(numeric.surface_charge_density("inner", (k+.5)*pi/n)*
+                       sin((k+.5)*pi/n) for k in range(n))
+        integral *= 2*pi*.1**2*pi/n
+        assert integral == pytest.approx(-1e-9, rel=.30)
+        # An isolated spherical outer conductor has uniform positive sigma.
+        outer_ref = exact.surface_charge_density("outer", .3)
+        for t in (.3, .95, 1.6, 2.5):
+            assert numeric.surface_charge_density("outer", t) == pytest.approx(outer_ref, rel=.40)
+
+
+@pytest.mark.parametrize("q", [1e-9, -1e-9])
+def test_real_femm5_grounded_offcenter_and_charge_sign(q):
+    from conductor_sim.image_charge import ImageChargeShellBackend
+    p = offcenter_problem(Grounded(), q)
+    exact = ImageChargeShellBackend().solve(p)
+    with Femm5Backend().solve(p) as numerical:
+        assert numerical.conductor_results[0].net_charge_c == pytest.approx(-q, rel=.05)
+        assert numerical.surface_charge_density("inner", .3) * q < 0
+        for pt in [(.04,0,.20), (0,0,.30), (.3,0,0)]:
+            assert numerical.potential_at(pt) == pytest.approx(0, abs=1.0)
+            assert numerical.electric_field_at(pt) == pytest.approx((0,0,0), abs=5.)
+        assert numerical.potential_at((0,0,-.04)) == pytest.approx(
+            exact.potential_at((0,0,-.04)), rel=.15, abs=1
+        )
+
+
+def test_real_femm5_offcenter_world_axis_covariance():
+    """World orientations use the same axisymmetric numerical geometry."""
+    px = offcenter_problem(FixedNetCharge(0), position=(.04,0,0))
+    pz = offcenter_problem(FixedNetCharge(0), position=(0,0,.04))
+    with Femm5Backend().solve(px) as a, Femm5Backend().solve(pz) as b:
+        pa=(.065,.025,0); pb=(0,.025,.065)
+        assert a.potential_at(pa)==pytest.approx(b.potential_at(pb), rel=.03)
+        fa=a.electric_field_at(pa); fb=b.electric_field_at(pb)
+        assert fa == pytest.approx((fb[2],fb[1],fb[0]),rel=.08,abs=10.)
+
+
+def test_real_femm5_offcenter_source_size_stability():
+    """Finite conductor core should approach point-source field away from core."""
+    from conductor_sim.image_charge import ImageChargeShellBackend
+    p = offcenter_problem(FixedNetCharge(0))
+    exact = ImageChargeShellBackend().solve(p)
+    pt=(.05,0,0)
+    expected=exact.potential_at(pt)
+    potentials=[]
+    for fraction in (.04,.07,.10):
+        with Femm5Backend(settings=Femm5Settings(source_radius_fraction=fraction,
+                                                 mesh_scale=.8)).solve(p) as result:
+            potentials.append(result.potential_at(pt))
+            assert result.numerical_source_charge_c == pytest.approx(1e-9,rel=.04)
+    assert all(x == pytest.approx(expected,rel=.15) for x in potentials)
+    assert max(potentials)-min(potentials) < .14*abs(expected)

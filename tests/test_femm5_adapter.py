@@ -154,7 +154,8 @@ def test_strict_capability_boundary():
     assert backend.supports(problem())
     bad = [
         ElectrostaticProblem(),
-        ElectrostaticProblem(charges=(PointCharge(1e-9, (.03, 0, 0)),), conductors=problem().conductors),
+        ElectrostaticProblem(charges=(PointCharge(1e-9, (.103, 0, 0)),), conductors=problem().conductors),
+        ElectrostaticProblem(charges=(PointCharge(1e-9, (.03, 0, 0)), PointCharge(2e-9, (-.03, 0, 0))), conductors=problem().conductors),
         ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=(SphericalShell(.1,.12,Grounded(),name=_SOURCE_CORE),)),
         ElectrostaticProblem(conductors=(
             SphericalShell(.1,.12,FixedNetCharge(0),name="a"),
