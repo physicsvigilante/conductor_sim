@@ -5,6 +5,8 @@ from .image_charge import ImageChargeShellBackend, ImageChargeShellSolution
 from .multi_image import MultiImageShellBackend, MultiImageShellSolution
 from .nested_shells import NestedShellBackend, NestedShellSolution
 from .femm5 import Femm5Backend, Femm5ExecutionError, Femm5Settings, Femm5Unavailable
+from .external_sphere import ExternalGroundedSphereBackend, ExternalGroundedSphereSolution
+from .femm5_external import Femm5ExternalSphereBackend, Femm5ExternalSphereSolution
 from .model import (
     EPSILON_0,
     ElectrostaticProblem,
@@ -12,12 +14,17 @@ from .model import (
     Grounded,
     PointCharge,
     SphericalShell,
+    SolidSphere,
 )
 from .solver import ConductorResult, ElectrostaticBackend, FieldSolution, SingularField, UnsupportedProblem
 
 __all__ = [
     "EPSILON_0",
     "Femm5Backend",
+    "Femm5ExternalSphereBackend",
+    "Femm5ExternalSphereSolution",
+    "ExternalGroundedSphereBackend",
+    "ExternalGroundedSphereSolution",
     "Femm5Settings",
     "Femm5Unavailable",
     "Femm5ExecutionError",
@@ -26,6 +33,7 @@ __all__ = [
     "Grounded",
     "PointCharge",
     "SphericalShell",
+    "SolidSphere",
     "ConcentricShellBackend",
     "ConcentricShellSolution",
     "ImageChargeShellBackend",

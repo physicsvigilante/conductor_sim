@@ -115,5 +115,5 @@ def test_cli_check_and_unsupported_render(tmp_path):
     proc=subprocess.run(base+['render','p61-external-grounded-sphere','--output',str(rendered)],
                         cwd=ROOT,capture_output=True,text=True,timeout=30)
     assert proc.returncode==2
-    assert 'Current FEMM compiler' in proc.stderr
+    assert 'Historical M6a baseline' in proc.stderr
     assert not rendered.is_file()

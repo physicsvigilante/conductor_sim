@@ -37,6 +37,10 @@ jobs:
         run: python -m m6b.evaluate render grounded-two-state-sweep --resolution 31 --output review-artifacts/m6b-sweep.html
       - name: Chromium acceptance of authored M6b simulation
         run: python tools/check_viewer.py review-artifacts/m6b-sweep.html --screenshot review-artifacts/m6b-sweep.png > review-artifacts/m6b-browser.json
+      - name: M7 exterior grounded solid sphere preview
+        run: python examples/femm5_external_sphere.py --resolution 31 --output review-artifacts/m7-external.html
+      - name: M7 Chromium export acceptance
+        run: python tools/check_viewer.py review-artifacts/m7-external.html --screenshot review-artifacts/m7-external.png > review-artifacts/m7-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

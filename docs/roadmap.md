@@ -33,5 +33,12 @@ prompts with a separate assistant-written composition module and independent
 Gauss-law grading keys. Nine numerical-capable, one analytical-only, five
 correctly unsupported; solver/viewer internals unchanged. See [M6b](m6b.md) and [acceptance evidence](m6b-acceptance.md).
 
-M7 — Expand *reusable* electrostatic physics for external charges near
-conductors, rings and eventually particle dynamics, after M6b assessment.
+M7 — **Accepted for one external charge near a grounded solid sphere (52 actual FEMM tests):** one external point
+charge near one grounded solid spherical conductor. Adds `SolidSphere`, an
+independent exact Kelvin image-charge/force reference and a separate FEMM 5
+axisymmetric backend; integrates into existing offline viewer. See [M7](m7.md) and [M7 numerical acceptance](m7-acceptance.md).
+
+M8 — Expand conductor geometry/charge-site coverage only after M7 acceptance:
+isolated external spheres, more external sources, conducting planes and ring
+charge fields, with explicit solver capability checks; particle dynamics should
+remain a separate future domain.

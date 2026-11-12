@@ -6,6 +6,8 @@ from .image_charge import ImageChargeShellSolution
 from .multi_image import MultiImageShellSolution
 from .nested_shells import NestedShellSolution
 from .femm5 import Femm5Solution
+from .femm5_external import Femm5ExternalSphereSolution
+from .external_sphere import ExternalGroundedSphereSolution
 from .visualization import SamplingContext, SourceMask, dot, sub
 
 
@@ -24,10 +26,13 @@ def context_for_solution(problem, solution):
              'The colour scale is shared across frames; display clipping does not alter exported values.']
     masks = []
     conductor_method = 'Supplied solver conductor properties; provenance not specified.'
-    if isinstance(solution, Femm5Solution):
-        conductor_method = 'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.'
+    if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution)):
+        conductor_method = ('FEMM net charge and voltage; ground sphere outer charge is measured.'
+                            if isinstance(solution,Femm5ExternalSphereSolution) else
+                            'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.')
         radius = solution.outer_radius_m
-        center = solution.shell.center_m
+        center = (solution.sphere.center_m if isinstance(solution,Femm5ExternalSphereSolution)
+                  else solution.shell.center_m)
         masks = [SourceMask(s.position_m,s.radius_m,'numerical-core') for s in solution.numerical_sources]
         def density(name, face, point):
             normal = sub(point,center)
@@ -40,17 +45,23 @@ def context_for_solution(problem, solution):
         sites = {}
         for source in problem.charges:
             sites.setdefault(source.position_m,[]).append(source.charge_c)
-        a = min((s.inner_radius_m for s in problem.conductors),default=1.)
+        a = min((s.inner_radius_m or s.outer_radius_m
+                 for s in problem.conductors),default=1.)
         for point,charges in sites.items():
             if fsum(charges) != 0:
                 masks.append(SourceMask(point,a*.015,'display-exclusion'))
-        known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,ImageChargeShellSolution,ConcentricShellSolution))
+        known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
+                                    ImageChargeShellSolution,ConcentricShellSolution,
+                                    ExternalGroundedSphereSolution))
         if known:
             conductor_method = 'Analytical reference conductor properties.'
         notes += [('Analytical reference samples, not FEMM output.' if known else
                    'Custom solver samples; configure SamplingContext for its numerical domain and exclusions.'),
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
-        if isinstance(solution,NestedShellSolution):
+        if isinstance(solution,ExternalGroundedSphereSolution):
+            density = lambda name,face,point: solution.surface_charge_density_at(face,point)
+            method = 'exact Kelvin image-charge surface density'
+        elif isinstance(solution,NestedShellSolution):
             density = solution.surface_charge_density_at
             method = 'exact analytical surface density'
         elif isinstance(solution,MultiImageShellSolution):

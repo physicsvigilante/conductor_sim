@@ -17,8 +17,9 @@ recorded in [docs/m5.md](docs/m5.md) and [the acceptance scope](docs/m5-acceptan
 
 A traceable catalog of 19 problems from the checked-in
 [`POTENTIAL_CONDUCTORS1.pdf`](POTENTIAL_CONDUCTORS1.pdf) is now available:
-13 configurations use existing components and solvers; 6 require new physics,
-geometry or constraints and are **explicitly blocked**. The benchmark uses
+13 were runnable at the M6a acceptance date; 6 were then **explicitly
+blocked**. The exterior-grounded-sphere case is now supported by **M7**;
+the M6a counts remain a frozen historical authorability baseline. The benchmark uses
 independent analytical checks and can render supported cases with the M5 viewer.
 It is manually authored and is **not yet** an automatic natural-language parser.
 
@@ -51,6 +52,29 @@ The [accepted M6b trial](docs/m6b-acceptance.md) passed 192 Python tests
 and 47 actual FEMM tests, including 7 M6b numerical/diagnostic cases.
 This is reproducible but **not** a blinded benchmark of arbitrary LLMs or
 an automatic textbook parser. The browser slider selects stored equilibria.
+
+## M7: live-validated external charge near a grounded solid conducting sphere
+
+A new **`SolidSphere`** physical component represents metal without a hollow
+cavity. `ExternalGroundedSphereBackend` uses the exact external Kelvin image
+charge; `Femm5ExternalSphereBackend` creates a separate real FEMM 5 axial solve
+with an independently charged numerical source core. Both expose potential,
+field, conductor charge and outer induced surface-charge density through the
+existing sampling/viewer interfaces. The exact reference also reports the
+attractive force on the external point charge and its interaction energy.
+
+```powershell
+python examples/femm5_external_sphere.py --output output/external.html
+Start-Process .\output\external.html
+# With FEMM 5 configured:
+python examples/femm5_external_sphere.py --backend femm --resolution 25 --output output/external_femm.html
+```
+
+These states represent **precomputed static equilibria**, not moving charges
+or time-domain particle dynamics. Current M7 scope is one nonzero point charge
+strictly outside **one grounded solid sphere**. Existing 
+`Femm5Backend` continues to handle the earlier *interior-shell* configurations;
+no automatic backend fallback is introduced. **M7 passed 52 actual FEMM 5 integration tests**, including five new external-grounded-sphere cases. See [design](docs/m7.md) and [numerical acceptance](docs/m7-acceptance.md).
 
 ## First visual preview (no FEMM installation required)
 
