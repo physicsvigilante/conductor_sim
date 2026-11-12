@@ -42,13 +42,21 @@ ask the LLM to author *previously unseen* problems without editing the engine.
 | `p20-ring-axis` | 20 / ring potential derivation | New component | Uniform charged ring potential/field primitive missing |
 | `p25-insulating-sphere` | 25 / nonconducting sphere | New component | Volumetric fixed charge density/insulating sphere missing |
 | `p13-projected-charge` | 13 / Illustration 7 | New dynamics | Particle motion/turning-point solver missing |
-| `p61-external-grounded-sphere` | 61 / Illustration 1 | New solver domain | Charge outside a grounded conductor not compiled |
+| `p61-external-grounded-sphere` | 61 / Illustration 1 | M6a historical blocker | Exterior charge/grounded solid sphere later implemented in M7 |
 | `p68-connected-separated-spheres` | 68 / Illustration 4 | New constraint/geometry | Two separated spheres electrically connected by a wire |
 | `p70-three-cavities` | 70 / Illustration 9 | New solver domain | Several nonconcentric cavities within one irregular conductor |
 
 The final two illustrations are **not interchangeable with one concentric
 spherical cavity**. They must remain blocked even if a plausible-looking
 rendering could be produced from a simplified model.
+
+**Capability update (M7):** The M6a runnable/blocked counts are a **frozen
+historical baseline**, not the current capabilities of the whole engine.
+The source-anchored external-grounded-sphere case is now independently
+supported as a `0SolidSphere`0 with a point charge outside it, through
+`0ExternalGroundedSphereBackend`0 and `0Femm5ExternalSphereBackend`0.
+See [M7 acceptance](m7-acceptance.md). The original M6a grading output is
+not retroactively changed, preserving reproducibility.
 
 ## Faithfulness and numerical assumptions
 

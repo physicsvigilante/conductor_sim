@@ -17,8 +17,9 @@ recorded in [docs/m5.md](docs/m5.md) and [the acceptance scope](docs/m5-acceptan
 
 A traceable catalog of 19 problems from the checked-in
 [`POTENTIAL_CONDUCTORS1.pdf`](POTENTIAL_CONDUCTORS1.pdf) is now available:
-13 configurations use existing components and solvers; 6 require new physics,
-geometry or constraints and are **explicitly blocked**. The benchmark uses
+13 were runnable at the M6a acceptance date; 6 were then **explicitly
+blocked**. The exterior-grounded-sphere case is now supported by **M7**;
+the M6a counts remain a frozen historical authorability baseline. The benchmark uses
 independent analytical checks and can render supported cases with the M5 viewer.
 It is manually authored and is **not yet** an automatic natural-language parser.
 

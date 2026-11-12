@@ -201,3 +201,14 @@ def test_viewer_uses_solid_geometry_with_only_outer_profile():
     assert frame['density_method'].startswith('exact Kelvin')
     assert all(region in ('metal','vacuum','source-mask','surface')
                for row in frame['grid']['region'] for region in row)
+
+
+def test_pdf_external_grounded_sphere_blocker_is_frozen_historical_status():
+    """M7 closes the physics gap, but earlier M6a benchmark scores are historical."""
+    from conductor_sim.pdf_benchmark import load_case
+    old=load_case('p61-external-grounded-sphere')
+    assert old.page==61 and not old.runnable
+    assert 'Historical M6a baseline' in old.blocker
+    assert 'M7 now implements' in old.note
+    assert ExternalGroundedSphereBackend().supports(p())
+    assert Femm5ExternalSphereBackend().supports(p())

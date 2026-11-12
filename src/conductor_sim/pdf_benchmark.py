@@ -276,7 +276,7 @@ CASES: tuple[BenchmarkCase, ...] = (
     BenchmarkCase('p13-projected-charge',13,'Illustration 7','Moving negative charge projected between two fixed point charges; turning point and initial velocity.',
                   'new-dynamics','No particle trajectories, energy/mass state or event integration.','Field/potential alone would not simulate motion.'),
     BenchmarkCase('p61-external-grounded-sphere',61,'Illustration 1','External point charge near an earthed conducting sphere.',
-                  'new-solver-domain','Current FEMM compiler only places charges inside innermost spherical cavity.','Needs external-source image/FEMM formulation; no fake cavity relocation.'),
+                  'new-solver-domain','Historical M6a baseline: external-source sphere physics was unavailable then.','M7 now implements this as SolidSphere + ExternalGroundedSphereBackend/Femm5ExternalSphereBackend; this original baseline remains frozen.'),
     BenchmarkCase('p68-connected-separated-spheres',68,'Illustration 4','Two widely separated charged spheres connected by a wire; equilibrium charge redistribution.',
                   'new-constraint','Separated connected conductors and charge-sharing constraints are not modeled.','No approximation using nested concentric shells.'),
     BenchmarkCase('p70-three-cavities',70,'Illustration 9','Multiple distinct cavities with charges inside one irregular conductor.',
