@@ -1,6 +1,6 @@
 # M6b — held-out authorability test (single assistant trial)
 
-**Status: candidate, pending exact-head GitHub validation.**
+**Status: accepted for the one open assistant authoring trial.** See [M6b acceptance](m6b-acceptance.md).
 
 ## Question and evidence separation
 

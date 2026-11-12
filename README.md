@@ -34,7 +34,7 @@ records 40 actual FEMM tests and browser verification of the curated scope.
 
 ## M6b: held-out JEE authoring trial
 
-A separate [15-question authorability trial](docs/m6b.md) tests whether an
+A [15-question open authorability trial](docs/m6b.md) tests whether an
 LLM can compose *new* charge/shell configurations and request measurements
 using the existing engine unchanged. Nine questions are supported by both
 FEMM 5 and the analytical reference; one non-collinear cavity arrangement
@@ -47,8 +47,10 @@ python -m m6b.evaluate grade --output output/m6b-report.json
 python -m m6b.evaluate render grounded-two-state-sweep --output output/m6b.html
 ```
 
-The trial is reproducible, not a blinded benchmark of arbitrary LLMs or an
-automatic textbook parser. The browser slider selects stored equilibria.
+The [accepted M6b trial](docs/m6b-acceptance.md) passed 192 Python tests
+and 47 actual FEMM tests, including 7 M6b numerical/diagnostic cases.
+This is reproducible but **not** a blinded benchmark of arbitrary LLMs or
+an automatic textbook parser. The browser slider selects stored equilibria.
 
 ## First visual preview (no FEMM installation required)
 
