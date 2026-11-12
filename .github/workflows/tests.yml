@@ -16,3 +16,4 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m pytest
       - run: python examples/concentric_shell.py
+      - run: python -m conductor_sim.pdf_benchmark check

@@ -13,6 +13,24 @@ equipotentials, directed field lines, conductor results, surface-density profile
 and stored parameter sweeps. Review and live numerical/browser evidence are
 recorded in [docs/m5.md](docs/m5.md) and [the acceptance scope](docs/m5-acceptance.md). No scene graph has been introduced.
 
+## M6a: PDF-grounded JEE authorability benchmark
+
+A traceable catalog of 19 problems from the checked-in
+[`POTENTIAL_CONDUCTORS1.pdf`](POTENTIAL_CONDUCTORS1.pdf) is now available:
+13 configurations use existing components and solvers; 6 require new physics,
+geometry or constraints and are **explicitly blocked**. The benchmark uses
+independent analytical checks and can render supported cases with the M5 viewer.
+It is manually authored and is **not yet** an automatic natural-language parser.
+
+```bash
+python -m conductor_sim.pdf_benchmark list
+python -m conductor_sim.pdf_benchmark check --output output/m6-report.json
+python -m conductor_sim.pdf_benchmark render p69-cavity-central-vs-shifted --output output/m6-induction.html
+```
+
+See [M6 benchmark casebook](docs/m6-benchmark.md) for original PDF page
+anchors, finite-thickness corrections, unsupported cases, and acceptance.
+
 ## First visual preview (no FEMM installation required)
 
 ```bash
