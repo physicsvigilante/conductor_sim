@@ -1,9 +1,8 @@
 # FEMM 5 (femm-qt) setup and live benchmark
 
-**Status: M2a and M2b accepted in their documented limited domains.** The real FEMM 5
-headless solver was built from the pinned November 1, 2026 release and both
-integration benchmarks passed in GitHub Actions (Ubuntu 24.04). See
-[M2a acceptance evidence](m2a-acceptance.md). The ordinary Python job still
+**Status: M2a, M2b and M3 accepted in their documented limited domains.** The real FEMM 5
+headless solver was built from the pinned November 1, 2026 release. All **17 real FEMM numerical tests passed** in GitHub Actions (Ubuntu 24.04). See
+[M2a acceptance](m2a-acceptance.md), [M2b acceptance](m2b-acceptance.md), and [M3 acceptance](m3-acceptance.md). The ordinary Python job still
 uses fake clients; only the separate **FEMM 5 real-solver validation** workflow
 provides numerical evidence.
 
@@ -39,8 +38,8 @@ by the upstream [binding instructions](https://femm.info/doku/doku.php?id=pyfemm
 
 - M2a (accepted): exactly one isolated conducting spherical shell with **fixed net charge** and **no point charges**.
 - M2b (live-validated): the same shell with **Grounded()** or **FixedNetCharge**, plus only centered point charges; finite concentric source core with measured source charge and excluded interior. See [M2b design](m2b.md).
-- A uniform permittivity throughout space. The same problem object is supported
-  by the independent `ConcentricShellBackend`.
+- M3 (live-validated): one off-centre point-charge location anywhere inside the spherical cavity, transformed to a local FEMM axis, with `Grounded()` or `FixedNetCharge`. The finite charged source sphere approximates an ideal point; see [M3 design](m3.md).
+- Uniform permittivity throughout space. Independent analytical benchmarks use `ConcentricShellBackend` for centred sources and `ImageChargeShellBackend` for one displaced source.
 - The sphere center can be anywhere in world coordinates: compilation translates it
   to the symmetry origin; field samples transform axisymmetric (E_r,E_z) back to 3D.
 - The outer spherical boundary is assigned a Robin/mixed condition
@@ -50,10 +49,7 @@ by the upstream [binding instructions](https://femm.info/doku/doku.php?id=pyfemm
   The interior metal is meshed as source-free dielectric but held equipotential
   at its surfaces; this should give zero field there.
 
-Surface charges in the `ConductorResult` use a **Gauss-law inference** for an
-empty cavity (`inner=0`, `outer=numerical total Q`). FEMM directly reports
-only conductor potential and total charge in this interface. The surface
-split is **not** an independent FEMM surface-density measurement.
+Total inner/outer surface charges in `ConductorResult` are inferred from Gauss's law using FEMM's measured source and shell total charges, not from a direct surface integral. M3 separately adds `Femm5Solution.surface_charge_density(surface, theta_rad)`: a **near-boundary estimate from FEMM's one-sided field**, compared to the independent image-charge density and numerically integrated in live tests. This is not a direct boundary-element density extraction, and results depend on mesh and sampling offset.
 
 ## Geometry and sampling
 
@@ -84,12 +80,11 @@ failure cleanup, without running FEMM. Tests in `tests/test_femm5_live.py`
 require a real FEMM 5 installation and compare potential, field, charge, and
 sensitivity to mesh/domain settings. These tests are skipped by ordinary CI unless `FEMM5_BINDING` is configured.
 In the dedicated FEMM CI job, the real solver and binding are built/present
-and all tests run (no skips). Acceptance of M2a means only that the defined
-empty-shell benchmarks pass their stated tolerances; it does not imply full
-mesh-convergence certification or correctness for unsupported arrangements.
+and all tests run (no skips). M2a, M2b and M3 acceptance is limited to their
+specified geometries and stated numerical tolerances; it does not establish
+arbitrarily fine mesh convergence or correctness for unsupported arrangements.
 
-The M2b backend implements **live-validated centered charges and grounding**.
-See [M2b acceptance evidence](m2b-acceptance.md). It **does not** solve off-center charges, multiple conductors, general planar geometry, or arbitrary 3D. Unsupported problems are rejected rather than silently approximated.
+M2b validated centred charges and grounding; [M3](m3-acceptance.md) adds a single off-centre charge position and numerical density profiles. The backend **does not** solve multiple distinct charge locations, multiple physical conductors, general planar geometry, or arbitrary 3D. These are rejected rather than silently approximated; near-wall charge positions require additional source-core and mesh validation.
 
 Upstream references: [FEMM 5 pyfemm-qt](https://femm.info/doku/doku.php?id=pyfemm-qt),
 [FEMM electrostatics tutorial](https://femm.info/doku/doku.php?id=electrostaticstutorial),

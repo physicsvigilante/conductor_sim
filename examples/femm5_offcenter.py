@@ -2,7 +2,7 @@
 
 Requires the real FEMM 5 TCP binding, e.g. FEMM5_BINDING=/path/to/pyfemm/femm.py.
 """
-from math import pi
+from math import pi, sin
 from conductor_sim import (
     ElectrostaticProblem, Femm5Backend, FixedNetCharge, Grounded,
     ImageChargeShellBackend, PointCharge, SphericalShell,
@@ -24,6 +24,13 @@ def show(constraint):
         for theta in (0.15, 0.45, 0.90, pi/2, 2.30, pi-0.15):
             print(f'{theta*180/pi:10.1f}  {analytic.surface_charge_density("inner",theta):22.6e}  '
                   f'{numeric.surface_charge_density("inner",theta):22.6e}')
+        # Numerical field flux check, separate from FEMM conductor Q output.
+        n = 60
+        numeric_inner = sum(
+            numeric.surface_charge_density('inner',(i+0.5)*pi/n)*sin((i+0.5)*pi/n)
+            for i in range(n)
+        ) * (2*pi * .1**2 * pi/n)
+        print(f'Near-surface sigma integral (C): {numeric_inner:.6e}; exact -1.000000e-09')
         print('Position (m)        Analytic V       FEMM V')
         for point in ((0,0,-.06), (.05,0,0), (0,0,.075), (.2,0,0)):
             print(f'{point!s:20s} {analytic.potential_at(point):13.6f} '

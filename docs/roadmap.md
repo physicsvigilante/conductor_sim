@@ -15,12 +15,9 @@ shell and centered point-charge source core, fixed-shell charge, charge
 and potential agreement, and mesh/source-radius sensitivity. See [M2b](m2b.md).
 M2a remains a separately accepted baseline; M2b does not extend support to off-center charges.
 
-M3 — **Candidate pending real FEMM numerical validation:** one off-centre
-charge inside a spherical shell, auto-selected symmetry axis in 3D, Kelvin
-image reference, potential/field and near-surface induced sigma profiles.
-See [M3 design](m3.md). Multiple distinct charge sites remain unsupported.
+M3 — **Accepted for single off-centre source location; 17 live FEMM 5 tests passed:** automatically chosen 3D symmetry axis, independent Kelvin image-charge reference, numerical cavity/metal/exterior potential and field, near-surface induced sigma(theta) profile and integral. See [M3 design](m3.md) and [M3 acceptance](m3-acceptance.md). The 17 tests include the 9 previously accepted M2 benchmarks.
 
-capability checks.
+M4 — Multiple distinct charge locations and compatible conductors with explicit geometry/symmetry capability checks. Off-axis multi-source configurations may require 3D solvers.
 
 M5 — Procedural visualization separate from FEMM (potential maps, field lines,
 surface charge density, parameter sweeps).

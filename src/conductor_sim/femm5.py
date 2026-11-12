@@ -148,7 +148,7 @@ class Femm5Settings:
     arc_degrees: float = 5.0
     mesh_scale: float = 1.0
     solver_precision: float = 1e-9
-    source_radius_fraction: float = 0.10  # radius / cavity radius, centered-source regularization
+    source_radius_fraction: float = 0.10  # radius / cavity radius, numerical source regularization
 
     def __post_init__(self) -> None:
         if not (isfinite(self.outer_radius_factor) and self.outer_radius_factor >= 3):
@@ -351,7 +351,6 @@ class Femm5Solution:
         if len(point_m) != 3 or any(not isfinite(v) for v in point_m):
             raise ValueError("sample point must be three finite coordinates")
         delta_pre = _difference(point_m, self.shell.center_m)
-        distance_pre = _norm(delta_pre)
         # A one-sided jump is a more precise failure than core exclusion.
         if self.source_radius_m is not None:
             dz = _dot(delta_pre, self.symmetry_axis) - self.source_displacement_m
