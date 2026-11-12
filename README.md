@@ -3,7 +3,7 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1–M3 accepted. M4a axial multi-charge composition is under review.**
+**Status: M1–M4a accepted for documented domains; M4b nested conductors is next.**
 The analytical reference solves one spherical shell with charges at its center. The
 M2a FEMM 5 backend was validated for an empty isolated charged shell.
 M2b adds **centered point charge(s)** and **grounding**. M3 adds **a single off-centre source location** inside the spherical cavity, with rotation of the symmetry axis automatically handled by the backend. Multiple distinct source positions, non-spherical conductors, and arbitrary 3D geometries are not implemented.
@@ -123,4 +123,4 @@ positions, radii and measured charges. The legacy `source_radius_m` field
 remains defined only for a single numerical source. FEMM density profiles
 remain one-sided near-surface estimates, not direct boundary-element data.
 
-**M4a is a candidate until real FEMM CI passes.** See [M4a design](docs/m4a.md).
+**M4a accepted after 23 actual FEMM 5 tests passed.** See [M4a design](docs/m4a.md) and [M4a acceptance](docs/m4a-acceptance.md).

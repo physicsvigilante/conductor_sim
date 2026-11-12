@@ -1,6 +1,6 @@
 # M4a: multiple distinct charge sites in a spherical cavity
 
-**Status: candidate, awaiting live FEMM 5 numerical acceptance.**
+**Status: accepted on 2026-11-12 for multiple axial charge sites in one spherical shell.** See [M4a acceptance](m4a-acceptance.md).
 
 ## Composable authored model
 
@@ -39,7 +39,7 @@ This reference is deliberately more general than the axisymmetric FEMM
 backend; passing an analytical solution does not license FEMM to solve a
 non-collinear 3D configuration. Its conductor charge totals use Gauss's law.
 
-## Live acceptance
+## Live acceptance (passed for documented scope)
 
 Compare `Femm5Backend` to `MultiImageShellBackend` for distinct axial
 charge sites and grounded, isolated-neutral and nonzero-net-charge shells.
