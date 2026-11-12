@@ -37,7 +37,9 @@ def context_for_solution(problem, solution):
         if isinstance(solution,Femm5PlaneSolution):
             conductor_method = ('FEMM fixed-voltage finite plane boundary; total charge '
                                 'measured on its truncated conductor segment, not exact infinite-plane Q.')
-            center = solution.plane.point_m
+            # FEMM's finite upper-hemisphere is centered on the common
+            # charge footpoint, not the arbitrary authored plane anchor.
+            center = solution._origin_m
         else:
             conductor_method = ('FEMM net charge and voltage; solid sphere outer charge is measured.'
                                 if isinstance(solution,Femm5ExternalSphereSolution) else

@@ -127,6 +127,14 @@ def test_translated_rotated_plane_and_footpoint_alignment():
     assert [c.axial_offset_m for c in cores]==pytest.approx([.12,.26])
     # The authored plane point is NOT required to be the source footpoint.
     assert Femm5PlaneBackend().supports(p)
+    client=FakeClient()
+    client.eo_getconductorproperties=lambda name: (0.,0.)
+    with Femm5PlaneBackend(session_factory=lambda:FakeSession(client)).solve(p) as sol:
+        context=context_for_solution(p,sol)
+        assert context.domain_center_m==pytest.approx((2.,-.96,.47))
+        assert context.domain_center_m != p.conductors[0].point_m
+        # A source at a different tangent-plane footpoint would have a
+        # different numerical domain; never mask by that arbitrary anchor.
 
 
 def test_site_limit_and_inadequate_clearance_fail_before_femm():
@@ -134,6 +142,8 @@ def test_site_limit_and_inadequate_clearance_fail_before_femm():
     many=ElectrostaticProblem(tuple(PointCharge(Q,(0.,0.,.1+.02*i)) for i in range(17)),(plane,))
     assert GroundedPlaneBackend().supports(many)
     assert not Femm5PlaneBackend().supports(many)
+    sixteen=ElectrostaticProblem(tuple(PointCharge(Q,(0.,0.,.1+.02*i)) for i in range(16)),(plane,))
+    assert Femm5PlaneBackend().supports(sixteen)
     started=[]
     num=Femm5PlaneBackend(session_factory=lambda:started.append(1))
     with pytest.raises(UnsupportedProblem,match='1–16'):

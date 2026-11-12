@@ -87,12 +87,22 @@ def test_real_femm_multi_plane_sigma_profile_and_near_disk_integral():
 def test_real_femm_world_transform_and_another_plane_anchor():
     pz=prob()
     px=prob(normal=(1.,0.,0.),origin=(2.,-1.,.5))
-    with Femm5PlaneBackend().solve(pz) as z, Femm5PlaneBackend().solve(px) as x:
+    # Compare independently triangulated, physically equivalent worlds using
+    # a refined near-source mesh: local gradients are mesh-sensitive.
+    refined=Femm5Settings(mesh_scale=.55,arc_degrees=3)
+    with Femm5PlaneBackend(settings=refined).solve(pz) as z, \
+         Femm5PlaneBackend(settings=refined).solve(px) as x:
         pt=(.07,.02,.07)
         mapped=(2.+pt[2],-1.+pt[1],.5+pt[0])
         assert x.potential_at(mapped)==pytest.approx(z.potential_at(pt),rel=.09,abs=1)
         f=z.electric_field_at(pt)
-        assert x.electric_field_at(mapped)==pytest.approx((f[2],f[1],f[0]),rel=.15,abs=50)
+        exact=GroundedPlaneBackend().solve(pz).electric_field_at(pt)
+        # In addition to covariance, independently compare both orientations
+        # with the actual exact image-charge field, not with each other alone.
+        assert f==pytest.approx(exact,rel=.32,abs=90)
+        g=x.electric_field_at(mapped)
+        assert g==pytest.approx((exact[2],exact[1],exact[0]),rel=.32,abs=90)
+        assert g==pytest.approx((f[2],f[1],f[0]),rel=.15,abs=50)
         assert x.conductor_results[0].net_charge_c==pytest.approx(z.conductor_results[0].net_charge_c,rel=.10)
 
 
