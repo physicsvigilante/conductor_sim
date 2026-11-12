@@ -1,6 +1,6 @@
 # M6a — JEE problem authorability benchmark from `POTENTIAL_CONDUCTORS1.pdf`
 
-**Status:** curated benchmark and runner implementation, pending live CI acceptance.
+**Status:** M6a accepted for the curated scope on 2026-11-12; [numerical and browser evidence](m6-acceptance.md).
 **Source:** repository root `POTENTIAL_CONDUCTORS1.pdf`, **71 physical PDF pages**.
 Exact checked-in file SHA-256:
 `8d0d9b5cf821219058cfc4b7685a39b777e460944df44c3f9cffcb68157a60e5`.

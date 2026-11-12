@@ -29,7 +29,8 @@ python -m conductor_sim.pdf_benchmark render p69-cavity-central-vs-shifted --out
 ```
 
 See [M6 benchmark casebook](docs/m6-benchmark.md) for original PDF page
-anchors, finite-thickness corrections, unsupported cases, and acceptance.
+anchors and finite-thickness corrections; [M6a acceptance](docs/m6-acceptance.md)
+records 40 actual FEMM tests and browser verification of the curated scope.
 
 ## First visual preview (no FEMM installation required)
 

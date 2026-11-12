@@ -23,10 +23,10 @@ M4b — **Accepted (32 real FEMM 5 tests, including 9 new nested-shell cases):**
 
 M5 — **Accepted (148 ordinary tests, 35 real FEMM tests and browser checks):** shared slice sampling, potential maps, contours, directed field traces, surface profiles and offline precomputed sweep playback. Includes M4 sampler/input corrections. See [M5](m5.md). No scene graph or browser-time FEMM recomputation.
 
-M6a — **PDF benchmark implementation:** 19 anchored JEE cases from
+M6a — **Accepted (19 page-anchored problems, 13 runnable and 6 blocked; 40 actual FEMM tests including 5 PDF cases):** 19 anchored JEE cases from
 POTENTIAL_CONDUCTORS1.pdf, 13 runnable using existing physical models,
 6 explicit capability blockers. Physics expectations are independent of
-solver output. See [M6 benchmark](m6-benchmark.md).
+solver output. See [M6 benchmark](m6-benchmark.md) and [acceptance](m6-acceptance.md).
 
 M6b — Controlled LLM authoring of previously unseen supported questions,
 requested-observation specification, and explicit capability diagnostics.
