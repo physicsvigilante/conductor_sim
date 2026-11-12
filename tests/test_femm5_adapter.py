@@ -8,7 +8,7 @@ import pytest
 from conductor_sim import ElectrostaticProblem, FixedNetCharge, Grounded, PointCharge, SphericalShell
 from conductor_sim.femm5 import (
     Femm5Backend, Femm5ExecutionError, Femm5Session, Femm5Settings,
-    Femm5Unavailable, _load_binding,
+    Femm5Unavailable, _SOURCE_CORE, _load_binding,
 )
 from conductor_sim.solver import SingularField, UnsupportedProblem
 
@@ -25,7 +25,7 @@ class FakeClient:
             if name == self.fail_on:
                 raise RuntimeError("synthetic FEMM fault")
             if name == "eo_getconductorproperties":
-                return (12.0, 2e-9)
+                return (35.0, 1e-9) if args[0] == _SOURCE_CORE else (12.0, 2e-9)
             if name == "eo_getpointvalues":
                 return self.point_data
             return None
@@ -154,8 +154,8 @@ def test_strict_capability_boundary():
     assert backend.supports(problem())
     bad = [
         ElectrostaticProblem(),
-        ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=problem().conductors),
-        ElectrostaticProblem(conductors=(SphericalShell(.1, .12, Grounded()),)),
+        ElectrostaticProblem(charges=(PointCharge(1e-9, (.03, 0, 0)),), conductors=problem().conductors),
+        ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=(SphericalShell(.1,.12,Grounded(),name=_SOURCE_CORE),)),
         ElectrostaticProblem(conductors=(
             SphericalShell(.1,.12,FixedNetCharge(0),name="a"),
             SphericalShell(.2,.3,FixedNetCharge(0),name="b"),
@@ -173,6 +173,9 @@ def test_strict_capability_boundary():
     ("arc_degrees", 20),
     ("mesh_scale", 0),
     ("solver_precision", 1),
+    ("source_radius_fraction", .01),
+    ("source_radius_fraction", .21),
+    ("source_radius_fraction", float("nan")),
 ])
 def test_invalid_settings(field, value):
     with pytest.raises(ValueError):
@@ -196,4 +199,108 @@ def test_close_is_idempotent():
     sol = backend.solve(problem())
     sol.close()
     sol.close()
+    assert session.closes == 1
+
+
+def test_grounded_empty_shell_is_fixed_zero_voltage():
+    backend, fake, session = make_backend()
+    p = ElectrostaticProblem(conductors=(SphericalShell(.1, .12, Grounded()),))
+    with backend.solve(p) as sol:
+        assert sol.source_radius_m is None
+        assert sol.numerical_source_charge_c is None
+        assert len(sol.conductor_results) == 1
+    assert session.opens == session.closes == 1
+    assert calls(fake, "ei_addconductorprop") == [("shell", 0, 0, 1)]
+    assert len(calls(fake, "ei_addarc")) == 6
+
+
+def test_centered_charge_uses_separate_charged_sphere_not_pointprop():
+    backend, fake, session = make_backend()
+    p = ElectrostaticProblem(
+        charges=(PointCharge(1e-9),),
+        conductors=(SphericalShell(.1, .12, FixedNetCharge(0)),),
+    )
+    with backend.solve(p) as sol:
+        assert sol.source_radius_m == pytest.approx(.01)
+        assert sol.numerical_source_charge_c == pytest.approx(1e-9)
+        assert sol.conductor_results[0].inner_surface_charge_c == pytest.approx(-1e-9)
+        assert sol.conductor_results[0].outer_surface_charge_c == pytest.approx(3e-9)
+        with pytest.raises(UnsupportedProblem, match="regularized source core"):
+            sol.potential_at((.005, 0, 0))
+        with pytest.raises(UnsupportedProblem, match="regularized source core"):
+            sol.potential_at((0, 0, 0))
+        with pytest.raises(SingularField, match="jump"):
+            sol.electric_field_at((.01, 0, 0))
+        assert sol.potential_at((.03, 0, 0)) == 12
+    assert session.opens == session.closes == 1
+    assert calls(fake, "ei_addconductorprop") == [
+        ("shell", 0, 0, 0), (_SOURCE_CORE, 0, 1e-9, 0),
+    ]
+    assert len(calls(fake, "ei_addarc")) == 8
+    assert len(calls(fake, "ei_addsegment")) == 7
+    assert len(calls(fake, "ei_addblocklabel")) == 4
+    assert len([a for a in calls(fake,"ei_setarcsegmentprop") if a[4]=="shell"]) == 4
+    assert len([a for a in calls(fake,"ei_setarcsegmentprop") if a[4]==_SOURCE_CORE]) == 2
+    assert calls(fake, "ei_addpointprop") == []
+
+
+def test_grounded_and_centered_charge_preserves_one_physical_conductor():
+    backend, fake, _ = make_backend()
+    q = -2e-9
+    p = ElectrostaticProblem(
+        charges=(PointCharge(q, (1, 2, 3)),),
+        conductors=(SphericalShell(.2, .25, Grounded(), center_m=(1, 2, 3), name="metal"),),
+    )
+    with backend.solve(p) as sol:
+        assert sol.source_radius_m == pytest.approx(.02)
+        assert len(sol.conductor_results) == 1
+        assert sol.numerical_source_charge_c == pytest.approx(1e-9) # fake FEMM result
+        assert sol.potential_at((1.04, 2, 3)) == 12
+    assert calls(fake, "ei_addconductorprop") == [
+        ("metal", 0, 0, 1), (_SOURCE_CORE, 0, q, 0)
+    ]
+
+
+def test_centered_charges_compose_as_total_source_charge():
+    backend, fake, _ = make_backend()
+    p = ElectrostaticProblem(
+        charges=(PointCharge(2e-9), PointCharge(-1e-9)),
+        conductors=problem().conductors,
+    )
+    with backend.solve(p):
+        pass
+    assert calls(fake, "ei_addconductorprop")[1] == (_SOURCE_CORE, 0, 1e-9, 0)
+
+
+def test_cancelling_centered_charges_do_not_create_regularization_core():
+    backend, fake, _ = make_backend()
+    p = ElectrostaticProblem(
+        charges=(PointCharge(2e-9), PointCharge(-2e-9)),
+        conductors=problem().conductors,
+    )
+    with backend.solve(p) as sol:
+        assert sol.source_radius_m is None
+        assert sol.potential_at((0, 0, 0)) == 12
+    assert len(calls(fake, "ei_addarc")) == 6
+    assert len(calls(fake, "ei_addconductorprop")) == 1
+
+
+def test_source_radius_is_configurable():
+    fake, session = FakeClient(), None
+    session = FakeSession(fake)
+    p = ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=problem().conductors)
+    b = Femm5Backend(settings=Femm5Settings(source_radius_fraction=.05), session_factory=lambda: session)
+    with b.solve(p) as sol:
+        assert sol.source_radius_m == pytest.approx(.005)
+    assert any(args[0] == pytest.approx(.005) and args[1] == 0 for args in calls(fake, "ei_addarc"))
+
+
+def test_source_charge_bad_output_cleans_session():
+    backend, fake, session = make_backend()
+    def reject(name):
+        return (12., 2e-9) if name != _SOURCE_CORE else ("NaN", 1e-9)
+    fake.eo_getconductorproperties = reject
+    p = ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=problem().conductors)
+    with pytest.raises(Femm5ExecutionError, match="nonfinite"):
+        backend.solve(p)
     assert session.closes == 1
