@@ -1,5 +1,8 @@
 # M2b — centred charge and grounded spherical shell
 
+**Status: accepted for its limited spherical, centred-charge domain.**
+[Evidence and numerical outputs](m2b-acceptance.md).
+
 **Scope:** one 3D spherical conducting shell and zero or more charges **exactly at its center**, combined into one net source. The shell can be `Grounded()` or `FixedNetCharge(Q)`; the field and conductor results come from **actual FEMM 5 solves**, not from the analytical solver. M2a's empty-shell cases stay supported.
 
 ## Physics, not hardcoded problem cases

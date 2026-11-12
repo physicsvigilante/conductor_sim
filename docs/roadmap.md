@@ -10,10 +10,10 @@ outer boundary, numerical field sampling and live comparative tests. See
 for run evidence. Normal Python CI uses fake command recorders; the dedicated
 FEMM workflow builds and executes a real solver.
 
-M2b — **Candidate on review branch; live validation pending:** grounded empty
+M2b — **Accepted for centered-charge scope; 9 live FEMM 5 tests passed:** grounded empty
 shell and centered point-charge source core, fixed-shell charge, charge
 and potential agreement, and mesh/source-radius sensitivity. See [M2b](m2b.md).
-Keep M2a accepted on main independently of M2b candidate testing.
+M2a remains a separately accepted baseline; M2b does not extend support to off-center charges.
 
 M3 — Off-center axisymmetric point charge; nontrivial induced charge density
 and Gauss-law/analytical validation, with conductor/cavity surface identity.
