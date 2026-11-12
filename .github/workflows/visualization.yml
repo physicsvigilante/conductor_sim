@@ -1,7 +1,8 @@
 name: Visualization and source checks
 on:
   push:
-    branches: [m5-visualization-review, main]
+    branches: [m5-visualization-review, m6-pdf-authorability, main]
+  pull_request:
 permissions:
   contents: read
 jobs:
@@ -24,6 +25,12 @@ jobs:
       - run: python examples/visualize_conductors.py --output review-artifacts/analytical.html
       - name: Browser acceptance (no external requests)
         run: python tools/check_viewer.py review-artifacts/analytical.html --screenshot review-artifacts/preview.png > review-artifacts/browser.json
+      - name: M6 PDF benchmark physics and classification
+        run: python -m conductor_sim.pdf_benchmark check --output review-artifacts/m6-report.json
+      - name: M6 PDF authoring sweep render
+        run: python -m conductor_sim.pdf_benchmark render p69-cavity-central-vs-shifted --resolution 31 --output review-artifacts/m6-induction.html
+      - name: Browser acceptance of PDF-authored simulation
+        run: python tools/check_viewer.py review-artifacts/m6-induction.html --screenshot review-artifacts/m6-induction.png > review-artifacts/m6-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

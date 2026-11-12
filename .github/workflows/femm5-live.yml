@@ -60,7 +60,7 @@ jobs:
           test -x "$FEMM_DIR/femm_headless"
           test -x "$FEMM_DIR/belasolv"
           test -f "$FEMM5_BINDING"
-          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py tests/test_visualization_live.py -vv -rA -s
+          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py tests/test_visualization_live.py tests/test_pdf_benchmark_live.py -vv -rA -s
           python examples/femm5_empty_shell.py
           python examples/femm5_centered_charge.py
           timeout --signal=TERM --kill-after=15s 120s python examples/femm5_offcenter.py
