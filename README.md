@@ -76,7 +76,7 @@ strictly outside **one grounded solid sphere**. Existing
 `Femm5Backend` continues to handle the earlier *interior-shell* configurations;
 no automatic backend fallback is introduced. **M7 passed 52 actual FEMM 5 integration tests**, including five new external-grounded-sphere cases. See [design](docs/m7.md) and [numerical acceptance](docs/m7-acceptance.md).
 
-## M8 candidate: isolated sphere with prescribed net charge
+## M8: live-validated isolated sphere with prescribed net charge
 
 `ExternalIsolatedSphereBackend` adds the exact two-image solution for one
 external charge near an isolated **solid** conductor with `FixedNetCharge(Q)`.
@@ -96,11 +96,11 @@ Start-Process .\output\isolated_sphere.html
 python examples/femm5_isolated_sphere.py --backend femm --resolution 25 --output output/isolated_sphere_femm.html
 ```
 
-**M8 is not accepted until actual pinned FEMM 5 and browser checks pass.**
+**M8 accepted for its stated limited domain: 59 actual FEMM 5 tests passed, with no skips.**
 The force and interaction energy displayed by the example come from the
 *analytical reference*, not FEMM force post-processing. The finite numerical
 source core and far computational boundary remain approximations.
-See [M8 physics and verification](docs/m8.md).
+See [M8 physics and verification](docs/m8.md) and [M8 numerical acceptance](docs/m8-acceptance.md).
 
 ## First visual preview (no FEMM installation required)
 

@@ -188,7 +188,7 @@ class Femm5ExternalSphereBackend:
         try:
             client=session.open()
             R,source_radius,axis,d=_compile(client,problem,self.settings)
-            client.ei_saveas((Path(workspace.name)/'external_grounded_sphere.fee').as_posix())
+            client.ei_saveas((Path(workspace.name)/'external_sphere.fee').as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
             sphere,charge=problem.conductors[0],problem.charges[0]

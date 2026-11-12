@@ -180,7 +180,7 @@ def test_femm_command_sequence_physical_identity_and_resource_cleanup():
     assert calls(fake,'ei_probdef')==[('meters','axi',1e-9)]
     assert calls(fake,'ei_analyze')==[(1,)]
     assert calls(fake,'ei_loadsolution')==[()]
-    assert calls(fake,'ei_saveas')[0][0].endswith('external_grounded_sphere.fee')
+    assert calls(fake,'ei_saveas')[0][0].endswith('external_sphere.fee')
     with pytest.raises(RuntimeError):sol.potential_at((.3,0,0))
 
 

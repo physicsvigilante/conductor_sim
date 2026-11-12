@@ -38,12 +38,12 @@ charge near one grounded solid spherical conductor. Adds `SolidSphere`, an
 independent exact Kelvin image-charge/force reference and a separate FEMM 5
 axisymmetric backend; integrates into existing offline viewer. See [M7](m7.md) and [M7 numerical acceptance](m7-acceptance.md).
 
-M8 — **Candidate pending pinned real FEMM acceptance:** one external source
+M8 — **Accepted (59 real FEMM 5 tests, including 7 new fixed-net-charge exterior sphere tests):** one external source
 near an isolated solid conducting sphere with prescribed net charge Q, exact
 Kelvin image+central compensator, calculated sphere potential, measured
 numerical E/V/sigma, force and energy from the independent analytical
 reference. Grounded and isolated cases use the same FEMM compiler.
-See [M8 design](m8.md). All M7 regressions retained.
+See [M8 design](m8.md) and [numerical acceptance](m8-acceptance.md). All 52 earlier numerical regressions retained.
 
 M9 — Extend external geometry/charge-site composition only after validating
 M8: multiple independent external sources on the axis, a new conducting plane

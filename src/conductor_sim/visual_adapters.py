@@ -8,6 +8,7 @@ from .nested_shells import NestedShellSolution
 from .femm5 import Femm5Solution
 from .femm5_external import Femm5ExternalSphereSolution
 from .external_sphere import ExternalGroundedSphereSolution
+from .external_isolated import ExternalIsolatedSphereSolution
 from .visualization import SamplingContext, SourceMask, dot, sub
 
 
@@ -63,7 +64,9 @@ def context_for_solution(problem, solution):
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
         if isinstance(solution,ExternalGroundedSphereSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)
-            method = 'exact Kelvin image-charge surface density'
+            method = ('exact Kelvin images plus central compensator surface density'
+                      if isinstance(solution, ExternalIsolatedSphereSolution) else
+                      'exact Kelvin image-charge surface density')
         elif isinstance(solution,NestedShellSolution):
             density = solution.surface_charge_density_at
             method = 'exact analytical surface density'

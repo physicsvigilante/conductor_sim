@@ -180,6 +180,7 @@ def test_femm_fixed_charge_conductor_property_and_numerical_provenance(net):
         ('metal',0,net,0),(_SOURCE_NAME,0,Q,0)
     ]
     assert calls(fake,'ei_addpointprop') == []
+    assert calls(fake,'ei_saveas')[0][0].endswith('external_sphere.fee')
     assert session.opens == session.closes == 1
 
 

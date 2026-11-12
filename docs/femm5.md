@@ -1,10 +1,10 @@
 # FEMM 5 setup, supported domains and numerical evidence
 
-**Status: M2–M7 accepted within documented domains; M8 external fixed-Q sphere under review.**
+**Status: M2–M7 accepted within documented domains; M8 external fixed-Q sphere accepted in its bounded domain.**
 A dedicated GitHub Actions workflow compiles the pinned real FEMM 5 headless
 solver, runs its electrostatics solver, and compares actual results against
 independent analytical references. The accepted M7 run passed **52 real FEMM numerical tests** on Ubuntu 24.04.
-M8 adds a dedicated new live numerical gate while retaining these regressions.
+M8 passed **59 real FEMM 5 tests**, including all 52 earlier regressions and 7 new isolated-sphere cases. See [M8 acceptance](m8-acceptance.md).
 
 ## Installation
 
@@ -78,7 +78,7 @@ The separate `Femm5ExternalSphereBackend` uses the same headless numerical
 session and a genuine `SolidSphere` physical conductor, distinct from the
 interior-shell compiler. It supports exactly one nonzero source strictly
 outside one solid sphere, with either `Grounded()` (M7 accepted) or
-`FixedNetCharge(Q)` (M8 candidate). The real sphere is represented as a
+`FixedNetCharge(Q)` (M8 live-validated). The real sphere is represented as a
 single fixed-voltage (grounded) or fixed-total-charge (isolated) conductor;
 the external point source becomes a small finite fixed-Q conductor on the
 symmetry axis. In the isolated case FEMM must **solve the metal potential**,

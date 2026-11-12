@@ -51,9 +51,12 @@ def main():
         conductor=frame['conductor_results'][0]
         exact=reference.solve(problem)
         print(label)
-        print('  '+args.backend+' FEMM/analytical sphere Q (nC)',
+        print('  '+args.backend+' sphere net charge (nC)',
               f'{conductor["net_charge_c"]*1e9:+.6f}',
-              'V',f'{conductor["potential_v"]:+.4f}')
+              'potential (V)',f'{conductor["potential_v"]:+.4f}')
+        print('  analytical reference net charge (nC)',
+              f'{exact.conductor_results[0].net_charge_c*1e9:+.6f}',
+              'potential (V)',f'{exact.conductor_results[0].potential_v:+.4f}')
         print('  exact force on source along +axis (N)',
               f'{exact.force_on_charge_n[2]:+.8e}')
 
