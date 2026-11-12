@@ -15,7 +15,8 @@ from itertools import islice
 import os
 import tempfile
 
-from .model import ElectrostaticProblem, Vector3, _position
+from .model import ConductingPlane, ElectrostaticProblem, Vector3, _position
+from .geometry import SphereBoundary, contains_metal, physical_boundaries, slice_geometry
 from .solver import FieldSolution, SingularField
 
 Vec2 = tuple[float, float]
@@ -84,14 +85,23 @@ class SliceSpec:
         v = unit(_position(axis, 'meridian axis'))
         ref = (1., 0., 0.) if abs(v[0]) < .9 else (0., 1., 0.)
         u = unit(tuple(ref[i]-dot(ref, v)*v[i] for i in range(3)))
-        center = problem.conductors[0].center_m
-        # The default must include exterior sources as well as conductors.
-        # Explicit user bounds remain authoritative.
-        reach = max([hypot(*sub(s.center_m, center))+s.outer_radius_m
-                     for s in problem.conductors] +
-                    [hypot(*sub(p, center)) for p, _ in _sites(problem)])
+        conductor = problem.conductors[0]
+        if isinstance(conductor, ConductingPlane):
+            # A meridian of an infinite plane always contains its normal. A
+            # tangential slice would not show the charge/surface separation.
+            v = conductor.normal
+            ref = (1.,0.,0.) if abs(v[0]) < .9 else (0.,1.,0.)
+            u = unit(tuple(ref[i]-dot(ref,v)*v[i] for i in range(3)))
+            center = conductor.point_m
+        else:
+            center = conductor.center_m
+        reach = max([hypot(*sub(s.center_m,center))+s.outer_radius_m
+                     for s in problem.conductors if not isinstance(s,ConductingPlane)] +
+                    [hypot(*sub(p,center)) for p,_ in _sites(problem)] + [0.01])
         extent = extent_m if extent_m is not None else 1.55*reach
-        return cls(problem.conductors[0].center_m, u, v, (-extent, extent), (-extent, extent), resolution)
+        if not isfinite(extent) or extent <= 0:
+            raise ValueError('meridian extent must be finite and positive')
+        return cls(center,u,v,(-extent,extent),(-extent,extent),resolution)
 
 
 @dataclass(frozen=True)
@@ -125,38 +135,25 @@ class SamplingContext:
             return 'outside-domain'
         if any(hypot(*sub(point, m.center_m)) <= m.radius_m for m in self.masks):
             return 'source-mask'
-        for shell in self.problem.conductors:
-            r = hypot(*sub(point, shell.center_m))
-            if shell.inner_radius_m <= r <= shell.outer_radius_m:
-                return 'metal'
+        if any(contains_metal(conductor,point) for conductor in self.problem.conductors):
+            return 'metal'
         return 'vacuum'
 
     def barriers(self):
-        for shell in self.problem.conductors:
-            for r in (shell.inner_radius_m, shell.outer_radius_m):
-                if r > 0:  # SolidSphere has no fictitious inner face at r=0.
-                    yield shell.center_m, r, 'surface' 
-        for m in self.masks:
-            yield m.center_m, m.radius_m, 'source-mask'
+        for conductor in self.problem.conductors:
+            yield from physical_boundaries(conductor)
+        for mask in self.masks:
+            yield SphereBoundary(mask.center_m,mask.radius_m,'source-mask')
         if self.domain_radius_m is not None:
-            yield self.domain_center_m, self.domain_radius_m, 'outside-domain'
+            yield SphereBoundary(self.domain_center_m,self.domain_radius_m,'outside-domain')
 
     def first_hit(self, a: Vector3, b: Vector3):
-        """Exact segment/sphere intersection prevents jumping thin metal layers."""
-        delta = sub(b, a)
-        length2 = dot(delta, delta)
-        if length2 == 0:
-            return None
+        """Find first exact physical boundary crossing on a traced 3D segment."""
         best = None
-        for center, radius, kind in self.barriers():
-            f = sub(a, center)
-            projection = dot(f, delta)
-            discriminant = projection*projection-length2*(dot(f, f)-radius*radius)
-            if discriminant < 0:
-                continue
-            for t in ((-projection-sqrt(discriminant))/length2, (-projection+sqrt(discriminant))/length2):
-                if 1e-10 < t <= 1 and (best is None or t < best[0]):
-                    best = (t, kind)
+        for barrier in self.barriers():
+            t = barrier.first_hit(a,b)
+            if t is not None and (best is None or t < best[0]):
+                best = (t,barrier.kind)
         return best
 
 
@@ -279,7 +276,8 @@ def _default_seeds(context, plane):
         for i in range(10):
             angle = 2*pi*(i+.25)/10
             seeds.append(((x+radius*1.4*cos(angle),y+radius*1.4*sin(angle)), 1 if q > 0 else -1))
-    shells = sorted(context.problem.conductors, key=lambda s:s.inner_radius_m)
+    shells = sorted((s for s in context.problem.conductors
+                     if not isinstance(s,ConductingPlane)),key=lambda s:s.inner_radius_m)
     for i,shell in enumerate(shells):
         x,y,h = plane.project(shell.center_m)
         if abs(h) > 1e-10:
@@ -339,24 +337,39 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             lines.append(line)
     profiles = []
     if context.density_at is not None:
-        for shell in context.problem.conductors:
-            for face in (('outer',) if shell.inner_radius_m == 0 else ('inner','outer')):
-                radius = shell.inner_radius_m if face == 'inner' else shell.outer_radius_m
+        for conductor in context.problem.conductors:
+            if isinstance(conductor, ConductingPlane):
+                geom = slice_geometry(conductor,plane)
+                if not geom['visible']:
+                    continue
+                x0,y0 = geom['point_m']; nx,ny = geom['normal_xy']
+                norm = hypot(nx,ny)
+                tangent = (-ny/norm,nx/norm)
+                # A signed in-plane distance profile, not a radial or 3D
+                # surface integral; can show asymmetric multi-source cases.
+                span = hypot(plane.x_range_m[1]-plane.x_range_m[0],
+                             plane.y_range_m[1]-plane.y_range_m[0])/2
+                distances = [-span+2*span*i/(profile_samples-1)
+                             for i in range(profile_samples)]
+                values=[]
+                for d in distances:
+                    point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
+                    values.append(_finite(context.density_at(conductor.name,'outer',point),
+                                          'plane surface density'))
+                profiles.append({'conductor':conductor.name,'surface':'outer',
+                                 'coordinate_m':distances,'sigma_c_per_m2':values,
+                                 'method':context.density_method})
+                continue
+            for face in (('outer',) if conductor.inner_radius_m == 0 else ('inner','outer')):
+                radius = conductor.inner_radius_m if face == 'inner' else conductor.outer_radius_m
                 angles = [pi*i/(profile_samples-1) for i in range(profile_samples)]
-                # Great-circle profiles, NOT a claimed spherical area integral.
                 values = []
                 for t in angles:
-                    point = tuple(shell.center_m[i]+radius*(cos(t)*plane.v[i]+sin(t)*plane.u[i]) for i in range(3))
-                    values.append(_finite(context.density_at(shell.name,face,point),'surface density'))
-                profiles.append({'conductor':shell.name,'surface':face,'theta_rad':angles,
+                    point = tuple(conductor.center_m[i]+radius*(cos(t)*plane.v[i]+sin(t)*plane.u[i]) for i in range(3))
+                    values.append(_finite(context.density_at(conductor.name,face,point),'surface density'))
+                profiles.append({'conductor':conductor.name,'surface':face,'theta_rad':angles,
                                  'sigma_c_per_m2':values,'method':context.density_method})
-    geometry = []
-    for shell in context.problem.conductors:
-        x,y,h = plane.project(shell.center_m)
-        geometry.append({'name':shell.name,'center_m':[x,y], 'distance_to_plane_m':h,
-                         'inner_radius_m':sqrt(max(0,shell.inner_radius_m**2-h*h)),
-                         'outer_radius_m':sqrt(max(0,shell.outer_radius_m**2-h*h)),
-                         'visible':abs(h)<shell.outer_radius_m})
+    geometry = [slice_geometry(c,plane) for c in context.problem.conductors]
     charges = [{'charge_c':q,'position_m':list(p),'slice_position_m':plane.project(p)} for p,q in _sites(context.problem)]
     return {'label':label,'backend':context.backend,'plane':asdict(plane),'grid':grid,
             'contours':contour_segments(grid,levels,context,plane),'field_lines':lines,
@@ -394,7 +407,10 @@ def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, p
             if plane is None:
                 axis = getattr(solution,'symmetry_axis',None)
                 if axis is None:
-                    positions = [sub(p,problem.conductors[0].center_m) for p,q in _sites(problem)]
+                    conductor = problem.conductors[0]
+                    center = (conductor.point_m if isinstance(conductor,ConductingPlane)
+                              else conductor.center_m)
+                    positions = [sub(p,center) for p,q in _sites(problem)]
                     axis = max(positions,key=lambda p:hypot(*p),default=(0.,0.,1.))
                     axis = axis if hypot(*axis) else (0.,0.,1.)
                 plane = SliceSpec.meridian(problem,axis,resolution=resolution)

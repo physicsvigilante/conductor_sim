@@ -1,6 +1,8 @@
 """Optional visual metadata adapters; the sampling/tracing engine knows no solver."""
 from math import acos, fsum, hypot, pi
 
+from .model import ConductingPlane
+from .grounded_plane import GroundedPlaneSolution
 from .analytical import ConcentricShellSolution
 from .image_charge import ImageChargeShellSolution
 from .multi_image import MultiImageShellSolution
@@ -22,26 +24,40 @@ def context_for_solution(problem, solution):
     density = None
     method = 'unavailable'
     radius = None
-    center = problem.conductors[0].center_m if problem.conductors else (0.,0.,0.)
+    conductor = problem.conductors[0] if problem.conductors else None
+    center = (conductor.point_m if isinstance(conductor,ConductingPlane) else
+              conductor.center_m if conductor is not None else (0.,0.,0.))
     notes = ['Field lines are geometry traces, not charge trajectories; line count is not flux.',
-             'Profiles follow a great circle, not an automatically integrated spherical charge.',
+             'Profiles follow a great circle on spheres or a signed line on planes; neither is automatically a surface integral.',
              'The colour scale is shared across frames; display clipping does not alter exported values.']
     masks = []
     conductor_method = 'Supplied solver conductor properties; provenance not specified.'
-    if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution)):
-        conductor_method = ('FEMM net charge and voltage; solid sphere outer charge is measured.'
-                            if isinstance(solution,Femm5ExternalSphereSolution) else
-                            'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.')
+    from .femm5_plane import Femm5PlaneSolution
+    if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution,Femm5PlaneSolution)):
+        if isinstance(solution,Femm5PlaneSolution):
+            conductor_method = ('FEMM fixed-voltage finite plane boundary; total charge '
+                                'measured on its truncated conductor segment, not exact infinite-plane Q.')
+            center = solution.plane.point_m
+        else:
+            conductor_method = ('FEMM net charge and voltage; solid sphere outer charge is measured.'
+                                if isinstance(solution,Femm5ExternalSphereSolution) else
+                                'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.')
+            center = (solution.sphere.center_m if isinstance(solution,Femm5ExternalSphereSolution)
+                      else solution.shell.center_m)
         radius = solution.outer_radius_m
-        center = (solution.sphere.center_m if isinstance(solution,Femm5ExternalSphereSolution)
-                  else solution.shell.center_m)
         masks = [SourceMask(s.position_m,s.radius_m,'numerical-core') for s in solution.numerical_sources]
-        def density(name, face, point):
-            normal = sub(point,center)
-            cosine = dot(normal,solution.symmetry_axis)/hypot(*normal)
-            return solution.surface_charge_density(face,acos(max(-1.,min(1.,cosine))),conductor_name=name)
+        if isinstance(solution,Femm5PlaneSolution):
+            density = lambda name,face,point: solution.surface_charge_density_at(face,point,
+                                                                                  conductor_name=name)
+        else:
+            def density(name, face, point):
+                normal = sub(point,center)
+                cosine = dot(normal,solution.symmetry_axis)/hypot(*normal)
+                return solution.surface_charge_density(face,acos(max(-1.,min(1.,cosine))),conductor_name=name)
         method = 'FEMM one-sided near-surface E estimate (mesh/offset dependent)'
         notes += ['FEMM finite charged source spheres approximate ideal points; their interiors are excluded.']
+        if isinstance(solution,Femm5PlaneSolution):
+            notes.append('Numerical plane is a finite truncated boundary with an approximate outer Robin condition.')
         if isinstance(solution, Femm5ExternalSphereSolution):
             notes.append('Solid sphere total/outer charge is FEMM-measured; local density uses near-surface E.')
         else:
@@ -51,19 +67,25 @@ def context_for_solution(problem, solution):
         for source in problem.charges:
             sites.setdefault(source.position_m,[]).append(source.charge_c)
         a = min((s.inner_radius_m or s.outer_radius_m
-                 for s in problem.conductors),default=1.)
+                 for s in problem.conductors if not isinstance(s,ConductingPlane)),
+                default=min((abs(conductor.signed_distance_m(p)) for p,_ in sites.items())
+                            if isinstance(conductor,ConductingPlane) and sites else [1.]))
         for point,charges in sites.items():
             if fsum(charges) != 0:
                 masks.append(SourceMask(point,a*.015,'display-exclusion'))
         known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
                                     ImageChargeShellSolution,ConcentricShellSolution,
-                                    ExternalGroundedSphereSolution, ExternalMultiSphereSolution))
+                                    ExternalGroundedSphereSolution, ExternalMultiSphereSolution,
+                                    GroundedPlaneSolution))
         if known:
             conductor_method = 'Analytical reference conductor properties.'
         notes += [('Analytical reference samples, not FEMM output.' if known else
                    'Custom solver samples; configure SamplingContext for its numerical domain and exclusions.'),
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
-        if isinstance(solution,ExternalMultiSphereSolution):
+        if isinstance(solution,GroundedPlaneSolution):
+            density = lambda name,face,point: solution.surface_charge_density_at(face,point)
+            method = 'exact grounded infinite-plane mirror-charge density'
+        elif isinstance(solution,ExternalMultiSphereSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)
             method = 'exact Kelvin multi-image external surface density'
         elif isinstance(solution,ExternalGroundedSphereSolution):

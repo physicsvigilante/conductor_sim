@@ -206,3 +206,31 @@ not continuous charge motion. See [M9 design](docs/m9.md) for the
 force/energy convention and acceptance limits. **M9 passed 68 actual FEMM tests** (including all 59 earlier regressions),
 plus independently validated analytical superposition and Chromium review.
 See [M9 acceptance](docs/m9-acceptance.md) for scoped evidence and limitations.
+
+## M10 candidate: a charge above an infinite grounded conducting plane
+
+`ConductingPlane(point_m, normal, Grounded())` defines an infinite metal
+half-space in the same typed physical problem model. The independent exact
+`GroundedPlaneBackend` supports arbitrary 3D charge placements above one plane;
+`Femm5PlaneBackend` supports one source numerically using a finite axisymmetric
+upper-half-space FEMM geometry. Invalid multi-source numerical configurations
+are rejected, not silently approximated or replaced by analytic results.
+
+The existing M5 viewer now renders a true planar boundary and a signed-distance
+surface-charge profile, with no scene graph. Try an **analytical offline preview**:
+
+```bash
+python examples/femm5_grounded_plane.py --output output/grounded_plane.html
+```
+
+Real FEMM 5 requires `FEMM5_BINDING`/`FEMM_DIR` as documented in
+[the FEMM setup](docs/femm5.md):
+
+```bash
+python examples/femm5_grounded_plane.py --backend femm --resolution 25 \
+    --output output/grounded_plane_femm.html
+```
+
+**M10c acceptance remains pending the actual solver CI run.** The infinite
+plane is approximated by a *finite numerical domain*; see
+[M10 design and limitations](docs/m10.md).

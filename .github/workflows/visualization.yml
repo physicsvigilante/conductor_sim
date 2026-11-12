@@ -49,6 +49,10 @@ jobs:
         run: python examples/femm5_multi_external.py --backend analytical --resolution 31 --output review-artifacts/m9-multi-external.html
       - name: M9 Chromium offline multi-source acceptance
         run: python tools/check_viewer.py review-artifacts/m9-multi-external.html --screenshot review-artifacts/m9-multi-external.png > review-artifacts/m9-browser.json
+      - name: M10 grounded-plane analytical preview
+        run: python examples/femm5_grounded_plane.py --resolution 25 --output review-artifacts/m10-plane.html
+      - name: M10 Chromium grounded-plane geometry acceptance
+        run: python tools/check_viewer.py review-artifacts/m10-plane.html --screenshot review-artifacts/m10-plane.png > review-artifacts/m10-plane-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
