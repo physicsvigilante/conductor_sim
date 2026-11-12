@@ -60,7 +60,7 @@ jobs:
           test -x "$FEMM_DIR/femm_headless"
           test -x "$FEMM_DIR/belasolv"
           test -f "$FEMM5_BINDING"
-          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py tests/test_visualization_live.py tests/test_pdf_benchmark_live.py tests/test_m6b_live.py tests/test_m7_live.py tests/test_m8_live.py tests/test_m9_live.py tests/test_review_live.py tests/test_m10_live.py -vv -rA -s
+          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py tests/test_visualization_live.py tests/test_pdf_benchmark_live.py tests/test_m6b_live.py tests/test_m7_live.py tests/test_m8_live.py tests/test_m9_live.py tests/test_review_live.py tests/test_m10_live.py tests/test_m11_live.py -vv -rA -s
           python examples/femm5_empty_shell.py
           python examples/femm5_centered_charge.py
           timeout --signal=TERM --kill-after=15s 120s python examples/femm5_offcenter.py
@@ -71,6 +71,7 @@ jobs:
           timeout --signal=TERM --kill-after=15s 200s python examples/femm5_isolated_sphere.py --backend femm --resolution 25 --output live-visualization/isolated_sphere.html
           timeout --signal=TERM --kill-after=15s 220s python examples/femm5_multi_external.py --backend femm --resolution 25 --output live-visualization/multi_external.html
           timeout --signal=TERM --kill-after=15s 180s python examples/femm5_grounded_plane.py --backend femm --resolution 21 --output live-visualization/grounded_plane.html
+          timeout --signal=TERM --kill-after=15s 220s python examples/femm5_multi_plane.py --backend femm --resolution 25 --output live-visualization/multi_plane.html
 
       - name: Export real FEMM 5 data for authored M6b multi-source case
         env:

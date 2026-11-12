@@ -133,13 +133,25 @@ The session has no built-in hard process timeout for arbitrary untrusted
 problems; GitHub Actions live tests use an external deadline. This engine
 should not yet run uncontrolled LLM-authored models in production.
 
-## M10 numerical grounded-plane candidate
+## M10 numerical grounded-plane baseline (accepted)
 
 A separate `Femm5PlaneBackend` uses a finite quarter-disk axisymmetric
 meridian with one grounded plane segment, one finite charged source core,
 and a dipole-matched outer Robin boundary. The plane is **infinite only in
 the analytical ideal**; numerical net charge and surface-density profiles
 must be assessed for sensitivity to the outer domain and sampling offset.
-The numeric capability is limited to one active external source above one
-plane; `GroundedPlaneBackend` supports non-collinear source superposition
-analytically. See [M10](m10.md). Initial pinned real FEMM CI passed 75 tests; see [M10 acceptance](m10-acceptance.md).
+M10 initially accepted only one active numerical source above the plane;
+M11 extends that same FEMM backend to several sites sharing one plane normal.
+`GroundedPlaneBackend` continues to support non-collinear sources analytically. See [M10](m10.md). Initial pinned real FEMM CI passed 75 tests; see [M10 acceptance](m10-acceptance.md).
+
+### M11: multiple sources on the normal to one grounded plane
+
+`Femm5PlaneBackend` now supports up to 16 distinct active point-charge
+sites on a shared normal to one grounded plane, with a separately prescribed
+and measured charged finite FEMM core per site. The plane symmetry axis is
+**perpendicular** to the plane; collinearity on an inclined line does not
+suffice. Non-collinear numerical cases fail before launching the solver.
+For a finite modeled disk of radius R, compare FEMM plane charge with
+`-sum(q_i * (1 - h_i/sqrt(h_i**2+R**2)))`, rather than the infinite-plane
+`-sum(q_i)`. The M10 single-source backend and zero-net **signed dipole**
+regressions are retained. [M11 design and limits](m11.md).
