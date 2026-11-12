@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isclose, pi, sqrt
 from .model import ElectrostaticProblem, FixedNetCharge, SphericalShell, Vector3
+from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 def _distance_vector(a: Vector3, b: Vector3) -> tuple[Vector3, float]:
@@ -25,6 +26,7 @@ class ConcentricShellSolution:
     def _conductor_potential_v(self) -> float:
         return self.conductor_results[0].potential_v
     def potential_at(self, point_m: Vector3) -> float:
+        point_m = _position(point_m, "sample point")
         _, r = _distance_vector(point_m, self.shell.center_m)
         if r == 0 and self.charge_c != 0:
             raise SingularField("potential is singular at point charge")
@@ -36,6 +38,7 @@ class ConcentricShellSolution:
             return self._conductor_potential_v
         return self._k*self._outer_charge_c/r
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        point_m = _position(point_m, "sample point")
         delta, r = _distance_vector(point_m, self.shell.center_m)
         if r == 0:
             if self.charge_c:

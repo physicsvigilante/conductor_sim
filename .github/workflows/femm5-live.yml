@@ -60,8 +60,16 @@ jobs:
           test -x "$FEMM_DIR/femm_headless"
           test -x "$FEMM_DIR/belasolv"
           test -f "$FEMM5_BINDING"
-          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py -vv -rA -s
+          timeout --signal=TERM --kill-after=15s 600s python -m pytest tests/test_femm5_live.py tests/test_m4_live.py tests/test_m4b_live.py tests/test_visualization_live.py -vv -rA -s
           python examples/femm5_empty_shell.py
           python examples/femm5_centered_charge.py
           timeout --signal=TERM --kill-after=15s 120s python examples/femm5_offcenter.py
           timeout --signal=TERM --kill-after=15s 120s python examples/femm5_nested_shells.py
+          timeout --signal=TERM --kill-after=15s 180s python examples/visualize_conductors.py --backend femm --resolution 31 --output live-visualization/femm.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: femm-visualization
+          path: live-visualization/
+          retention-days: 14
+          if-no-files-found: error

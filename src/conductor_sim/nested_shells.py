@@ -12,6 +12,7 @@ from math import isclose, pi, sqrt, isfinite, fsum
 from typing import Literal
 
 from .model import ElectrostaticProblem, FixedNetCharge, Grounded, SphericalShell, Vector3
+from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 from .multi_image import MultiImageShellBackend, MultiImageShellSolution
 
@@ -72,6 +73,7 @@ class NestedShellSolution:
         return tuple(self.conductor_by_name(s.name).outer_surface_charge_c for s in self.radial_shells)
 
     def potential_at(self, point_m: Vector3) -> float:
+        point_m = _position(point_m, "sample point")
         delta=tuple(point_m[i]-self.radial_shells[0].center_m[i] for i in range(3))
         r=sqrt(sum(x*x for x in delta))
         shells=self.radial_shells
@@ -88,6 +90,7 @@ class NestedShellSolution:
         return self._k*self._fluxes()[-1]/r
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        point_m = _position(point_m, "sample point")
         delta=tuple(point_m[i]-self.radial_shells[0].center_m[i] for i in range(3))
         r=sqrt(sum(x*x for x in delta))
         shells=self.radial_shells

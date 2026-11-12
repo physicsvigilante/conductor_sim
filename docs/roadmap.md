@@ -21,8 +21,7 @@ M4a — **Accepted (23 real FEMM 5 tests, including all 17 M2/M3 regressions):**
 
 M4b — **Accepted (32 real FEMM 5 tests, including 9 new nested-shell cases):** strictly nested concentric spherical shells, independently grounded/fixed-net-charge, source charges inside innermost cavity, with an independent exact radial/image reference and explicit capability checks. See [M4b](m4b.md) and [numerical acceptance](m4b-acceptance.md).
 
-M5 — Procedural visualization separate from FEMM (potential maps, field lines,
-surface charge density, parameter sweeps).
+M5 — **Candidate under review:** shared slice sampling, potential maps, contours, directed field traces, surface profiles and offline precomputed sweep playback. Includes M4 sampler/input corrections. See [M5](m5.md). No scene graph or browser-time FEMM recomputation.
 
 M6 — LLM authoring in terms of physical components; backend selection and
 observability without embedding FEMM commands in authored problems.

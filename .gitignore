@@ -7,3 +7,8 @@ build/
 dist/
 *.fem
 *.ans
+
+output/
+review-artifacts/
+live-visualization/
+.femm-upstream/
