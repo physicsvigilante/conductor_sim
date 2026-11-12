@@ -7,7 +7,7 @@ comparison for one nonzero point charge.**
 ## Evidence and provenance
 
 - [First actual FEMM 5 numerical run](https://github.com/physicsvigilante/conductor_sim/actions/runs/43275080726): **75 passed, zero skipped** — 69 existing numerical regressions and six new M10 live scenarios (positive/negative charge, finite-radius charge, V/E and sigma, finite disk charge, mesh/outer-domain/core sensitivity, rotation/translation and explicit multi-source refusal). This is native FEMM 5.0.20261101 headless and belasolv built on Ubuntu 24.04 from the pinned upstream commit `7c31ccfa3d4bcda8123d822cdda31fce929f672e`, not mock-solver output.
-- [Python checks](https://github.com/physicsvigilante/conductor_sim/actions/runs/43275080504): 279 non-FEMM tests passed on 3.10 and 3.12; 75 live-FEMM tests intentionally skip in ordinary CI.
+- [Python checks](https://github.com/physicsvigilante/conductor_sim/actions/runs/43275080504): 279 non-FEMM tests passed on the initial PR run; a subsequent viewer-provenance regression increases the final candidate to **280 tests**. The 75 live-FEMM tests intentionally skip in ordinary Python CI.
 - [Chromium/source check](https://github.com/physicsvigilante/conductor_sim/actions/runs/43275080637): offline 3-state plane analytical viewer, controls, profile, hover reset, mobile layout, no external requests or JavaScript errors.
 - [Review PR #13](https://github.com/physicsvigilante/conductor_sim/pull/13): repeat all checks on the final candidate head before merging. The final-run links are in the PR discussion.
 

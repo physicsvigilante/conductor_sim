@@ -58,7 +58,8 @@ def context_for_solution(problem, solution):
         notes += ['FEMM finite charged source spheres approximate ideal points; their interiors are excluded.']
         if isinstance(solution,Femm5PlaneSolution):
             notes.append('Numerical plane is a finite truncated boundary with an approximate outer Robin condition.')
-        if isinstance(solution, Femm5ExternalSphereSolution):
+            notes.append('Plane charge is measured on the finite modeled disk; the ideal infinite plane has additional charge beyond the computational boundary.')
+        elif isinstance(solution,Femm5ExternalSphereSolution):
             notes.append('Solid sphere total/outer charge is FEMM-measured; local density uses near-surface E.')
         else:
             notes.append('Shell inner/outer surface-charge totals are Gauss-law inferences, not local-density integrals.')

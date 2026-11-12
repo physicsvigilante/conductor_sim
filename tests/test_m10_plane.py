@@ -233,3 +233,15 @@ def test_femm_plane_translated_source_projection_and_cleanup_on_failure():
     with pytest.raises(Femm5ExecutionError,match='synthetic FEMM fault'):
         Femm5PlaneBackend(session_factory=lambda:s).solve(p())
     assert s.closes==1
+
+
+def test_femm_planar_metadata_never_labels_charge_as_shell_gauss_inference():
+    client=FakeClient()
+    client.eo_getconductorproperties=lambda name: (0.,-8.75e-10) if name=='ground' else (4.,Q)
+    session=FakeSession(client)
+    problem=p()
+    with Femm5PlaneBackend(session_factory=lambda:session).solve(problem) as sol:
+        context=context_for_solution(problem,sol)
+        assert any('finite modeled disk' in note for note in context.notes)
+        assert not any('Shell inner/outer' in note for note in context.notes)
+        assert 'truncated conductor segment' in context.conductor_results_method
