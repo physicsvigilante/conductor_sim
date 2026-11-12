@@ -28,6 +28,10 @@ POTENTIAL_CONDUCTORS1.pdf, 13 runnable using existing physical models,
 6 explicit capability blockers. Physics expectations are independent of
 solver output. See [M6 benchmark](m6-benchmark.md) and [acceptance](m6-acceptance.md).
 
-M6b — Controlled LLM authoring of previously unseen supported questions,
-requested-observation specification, and explicit capability diagnostics.
-Do not require a new scene graph or direct FEMM command authoring.
+M6b — **Candidate under live validation:** 15 new JEE-style authoring
+prompts with a separate assistant-written composition module and independent
+Gauss-law grading keys. Nine numerical-capable, one analytical-only, five
+correctly unsupported; solver/viewer internals unchanged. See [M6b](m6b.md).
+
+M7 — Expand *reusable* electrostatic physics for external charges near
+conductors, rings and eventually particle dynamics, after M6b assessment.

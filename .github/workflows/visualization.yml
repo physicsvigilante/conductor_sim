@@ -31,6 +31,12 @@ jobs:
         run: python -m conductor_sim.pdf_benchmark render p69-cavity-central-vs-shifted --resolution 31 --output review-artifacts/m6-induction.html
       - name: Browser acceptance of PDF-authored simulation
         run: python tools/check_viewer.py review-artifacts/m6-induction.html --screenshot review-artifacts/m6-induction.png > review-artifacts/m6-browser.json
+      - name: M6b authorability grading (new JEE tasks)
+        run: python -m m6b.evaluate grade --output review-artifacts/m6b-report.json
+      - name: M6b grounded two-state export
+        run: python -m m6b.evaluate render grounded-two-state-sweep --resolution 31 --output review-artifacts/m6b-sweep.html
+      - name: Chromium acceptance of authored M6b simulation
+        run: python tools/check_viewer.py review-artifacts/m6b-sweep.html --screenshot review-artifacts/m6b-sweep.png > review-artifacts/m6b-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
