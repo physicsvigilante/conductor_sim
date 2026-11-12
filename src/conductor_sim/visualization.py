@@ -128,7 +128,8 @@ class SamplingContext:
     def barriers(self):
         for shell in self.problem.conductors:
             for r in (shell.inner_radius_m, shell.outer_radius_m):
-                yield shell.center_m, r, 'surface'
+                if r > 0:  # SolidSphere has no fictitious inner face at r=0.
+                    yield shell.center_m, r, 'surface' 
         for m in self.masks:
             yield m.center_m, m.radius_m, 'source-mask'
         if self.domain_radius_m is not None:
@@ -333,7 +334,7 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
     profiles = []
     if context.density_at is not None:
         for shell in context.problem.conductors:
-            for face in ('inner','outer'):
+            for face in (('outer',) if shell.inner_radius_m == 0 else ('inner','outer')):
                 radius = shell.inner_radius_m if face == 'inner' else shell.outer_radius_m
                 angles = [pi*i/(profile_samples-1) for i in range(profile_samples)]
                 # Great-circle profiles, NOT a claimed spherical area integral.

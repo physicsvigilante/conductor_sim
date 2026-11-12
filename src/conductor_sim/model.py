@@ -61,7 +61,40 @@ class SphericalShell:
             raise ValueError("conductor name must be nonempty text without quotes, backslashes or controls")
         object.__setattr__(self, "center_m", _position(self.center_m, "shell center"))
 
-Conductor: TypeAlias = SphericalShell
+@dataclass(frozen=True, slots=True)
+class SolidSphere:
+    """Connected solid spherical conductor; no inner cavity or inner face.
+
+    Supports the same electrical-constraint vocabulary as shells. Numerical
+    backend support is separately restricted by geometry and source placement.
+    """
+    radius_m: float
+    constraint: ElectricalConstraint
+    center_m: Vector3 = ORIGIN
+    name: str = "sphere"
+
+    def __post_init__(self) -> None:
+        _finite(self.radius_m, "solid sphere radius")
+        if self.radius_m <= 0:
+            raise ValueError("solid sphere radius must be positive")
+        if not isinstance(self.constraint, (Grounded, FixedNetCharge)):
+            raise TypeError("unsupported electrical constraint")
+        if (not isinstance(self.name, str) or not self.name.strip()
+                or any(ord(c) < 32 or c in '"\\' for c in self.name)):
+            raise ValueError("conductor name must be nonempty text without quotes, backslashes or controls")
+        object.__setattr__(self, "center_m", _position(self.center_m, "sphere center"))
+
+    @property
+    def inner_radius_m(self) -> float:
+        """For shape-aware visualization only; zero means no cavity/inner face."""
+        return 0.0
+
+    @property
+    def outer_radius_m(self) -> float:
+        return self.radius_m
+
+
+Conductor: TypeAlias = SphericalShell | SolidSphere
 
 @dataclass(frozen=True, slots=True)
 class ElectrostaticProblem:
@@ -76,7 +109,7 @@ class ElectrostaticProblem:
             raise ValueError("permittivity must be positive")
         if any(not isinstance(c, PointCharge) for c in self.charges):
             raise TypeError("all charges must be PointCharge objects")
-        if any(not isinstance(c, SphericalShell) for c in self.conductors):
+        if any(not isinstance(c, (SphericalShell, SolidSphere)) for c in self.conductors):
             raise TypeError("all conductors must be supported objects")
         names = [c.name for c in self.conductors]
         if len(names) != len(set(names)):

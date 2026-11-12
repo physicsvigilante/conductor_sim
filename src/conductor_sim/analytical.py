@@ -61,7 +61,8 @@ class ConcentricShellBackend:
         if len(problem.conductors) != 1:
             return False
         shell = problem.conductors[0]
-        return all(c.position_m == shell.center_m for c in problem.charges)
+        return isinstance(shell, SphericalShell) and all(
+            c.position_m == shell.center_m for c in problem.charges)
     def solve(self, problem: ElectrostaticProblem) -> ConcentricShellSolution:
         if not self.supports(problem):
             raise UnsupportedProblem("requires one spherical shell with charges at its center")

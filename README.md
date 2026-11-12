@@ -52,6 +52,30 @@ and 47 actual FEMM tests, including 7 M6b numerical/diagnostic cases.
 This is reproducible but **not** a blinded benchmark of arbitrary LLMs or
 an automatic textbook parser. The browser slider selects stored equilibria.
 
+## M7 experimental: external charge near a grounded solid conducting sphere
+
+A new **`SolidSphere`** physical component represents metal without a hollow
+cavity. `ExternalGroundedSphereBackend` uses the exact external Kelvin image
+charge; `Femm5ExternalSphereBackend` creates a separate real FEMM 5 axial solve
+with an independently charged numerical source core. Both expose potential,
+field, conductor charge and outer induced surface-charge density through the
+existing sampling/viewer interfaces. The exact reference also reports the
+attractive force on the external point charge and its interaction energy.
+
+```powershell
+python examples/femm5_external_sphere.py --output output/external.html
+Start-Process .\output\external.html
+# With FEMM 5 configured:
+python examples/femm5_external_sphere.py --backend femm --resolution 25 --output output/external_femm.html
+```
+
+These states represent **precomputed static equilibria**, not moving charges
+or time-domain particle dynamics. Current M7 scope is one nonzero point charge
+strictly outside **one grounded solid sphere**. Existing 
+`Femm5Backend` continues to handle the earlier *interior-shell* configurations;
+no automatic backend fallback is introduced. M7 requires its own live numerical
+acceptance before merging. See [M7 design](docs/m7.md).
+
 ## First visual preview (no FEMM installation required)
 
 ```bash
