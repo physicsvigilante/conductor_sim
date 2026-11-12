@@ -49,6 +49,15 @@ def main():
             page.locator('#density').select_option('0')
         page.locator('#scene').hover(position={'x':300,'y':300})
         assert 'u=' in page.locator('#probe').inner_text()
+        # Leaving the plot must not leave a previous point's values visible.
+        page.locator('#scene').hover(position={'x':2,'y':2})
+        assert page.locator('#probe').inner_text().startswith('Move the pointer')
+        page.locator('#scene').hover(position={'x':300,'y':300})
+        assert 'u=' in page.locator('#probe').inner_text()
+        page.mouse.move(0,0)
+        assert page.locator('#probe').inner_text().startswith('Move the pointer')
+        assert page.evaluate('Number(fmt(1e-12))') == 1e-12
+        assert page.evaluate('Number(fmt(-1e-12))') == -1e-12
         assert page.evaluate('window.PWNED===undefined')
         assert not errors,errors
         assert not requests,requests
@@ -79,7 +88,8 @@ def main():
         print(json.dumps({'browser':'Chromium' ,'frames':count,'javascript_errors':errors,
                           'external_requests':requests,'slider':'passed','toggles':'passed',
                           'profile_selector':'passed','hover':'passed','mobile_overflow':False,
-                          'state_probe_reset':'passed','missing_profile_reset':'passed','explicit_provenance':'passed'}))
+                          'state_probe_reset':'passed','missing_profile_reset':'passed','explicit_provenance':'passed',
+                          'plot_exit_probe_reset':'passed','small_nonzero_values':'passed'}))
         browser.close()
 
 if __name__=='__main__':main()

@@ -1,7 +1,7 @@
 """Exact spherical-symmetry reference, not a general 3D or FEMM solver."""
 from __future__ import annotations
 from dataclasses import dataclass
-from math import isclose, pi, sqrt
+from math import fsum, isclose, pi, sqrt
 from .model import ElectrostaticProblem, FixedNetCharge, SphericalShell, Vector3
 from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
@@ -67,7 +67,7 @@ class ConcentricShellBackend:
         if not self.supports(problem):
             raise UnsupportedProblem("requires one spherical shell with charges at its center")
         shell = problem.conductors[0]
-        q = sum(c.charge_c for c in problem.charges)
+        q = fsum(c.charge_c for c in problem.charges)
         q_net = shell.constraint.charge_c if isinstance(shell.constraint, FixedNetCharge) else -q
         q_outer = q + q_net
         v = q_outer/(4*pi*problem.permittivity_f_per_m*shell.outer_radius_m)

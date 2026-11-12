@@ -8,7 +8,7 @@ This geometry is valid for homogeneous, linear permittivity throughout.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isclose, isfinite, pi, sqrt
+from math import hypot, isclose, isfinite, pi, sin, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell, Vector3
@@ -107,10 +107,10 @@ class ImageChargeShellSolution:
         d = self.displacement_m
         if d == 0:
             return -self.source.charge_c / (4*pi*a*a)
-        from math import cos
-        return -self.source.charge_c * (a*a - d*d) / (
-            4*pi*a*(a*a + d*d - 2*a*d*cos(theta_rad))**1.5
-        )
+        # |a*n - d*axis| without cancelling a*a + d*d - 2*a*d.
+        gap = a-d
+        separation = hypot(gap, 2*sqrt(a)*sqrt(d)*sin(theta_rad/2))
+        return -self.source.charge_c * gap * (a+d) / (4*pi*a*separation**3)
 
 
 class ImageChargeShellBackend:

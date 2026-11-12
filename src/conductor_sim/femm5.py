@@ -21,6 +21,8 @@ from typing import Any, Callable, Literal
 
 from .model import EPSILON_0, ElectrostaticProblem, FixedNetCharge, Grounded, SphericalShell, Vector3
 from .solver import ConductorResult, SingularField, UnsupportedProblem
+from .model import _position
+from ._resources import cleanup_resources
 
 
 _SOURCE_CORE = "__conductor_sim_source_core"  # purely numerical, NOT a user conductor
@@ -170,12 +172,12 @@ class Femm5Settings:
     def __post_init__(self) -> None:
         if not (isfinite(self.outer_radius_factor) and self.outer_radius_factor >= 3):
             raise ValueError("outer_radius_factor must be finite and >= 3")
-        if not (isfinite(self.arc_degrees) and 0 < self.arc_degrees <= 15):
-            raise ValueError("arc_degrees must lie in (0, 15]")
+        if not (isfinite(self.arc_degrees) and 0 < self.arc_degrees <= 10):
+            raise ValueError("arc_degrees must lie in (0, 10] (FEMM clamps larger values)")
         if not (isfinite(self.mesh_scale) and 0 < self.mesh_scale <= 5):
             raise ValueError("mesh_scale must lie in (0, 5]")
-        if not (isfinite(self.solver_precision) and 0 < self.solver_precision < 1):
-            raise ValueError("solver_precision must lie in (0, 1)")
+        if not (isfinite(self.solver_precision) and 1e-16 <= self.solver_precision <= 1e-8):
+            raise ValueError("solver_precision must lie in [1e-16, 1e-8] (FEMM supported range)")
         if not (isfinite(self.source_radius_fraction) and .02 <= self.source_radius_fraction <= .2):
             raise ValueError("source_radius_fraction must lie in [0.02, 0.2]")
 
@@ -369,16 +371,14 @@ class Femm5Solution:
             raise RuntimeError("FEMM solution has been closed")
         return self
 
-    def __exit__(self, *args: Any) -> None:
-        self.close()
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        cleanup_resources((("FEMM solution", self.close),), primary=exc)
 
     def close(self) -> None:
         if not self._closed:
             self._closed = True
-            try:
-                self._session.close()
-            finally:
-                self._workspace.cleanup()
+            cleanup_resources((("FEMM session", self._session.close),
+                               ("FEMM workspace", self._workspace.cleanup)))
 
     def __del__(self) -> None:
         # A fallback only; callers should use a context manager for reliable cleanup.
@@ -391,8 +391,7 @@ class Femm5Solution:
     def _coordinate_data(self, point_m: Vector3) -> tuple[float, float, Vector3, Vector3]:
         if self._closed:
             raise RuntimeError("FEMM solution has been closed")
-        if len(point_m) != 3 or any(not isfinite(v) for v in point_m):
-            raise ValueError("sample point must be three finite coordinates")
+        point_m = _position(point_m, "FEMM sample point")
         delta = _difference(point_m, self.shell.center_m)
         z = _dot(delta, self.symmetry_axis)
         rho = tuple(delta[i]-z*self.symmetry_axis[i] for i in range(3))
@@ -414,8 +413,7 @@ class Femm5Solution:
         return self._sample(point_m)[0]
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
-        if len(point_m) != 3 or any(not isfinite(v) for v in point_m):
-            raise ValueError("sample point must be three finite coordinates")
+        point_m = _position(point_m, "FEMM sample point")
         delta_pre = _difference(point_m, self.shell.center_m)
         # A one-sided jump is a more precise failure than core exclusion.
         z_pre = _dot(delta_pre, self.symmetry_axis)
@@ -516,6 +514,7 @@ class Femm5Backend:
         if any(not isinstance(shell,SphericalShell)
                or not isinstance(shell.constraint,(Grounded,FixedNetCharge))
                or shell.name.startswith(_SOURCE_CORE)
+               or shell.name == "<None>"
                or shell.center_m != center for shell in shells):
             return False
         if any(left.outer_radius_m >= right.inner_radius_m
@@ -576,10 +575,12 @@ class Femm5Backend:
             # inference based on independently FEMM-measured net charges.
             enclosed=measured_total
             result_by_name: dict[str,ConductorResult]={}
+            enclosed_terms = [measured_total]
             for shell in radial_shells:
                 potential,net=observed_shells[shell.name]
                 inner=-enclosed
-                outer=net+enclosed
+                enclosed_terms.append(net)
+                outer=fsum(enclosed_terms)
                 result_by_name[shell.name]=ConductorResult(
                     shell.name,potential,net,inner,outer)
                 enclosed=outer
@@ -600,11 +601,13 @@ class Femm5Backend:
                 ),
                 permittivity_f_per_m=problem.permittivity_f_per_m,
             )
-        except Exception as exc:
-            try:
-                session.close()
-            finally:
-                workspace.cleanup()
-            if isinstance(exc, (Femm5Unavailable, UnsupportedProblem, Femm5ExecutionError)):
+        except BaseException as exc:
+            error = exc
+            if isinstance(exc, Exception) and not isinstance(
+                    exc, (Femm5Unavailable, UnsupportedProblem, Femm5ExecutionError)):
+                error = Femm5ExecutionError(f"FEMM 5 spherical-shell solve failed: {exc}")
+            cleanup_resources((("FEMM session", session.close),
+                               ("FEMM workspace", workspace.cleanup)), primary=error)
+            if error is exc:
                 raise
-            raise Femm5ExecutionError(f"FEMM 5 spherical-shell solve failed: {exc}") from exc
+            raise error from exc
