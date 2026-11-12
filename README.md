@@ -52,7 +52,7 @@ and 47 actual FEMM tests, including 7 M6b numerical/diagnostic cases.
 This is reproducible but **not** a blinded benchmark of arbitrary LLMs or
 an automatic textbook parser. The browser slider selects stored equilibria.
 
-## M7 experimental: external charge near a grounded solid conducting sphere
+## M7: live-validated external charge near a grounded solid conducting sphere
 
 A new **`SolidSphere`** physical component represents metal without a hollow
 cavity. `ExternalGroundedSphereBackend` uses the exact external Kelvin image
@@ -73,8 +73,7 @@ These states represent **precomputed static equilibria**, not moving charges
 or time-domain particle dynamics. Current M7 scope is one nonzero point charge
 strictly outside **one grounded solid sphere**. Existing 
 `Femm5Backend` continues to handle the earlier *interior-shell* configurations;
-no automatic backend fallback is introduced. M7 requires its own live numerical
-acceptance before merging. See [M7 design](docs/m7.md).
+no automatic backend fallback is introduced. **M7 passed 52 actual FEMM 5 integration tests**, including five new external-grounded-sphere cases. See [design](docs/m7.md) and [numerical acceptance](docs/m7-acceptance.md).
 
 ## First visual preview (no FEMM installation required)
 

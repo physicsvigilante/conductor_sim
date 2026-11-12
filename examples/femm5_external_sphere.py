@@ -40,11 +40,17 @@ def main():
     args.output.with_suffix('.json').write_text(json.dumps(bundle,allow_nan=False),encoding='utf-8')
     reference=ExternalGroundedSphereBackend()
     print('Exported',len(bundle['frames']),'precomputed frames to',args.output)
-    for label,problem in problems:
-        sol=reference.solve(problem)
-        q=sol.conductor_results[0].net_charge_c
-        print(label,'exact induced net charge (nC)',q*1e9,
-              'exact force z (N)',sol.induced_force_on_charge_n[2])
+    for (label,problem),frame in zip(problems,bundle['frames']):
+        exact=reference.solve(problem)
+        induced_exact=exact.conductor_results[0].net_charge_c
+        induced_computed=frame['conductor_results'][0]['net_charge_c']
+        potential_computed=frame['conductor_results'][0]['potential_v']
+        print(label)
+        print(' ',args.backend,'sphere net charge (nC)',f'{induced_computed*1e9:.9f}',
+              'potential (V)',f'{potential_computed:.6f}')
+        print('  analytical expected net charge (nC)',f'{induced_exact*1e9:.9f}',
+              'exact force on charge along +axis (N)',
+              f'{exact.induced_force_on_charge_n[2]:.9e}')
 
 
 if __name__=='__main__':
