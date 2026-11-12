@@ -1,6 +1,6 @@
 # M4b: composable concentric conducting shells
 
-**Status: candidate pending pinned live FEMM 5 validation.**
+**Status: accepted for strictly nested concentric conductors on 2026-11-12.** See [M4b numerical evidence](m4b-acceptance.md).
 
 ## Supported physical model
 
@@ -51,7 +51,7 @@ potential plus an image-charge solution with zero on that inner surface.
 Within each conductor `E=0`. This provides independent exact predictions
 for shell charges, potentials, fields and local surface density.
 
-## Validation requirements
+## Validation requirements (passed for the tested scope)
 
 Unit tests cover charges and potential for mixed and multiple groundings,
 two and three shells, reverse authored order, and clear rejection of invalid

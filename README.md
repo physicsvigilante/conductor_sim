@@ -3,9 +3,10 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1–M4a accepted; M4b concentric nested conductors under numerical review.**
-The analytical reference solves one spherical shell with charges at its center. The
-M2a FEMM 5 backend was validated for an empty isolated charged shell.
+**Status: M1–M4b numerically accepted for their explicitly supported domains.**
+The project offers increasingly composable FEMM 5 conductor solutions and
+independent exact electrostatic reference backends. M2a was the first
+live-validated empty-shell numerical baseline.
 M2b adds **centered point charge(s)** and **grounding**. M3 adds **a single off-centre source location** inside the spherical cavity, with rotation of the symmetry axis automatically handled by the backend. Multiple distinct source positions, non-spherical conductors, and arbitrary 3D geometries are not implemented.
 
 ## Quick start
@@ -125,7 +126,7 @@ remain one-sided near-surface estimates, not direct boundary-element data.
 
 **M4a accepted after 23 actual FEMM 5 tests passed.** See [M4a design](docs/m4a.md) and [M4a acceptance](docs/m4a-acceptance.md).
 
-## M4b candidate: independent nested conducting shells
+## M4b: live-validated independent nested conducting shells
 
 The same `ElectrostaticProblem` now accepts multiple **strictly nested,
 concentric** `SphericalShell` conductors with different `Grounded()` or
@@ -144,4 +145,4 @@ same nonintersecting concentric geometry. It also supports arbitrary 3D
 locations for charges inside the innermost cavity, whereas FEMM requires
 collinear charges.
 
-**M4b is not accepted until the new live FEMM tests pass.** See [M4b design](docs/m4b.md).
+**M4b accepted: 32 real FEMM 5 tests passed**, including nine new nested-shell tests. See [M4b design](docs/m4b.md) and [numerical acceptance](docs/m4b-acceptance.md).
