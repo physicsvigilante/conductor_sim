@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      FEMM_ROOT: ${{ runner.temp }}/femm-qt
+      FEMM_ROOT: ${{ github.workspace }}/.femm-upstream
       FEMM_COMMIT: 7c31ccfa3d4bcda8123d822cdda31fce929f672e
     steps:
       - name: Check out conductor_sim
@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch v5.0.20261101 https://github.com/dcm3c/femm-qt.git "$FEMM_ROOT"
+          git clone --depth 1 --branch v5.0.20261101 https://github.com/dcm3c/.femm-upstream.git "$FEMM_ROOT"
           actual="$(git -C "$FEMM_ROOT" rev-parse HEAD)"
           test "$actual" = "$FEMM_COMMIT"
           printf 'Pinned FEMM 5 source: %s\n' "$actual"
@@ -53,8 +53,8 @@ jobs:
       - name: Run REAL FEMM 5 electrostatics integration tests
         shell: bash
         env:
-          FEMM_DIR: ${{ runner.temp }}/femm-qt/build/bin
-          FEMM5_BINDING: ${{ runner.temp }}/femm-qt/pyfemm/femm.py
+          FEMM_DIR: ${{ github.workspace }}/.femm-upstream/build/bin
+          FEMM5_BINDING: ${{ github.workspace }}/.femm-upstream/pyfemm/femm.py
         run: |
           set -euo pipefail
           test -x "$FEMM_DIR/femm_headless"
