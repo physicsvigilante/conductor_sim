@@ -218,3 +218,24 @@ def test_visualizer_sample_sweep_analytical_three_states_no_numerical_fallback()
         assert frame['conductor_results_method'].startswith('Analytical')
     assert bundle['frames'][0]['conductor_results'][0]['potential_v']==0
     assert bundle['frames'][1]['conductor_results'][0]['net_charge_c']==0
+
+
+def test_noncollinear_total_force_matches_independent_3d_energy_gradient():
+    sites=((1e-9,(0,0,.27)),(-.5e-9,(.3,0,0)),(.3e-9,(0,-.26,0)))
+    for constraint in (Grounded(),FixedNetCharge(0.),FixedNetCharge(1.4e-9)):
+        p=problem(constraint,sites=sites)
+        s=ExternalSphereBackend().solve(p)
+        for index in range(len(s.sites)):
+            expected=s.force_on_charge_n(index)
+            for axis in range(3):
+                def energy(step):
+                    charges=list(s.sites)
+                    q=charges[index]
+                    xyz=list(q.position_m)
+                    xyz[axis]+=step
+                    charges[index]=PointCharge(q.charge_c,tuple(xyz))
+                    return ExternalSphereBackend().solve(
+                        ElectrostaticProblem(tuple(charges),p.conductors)).interaction_energy_j
+                h=2e-5
+                f=-(energy(h)-energy(-h))/(2*h)
+                assert expected[axis]==pytest.approx(f,rel=3e-6,abs=3e-13)

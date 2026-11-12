@@ -29,6 +29,16 @@ def _difference(a: Vector3, b: Vector3) -> Vector3:
     return tuple(a[i]-b[i] for i in range(3))
 
 
+@dataclass(frozen=True, slots=True)
+class _ExternalSourceCore:
+    """Prescribed finite source geometry BEFORE FEMM, never a measured result."""
+    name: str
+    position_m: Vector3
+    axial_offset_m: float
+    radius_m: float
+    prescribed_charge_c: float
+
+
 def _sites_with_axis(problem: ElectrostaticProblem):
     """Return deterministic common axis and axial coordinates of grouped sites.
 
@@ -59,7 +69,7 @@ def _compile(client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
         if not isfinite(radius) or radius<=0:
             raise UnsupportedProblem('external numerical cores require finite, nonoverlapping clearance')
         name=_SOURCE_NAME if len(sites)==1 else f'{_SOURCE_NAME}_{i+1}'
-        cores.append(NumericalSource(name,source.position_m,z,radius,source.charge_c))
+        cores.append(_ExternalSourceCore(name,source.position_m,z,radius,source.charge_c))
     R=max(b*settings.outer_radius_factor,
           2.5*max(abs(c.axial_offset_m)+c.radius_m for c in cores))
     if not isfinite(R):
@@ -75,7 +85,7 @@ def _compile(client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
         assert isinstance(sphere.constraint, FixedNetCharge)
         client.ei_addconductorprop(sphere.name,0,sphere.constraint.charge_c,0)
     for core in cores:
-        client.ei_addconductorprop(core.name,0,core.measured_charge_c,0)
+        client.ei_addconductorprop(core.name,0,core.prescribed_charge_c,0)
     # Robin boundary approximates open space, including multipoles. Domain
     # enlargement is explicitly compared against exact images in live tests.
     client.ei_addboundprop('open_robin',0,0,problem.permittivity_f_per_m/R,0,1)

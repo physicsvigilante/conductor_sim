@@ -190,7 +190,7 @@ viewer independently of the solver. Numerical tolerances are benchmark criteria,
 not uniform error bounds throughout every supported configuration.
 
 
-## M9 candidate — compose multiple external charges
+## M9: compose multiple external charges (real-FEMM validated)
 
 Author several `PointCharge` objects outside the same `SolidSphere`, with
 `Grounded()` or `FixedNetCharge(Q)`. `ExternalSphereBackend` dispatches
@@ -203,5 +203,6 @@ Run `python examples/femm5_multi_external.py --output output/m9.html`
 for analytical 4-state HTML/JSON, or configure FEMM 5 and add
 `--backend femm --resolution 25`. The slider plays stored equilibria,
 not continuous charge motion. See [M9 design](docs/m9.md) for the
-force/energy convention and acceptance limits. **M9 is not accepted on main
-until real FEMM and Chromium CI pass.**
+force/energy convention and acceptance limits. **M9 passed 68 actual FEMM tests** (including all 59 earlier regressions),
+plus independently validated analytical superposition and Chromium review.
+See [M9 acceptance](docs/m9-acceptance.md) for scoped evidence and limitations.
