@@ -25,7 +25,7 @@ class FakeClient:
             if name == self.fail_on:
                 raise RuntimeError("synthetic FEMM fault")
             if name == "eo_getconductorproperties":
-                return (35.0, 1e-9) if args[0] == _SOURCE_CORE else (12.0, 2e-9)
+                return (35.0, 1e-9) if args[0].startswith(_SOURCE_CORE) else (12.0, 2e-9)
             if name == "eo_getpointvalues":
                 return self.point_data
             return None
@@ -155,7 +155,7 @@ def test_strict_capability_boundary():
     bad = [
         ElectrostaticProblem(),
         ElectrostaticProblem(charges=(PointCharge(1e-9, (.103, 0, 0)),), conductors=problem().conductors),
-        ElectrostaticProblem(charges=(PointCharge(1e-9, (.03, 0, 0)), PointCharge(2e-9, (-.03, 0, 0))), conductors=problem().conductors),
+        ElectrostaticProblem(charges=(PointCharge(1e-9, (.03, 0, 0)), PointCharge(2e-9, (0, .03, 0))), conductors=problem().conductors),
         ElectrostaticProblem(charges=(PointCharge(1e-9),), conductors=(SphericalShell(.1,.12,Grounded(),name=_SOURCE_CORE),)),
         ElectrostaticProblem(conductors=(
             SphericalShell(.1,.12,FixedNetCharge(0),name="a"),

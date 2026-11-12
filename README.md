@@ -3,7 +3,7 @@
 A composable, Python-authored electrostatics engine for **JEE-level conductor problems**.
 Physical components are defined independently of the numerical solver and eventual viewer.
 
-**Status: M1, M2a, M2b, and M3 accepted for their explicitly limited domains.**
+**Status: M1–M4a accepted for documented domains; M4b nested conductors is next.**
 The analytical reference solves one spherical shell with charges at its center. The
 M2a FEMM 5 backend was validated for an empty isolated charged shell.
 M2b adds **centered point charge(s)** and **grounding**. M3 adds **a single off-centre source location** inside the spherical cavity, with rotation of the symmetry axis automatically handled by the backend. Multiple distinct source positions, non-spherical conductors, and arbitrary 3D geometries are not implemented.
@@ -102,3 +102,25 @@ See [M2b acceptance evidence](docs/m2b-acceptance.md).
 The **accepted M3 numerical backend** adds an axisymmetric off-center point-charge approximation: a finite charged sphere positioned along the automatically chosen symmetry axis. This supports a point charge at any orientation inside the spherical cavity, with grounded or fixed-net-charge shell constraints, while rejecting multiple distinct charge locations. `ImageChargeShellBackend` provides an **independent exact Kelvin image-charge reference** for potential, field and induced surface-charge density.
 
 Numerical `solution.surface_charge_density("inner", theta_rad)` estimates the **local induced surface density from FEMM's one-sided near-surface electric field**, not from an analytical formula or direct boundary-element extraction. The artificial source size and mesh must be sensitivity-checked. See [M3 design](docs/m3.md) and [real FEMM acceptance evidence](docs/m3-acceptance.md). **17 live FEMM tests passed, without skips**, including eight new off-centre cases and nine retained M2 regressions.
+
+## M4a candidate: compose multiple independent charge sites
+
+An arbitrary list of `PointCharge` components can be passed to the same
+`ElectrostaticProblem`. In the experimental M4a FEMM backend, all active
+charge sites must lie on **one line through the spherical shell's centre**;
+the engine detects that line and rotates it to FEMM's symmetry axis.
+Each distinct site becomes an independently charged numerical source core;
+coincident charges are combined, and zero-net locations are omitted.
+No per-charge FEMM code is required from the author.
+
+`MultiImageShellBackend` separately evaluates the **exact Kelvin-image
+superposition** for multiple charges anywhere in the spherical cavity,
+including non-collinear 3D arrangements. FEMM does **not** accept those
+non-collinear cases, and reports an explicit capability error.
+
+For a multi-site FEMM solution, use `numerical_sources` to inspect source
+positions, radii and measured charges. The legacy `source_radius_m` field
+remains defined only for a single numerical source. FEMM density profiles
+remain one-sided near-surface estimates, not direct boundary-element data.
+
+**M4a accepted after 23 actual FEMM 5 tests passed.** See [M4a design](docs/m4a.md) and [M4a acceptance](docs/m4a-acceptance.md).
