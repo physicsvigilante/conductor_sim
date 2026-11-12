@@ -32,6 +32,26 @@ See [M6 benchmark casebook](docs/m6-benchmark.md) for original PDF page
 anchors and finite-thickness corrections; [M6a acceptance](docs/m6-acceptance.md)
 records 40 actual FEMM tests and browser verification of the curated scope.
 
+## M6b: held-out JEE authoring trial
+
+A [15-question open authorability trial](docs/m6b.md) tests whether an
+LLM can compose *new* charge/shell configurations and request measurements
+using the existing engine unchanged. Nine questions are supported by both
+FEMM 5 and the analytical reference; one non-collinear cavity arrangement
+requires the analytical backend; five require missing physics and must be
+refused rather than simulated with invented geometry.
+
+```bash
+python -m m6b.evaluate list
+python -m m6b.evaluate grade --output output/m6b-report.json
+python -m m6b.evaluate render grounded-two-state-sweep --output output/m6b.html
+```
+
+The [accepted M6b trial](docs/m6b-acceptance.md) passed 192 Python tests
+and 47 actual FEMM tests, including 7 M6b numerical/diagnostic cases.
+This is reproducible but **not** a blinded benchmark of arbitrary LLMs or
+an automatic textbook parser. The browser slider selects stored equilibria.
+
 ## First visual preview (no FEMM installation required)
 
 ```bash
