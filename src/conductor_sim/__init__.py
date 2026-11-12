@@ -8,6 +8,7 @@ from .femm5 import Femm5Backend, Femm5ExecutionError, Femm5Settings, Femm5Unavai
 from .external_sphere import ExternalGroundedSphereBackend, ExternalGroundedSphereSolution
 from .external_isolated import (ExternalIsolatedSphereBackend, ExternalIsolatedSphereSolution,
                                 ExternalSphereBackend)
+from .external_multi import ExternalMultiSphereBackend, ExternalMultiSphereSolution
 from .femm5_external import Femm5ExternalSphereBackend, Femm5ExternalSphereSolution
 from .model import (
     EPSILON_0,
@@ -29,6 +30,8 @@ __all__ = [
     "ExternalGroundedSphereSolution",
     "ExternalIsolatedSphereBackend",
     "ExternalIsolatedSphereSolution",
+    "ExternalMultiSphereBackend",
+    "ExternalMultiSphereSolution",
     "ExternalSphereBackend",
     "Femm5Settings",
     "Femm5Unavailable",

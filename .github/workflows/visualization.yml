@@ -45,6 +45,10 @@ jobs:
         run: python examples/femm5_isolated_sphere.py --resolution 27 --output review-artifacts/m8-isolated.html
       - name: M8 offline Chromium viewer acceptance
         run: python tools/check_viewer.py review-artifacts/m8-isolated.html --screenshot review-artifacts/m8-isolated.png > review-artifacts/m8-browser.json
+      - name: M9 multiple external sources analytical HTML
+        run: python examples/femm5_multi_external.py --backend analytical --resolution 31 --output review-artifacts/m9-multi-external.html
+      - name: M9 Chromium offline multi-source acceptance
+        run: python tools/check_viewer.py review-artifacts/m9-multi-external.html --screenshot review-artifacts/m9-multi-external.png > review-artifacts/m9-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

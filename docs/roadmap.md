@@ -49,3 +49,10 @@ M9 — Extend external geometry/charge-site composition only after validating
 M8: multiple independent external sources on the axis, a new conducting plane
 component, and charge/ring field components. Charged-particle dynamics remain
 a separate physical engine.
+
+
+M9 — **Candidate pending real FEMM acceptance:** multiple distinct external
+charges around one grounded or fixed-net-charge solid sphere; independent
+Kelvin-image superposition for arbitrary 3D locations and a strict axial-only
+multi-source FEMM compiler with separate measured source-core charges. See
+[M9](m9.md). No arbitrary 3D numerical FEMM or scene graph.

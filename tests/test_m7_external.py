@@ -128,7 +128,7 @@ def test_strict_unsupported_physics_never_silently_fallback():
         ElectrostaticProblem((PointCharge(Q,(0,0,A)),),(SolidSphere(A,Grounded()),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,A*.5)),),(SolidSphere(A,Grounded()),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,D)),),(SphericalShell(.10,A,Grounded()),)),
-        ElectrostaticProblem((PointCharge(Q,(0,0,D)),PointCharge(-Q,(0,0,-D))),
+        ElectrostaticProblem((PointCharge(Q,(0,0,D)),PointCharge(-Q,(D,0,0))),
                              (SolidSphere(A,Grounded()),)),
         ElectrostaticProblem((PointCharge(0,(0,0,D)),),(SolidSphere(A,Grounded()),)),
     )

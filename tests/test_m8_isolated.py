@@ -154,8 +154,6 @@ def test_grounded_backend_remains_strict_and_common_analytical_dispatches():
     for p in (
         ElectrostaticProblem((PointCharge(Q,(0,0,.05)),),(SolidSphere(A,FixedNetCharge(0)),)),
         ElectrostaticProblem((PointCharge(Q,(0,0,A)),),(SolidSphere(A,FixedNetCharge(0)),)),
-        ElectrostaticProblem((PointCharge(Q,(0,0,D)),PointCharge(-Q,(0,0,-D))),
-                             (SolidSphere(A,FixedNetCharge(0)),)),
     ):
         for b in (ExternalIsolatedSphereBackend(),ExternalSphereBackend(),Femm5ExternalSphereBackend()):
             assert not b.supports(p)
@@ -212,3 +210,16 @@ def test_source_sign_reversal_neutral_induction_and_force_symmetry():
             -positive.surface_charge_density('outer',theta))
     assert negative.force_on_charge_n == pytest.approx(positive.force_on_charge_n)
     assert negative.interaction_energy_j == pytest.approx(positive.interaction_energy_j)
+
+
+def test_m9_noncollinear_external_sources_are_analytical_only():
+    from conductor_sim import ExternalMultiSphereBackend
+    problem = ElectrostaticProblem(
+        (PointCharge(Q,(0,0,D)),PointCharge(-Q,(D,0,0))),
+        (SolidSphere(A,FixedNetCharge(0)),))
+    assert not ExternalIsolatedSphereBackend().supports(problem)  # legacy single-source
+    assert ExternalSphereBackend().supports(problem)  # exact 3D multi-image
+    assert ExternalMultiSphereBackend().supports(problem)
+    assert not Femm5ExternalSphereBackend().supports(problem)  # no axis of revolution
+    with pytest.raises(UnsupportedProblem):
+        Femm5ExternalSphereBackend().solve(problem)

@@ -188,3 +188,20 @@ FEMM workflow builds the pinned real headless solver and runs numerical tests.
 A skipped FEMM test is not numerical evidence. Browser checks exercise the exported
 viewer independently of the solver. Numerical tolerances are benchmark criteria,
 not uniform error bounds throughout every supported configuration.
+
+
+## M9 candidate — compose multiple external charges
+
+Author several `PointCharge` objects outside the same `SolidSphere`, with
+`Grounded()` or `FixedNetCharge(Q)`. `ExternalSphereBackend` dispatches
+to an exact multi-image analytical reference for arbitrary source positions
+in 3D. `Femm5ExternalSphereBackend` compiles separately charged source
+cores into one FEMM 5 solve only when source sites share a line through the
+sphere centre; **non-collinear numerical cases are rejected explicitly**.
+
+Run `python examples/femm5_multi_external.py --output output/m9.html`
+for analytical 4-state HTML/JSON, or configure FEMM 5 and add
+`--backend femm --resolution 25`. The slider plays stored equilibria,
+not continuous charge motion. See [M9 design](docs/m9.md) for the
+force/energy convention and acceptance limits. **M9 is not accepted on main
+until real FEMM and Chromium CI pass.**
