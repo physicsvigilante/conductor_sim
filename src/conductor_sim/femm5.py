@@ -1,4 +1,4 @@
-"""FEMM 5 electrostatics adapter: one spherical shell and axial source sites.
+"""FEMM 5 electrostatics adapter: concentric shells and axial charge sites.
 
 This is a deliberately limited, axisymmetric numerical vertical slice.  It produces a real
 FEMM 5 axisymmetric solve, *not* a disguised analytical solution.  FEMM is an
@@ -222,90 +222,103 @@ class NumericalSource:
     measured_charge_c: float
 
 
+def _radial_shells(problem: ElectrostaticProblem) -> tuple[SphericalShell, ...]:
+    """Canonical radial order; authored conductor order is preserved in results."""
+    return tuple(sorted(problem.conductors, key=lambda s: (s.inner_radius_m,s.outer_radius_m)))
+
+
 def _compile_shell(
     client: Any, problem: ElectrostaticProblem, settings: Femm5Settings
-) -> tuple[float, tuple[SourceCore, ...], Vector3]:
-    """Compile one shell and zero or more *collinear* fixed-charge source cores.
+) -> tuple[float, tuple[SourceCore, ...], Vector3, tuple[SphericalShell, ...]]:
+    """Compile nested concentric shells plus zero or more axial source cores.
 
-    Each distinct, net-nonzero point-charge location becomes a separate small
-    charged FEMM sphere ON the common symmetry axis. The sources do not
-    overlap one another or the physical shell. This finite conductor is an
-    approximation to an ideal point source; independent image-charge and
-    radius/mesh validation are required before numerical acceptance.
+    The same compiler handles one shell and any number of nonintersecting
+    concentric shells. Each *physical* shell uses ONE connected FEMM
+    conductor property for both faces, with its own grounding/charge rule.
+    Each active charge site becomes an independent, small fixed-Q source
+    sphere entirely inside the innermost cavity. These artificial conductors
+    are never returned as physical problem components.
     """
-    shell = problem.conductors[0]
-    a, b = shell.inner_radius_m, shell.outer_radius_m
-    R = b * settings.outer_radius_factor
+    shells = _radial_shells(problem)
+    inner = shells[0]
+    a = inner.inner_radius_m
+    R = shells[-1].outer_radius_m * settings.outer_radius_factor
     degrees = settings.arc_degrees
     axis, _ = _source_frame(problem)
 
     sites = sorted((
-        (_dot(_difference(pos, shell.center_m), axis), pos, charge)
+        (_dot(_difference(pos, inner.center_m), axis), pos, charge)
         for pos, charge in _active_sites(problem)
     ), key=lambda item: (item[0], item[1]))
     cores: list[SourceCore] = []
     for i, (z, pos, charge) in enumerate(sites):
-        # Nonoverlap: each core radius is at most 1/4 of its distance
-        # to its nearest neighbor and 1/4 of its clearance to the wall.
-        neighbor = min((abs(z-z_other) for j, (z_other, _, _) in enumerate(sites)
-                        if j != i), default=float("inf"))
+        neighbor = min((abs(z-z_other) for j,(z_other,_,_) in enumerate(sites)
+                        if j!=i),default=float("inf"))
         clearance = a-abs(z)
-        radius = min(a*settings.source_radius_fraction, clearance/4, neighbor/4)
+        radius = min(a*settings.source_radius_fraction,clearance/4,neighbor/4)
         if radius <= 0 or not isfinite(radius):
-            raise UnsupportedProblem("cannot construct separated FEMM source cores")
-        name = _SOURCE_CORE if len(sites) == 1 else f"{_SOURCE_CORE}_{i+1}"
-        cores.append(SourceCore(name, pos, z, radius, charge))
+            raise UnsupportedProblem("cannot construct nonoverlapping FEMM source cores")
+        name = _SOURCE_CORE if len(sites)==1 else f"{_SOURCE_CORE}_{i+1}"
+        cores.append(SourceCore(name,pos,z,radius,charge))
 
     client.newdocument(1)
-    client.ei_probdef("meters", "axi", settings.solver_precision)
+    client.ei_probdef("meters","axi",settings.solver_precision)
     relative_eps = problem.permittivity_f_per_m / EPSILON_0
-    client.ei_addmaterial("Vacuum", relative_eps, relative_eps, 0)
-    if isinstance(shell.constraint, FixedNetCharge):
-        client.ei_addconductorprop(shell.name, 0, shell.constraint.charge_c, 0)
-    else:
-        assert isinstance(shell.constraint, Grounded)
-        client.ei_addconductorprop(shell.name, 0, 0, 1)
+    client.ei_addmaterial("Vacuum",relative_eps,relative_eps,0)
+    for shell in shells:
+        if isinstance(shell.constraint, FixedNetCharge):
+            client.ei_addconductorprop(shell.name,0,shell.constraint.charge_c,0)
+        else:
+            assert isinstance(shell.constraint, Grounded)
+            client.ei_addconductorprop(shell.name,0,0,1)
     for core in cores:
-        client.ei_addconductorprop(core.name, 0, core.prescribed_charge_c, 0)
+        client.ei_addconductorprop(core.name,0,core.prescribed_charge_c,0)
 
-    # Single outer Robin boundary works because there are no sources or
-    # conductors outside the spherical metal shell (exterior monopole).
-    client.ei_addboundprop("open_robin", 0, 0, problem.permittivity_f_per_m / R, 0, 1)
+    # Exterior of the outermost spherical conductor has only a monopole.
+    # The Robin boundary does not prescribe conductor potentials.
+    client.ei_addboundprop("open_robin",0,0,problem.permittivity_f_per_m/R,0,1)
 
-    for radius in (a, b, R):
-        for x, z in ((0, -radius), (radius, 0), (0, radius)):
-            client.ei_addnode(x, z)
-        _half_circle(client, radius, degrees)
-
-    heights = {z for radius in (a, b, R) for z in (-radius, radius)}
+    physical_radii = tuple(radius for shell in shells
+                           for radius in (shell.inner_radius_m,shell.outer_radius_m))
+    for radius in (*physical_radii, R):
+        for x,z in ((0,-radius),(radius,0),(0,radius)):
+            client.ei_addnode(x,z)
+        _half_circle(client,radius,degrees)
+    heights = {z for radius in (*physical_radii,R) for z in (-radius,radius)}
     for core in cores:
-        for x, z in ((0, core.axial_offset_m-core.radius_m),
-                     (core.radius_m, core.axial_offset_m),
-                     (0, core.axial_offset_m+core.radius_m)):
-            client.ei_addnode(x, z)
-        _half_circle(client, core.radius_m, degrees, core.axial_offset_m)
-        heights.update((core.axial_offset_m-core.radius_m,
-                        core.axial_offset_m+core.radius_m))
+        zc=core.axial_offset_m
+        rad=core.radius_m
+        for x,z in ((0,zc-rad),(rad,zc),(0,zc+rad)):
+            client.ei_addnode(x,z)
+        _half_circle(client,rad,degrees,zc)
+        heights.update((zc-rad,zc+rad))
+    ordered=sorted(heights)
+    for z0,z1 in zip(ordered,ordered[1:]):
+        client.ei_addsegment(0,z0,0,z1)
 
-    for z0, z1 in zip(sorted(heights), sorted(heights)[1:]):
-        client.ei_addsegment(0, z0, 0, z1)
-
-    for radius in (a, b):
-        _mark_arcs(client, radius, degrees, "<None>", shell.name)
+    for shell in shells:
+        for radius in (shell.inner_radius_m,shell.outer_radius_m):
+            _mark_arcs(client,radius,degrees,"<None>",shell.name)
     for core in cores:
-        _mark_arcs(client, core.radius_m, degrees, "<None>", core.name,
-                   core.axial_offset_m)
-    _mark_arcs(client, R, degrees, "open_robin", "<None>")
+        _mark_arcs(client,core.radius_m,degrees,"<None>",core.name,core.axial_offset_m)
+    _mark_arcs(client,R,degrees,"open_robin","<None>")
 
     for core in cores:
-        _label_air(client, core.radius_m/2,
-                   core.radius_m/6 * settings.mesh_scale, core.axial_offset_m)
-    # At cylindrical r=a/2, z=0: never inside a source core (r_core<=a/5).
-    _label_air(client, a/2, a/8 * settings.mesh_scale)
-    _label_air(client, (a+b)/2,
-               min((b-a)/2, b/12) * settings.mesh_scale)
-    _label_air(client, (b+R)/2, b/4 * settings.mesh_scale)
-    return R, tuple(cores), axis
+        _label_air(client,core.radius_m/2,
+                   core.radius_m/6*settings.mesh_scale,core.axial_offset_m)
+    # r=a/2,z=0 lies in the cavity and outside every regularized source core.
+    _label_air(client,a/2,a/8*settings.mesh_scale)
+    for i,shell in enumerate(shells):
+        a_i,b_i=shell.inner_radius_m,shell.outer_radius_m
+        _label_air(client,(a_i+b_i)/2,
+                   min((b_i-a_i)/2,b_i/12)*settings.mesh_scale)
+        if i+1<len(shells):
+            next_a=shells[i+1].inner_radius_m
+            _label_air(client,(b_i+next_a)/2,
+                       min((next_a-b_i)/4,b_i/8)*settings.mesh_scale)
+    last_b=shells[-1].outer_radius_m
+    _label_air(client,(last_b+R)/2,last_b/4*settings.mesh_scale)
+    return R,tuple(cores),axis,shells
 
 
 
@@ -339,10 +352,17 @@ class Femm5Solution:
     source_radius_m: float | None = None
     numerical_source_charge_c: float | None = None
     numerical_sources: tuple[NumericalSource, ...] = ()
+    radial_shells: tuple[SphericalShell, ...] = ()  # includes innermost 'shell'
     symmetry_axis: Vector3 = (0.0, 0.0, 1.0)
     source_displacement_m: float = 0.0
     permittivity_f_per_m: float = EPSILON_0
     _closed: bool = field(default=False, init=False, repr=False)
+
+    def conductor_by_name(self, name: str) -> ConductorResult:
+        for conductor in self.conductor_results:
+            if conductor.name == name:
+                return conductor
+        raise KeyError(name)
 
     def __enter__(self) -> Femm5Solution:
         if self._closed:
@@ -406,8 +426,9 @@ class Femm5Solution:
                 raise SingularField("field has a jump at source-core surface")
         r, z, delta, rho = self._coordinate_data(point_m)
         distance = _norm(delta)
-        if any(isclose(distance, radius, rel_tol=1e-12) for radius in
-               (self.shell.inner_radius_m, self.shell.outer_radius_m)):
+        if any(isclose(distance, radius, rel_tol=1e-12)
+               for shell in (self.radial_shells or (self.shell,))
+               for radius in (shell.inner_radius_m,shell.outer_radius_m)):
             raise SingularField("field has distinct one-sided conductor surface limits")
         values = _as_finite_values(self._client.eo_getpointvalues(r, z), 8,
                                    "electrostatic point values")
@@ -416,47 +437,65 @@ class Femm5Solution:
                      for i in range(3))
 
     def surface_charge_density(
-        self, surface: Literal["inner", "outer"], theta_rad: float,
-        *, offset_fraction: float = 0.02,
+        self, surface: Literal["inner","outer"], theta_rad: float,
+        *, offset_fraction: float=0.02, conductor_name: str | None=None,
     ) -> float:
-        """Estimate sigma from FEMM one-sided E close to the shell surface.
+        """Estimate local sigma from one-sided FEMM E, never from images.
 
-        The metal outward normal points *toward cavity* on the inner face.
-        theta is relative to the positive center-to-charge symmetry axis.
-        This is a near-boundary field estimate, not a direct FEMM surface-
-        element density integral; inspect offset/mesh sensitivity before use.
+        For more than one shell `conductor_name` is required. Theta refers
+        to the shared, automatically chosen source symmetry axis; for
+        other shells sigma should be uniform to numerical accuracy.
+        The sample is constrained to the adjacent vacuum gap, not a metal.
         """
-        if surface not in ("inner", "outer"):
-            raise ValueError("surface must be 'inner' or 'outer'")
+        if surface not in ("inner","outer"):
+            raise ValueError("surface must be inner or outer")
         if not isfinite(theta_rad) or not 0 <= theta_rad <= pi:
-            raise ValueError("theta_rad must be in [0, pi]")
-        if not isfinite(offset_fraction) or not 0 < offset_fraction <= 0.10:
-            raise ValueError("offset_fraction must be in (0, 0.10]")
-        a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
-        if surface == "inner":
-            closest_clearance = min(
-                (a-abs(core.axial_offset_m)-core.radius_m
-                 for core in self.numerical_sources), default=a)
-            gap = min(a*offset_fraction, closest_clearance/5)
-            radius = a-gap
-            normal_sign = -1
+            raise ValueError("theta_rad must be in [0,pi]")
+        if not isfinite(offset_fraction) or not 0<offset_fraction<=.1:
+            raise ValueError("offset_fraction must lie in (0,.1]")
+        shells=self.radial_shells or (self.shell,)
+        if conductor_name is None:
+            if len(shells) != 1:
+                raise UnsupportedProblem("conductor_name required for multiple shells")
+            index=0
         else:
-            radius = b*(1+offset_fraction)
-            normal_sign = +1
-        radial = _perpendicular(self.symmetry_axis)
-        normal = tuple(cos(theta_rad)*self.symmetry_axis[i] +
-                       sin(theta_rad)*radial[i] for i in range(3))
-        point = tuple(self.shell.center_m[i] + radius*normal[i] for i in range(3))
-        field = self.electric_field_at(point)
-        return normal_sign*self.permittivity_f_per_m * _dot(field, normal)
+            index=next((i for i,s in enumerate(shells) if s.name==conductor_name),-1)
+            if index<0:
+                raise ValueError(f"unknown physical conductor {conductor_name!r}")
+        shell=shells[index]
+        a,b=shell.inner_radius_m,shell.outer_radius_m
+        if surface=="inner":
+            if index==0:
+                clearance=min((a-abs(c.axial_offset_m)-c.radius_m
+                               for c in self.numerical_sources),default=a)
+            else:
+                clearance=a-shells[index-1].outer_radius_m
+            gap=min(a*offset_fraction,clearance/5)
+            radius=a-gap
+            sign=-1
+        else:
+            if index+1<len(shells):
+                clearance=shells[index+1].inner_radius_m-b
+            else:
+                clearance=self.outer_radius_m-b
+            gap=min(b*offset_fraction,clearance/5)
+            radius=b+gap
+            sign=+1
+        radial=_perpendicular(self.symmetry_axis)
+        normal=tuple(cos(theta_rad)*self.symmetry_axis[i]+
+                     sin(theta_rad)*radial[i] for i in range(3))
+        point=tuple(self.shell.center_m[i]+radius*normal[i] for i in range(3))
+        electric=self.electric_field_at(point)
+        return sign*self.permittivity_f_per_m*_dot(electric,normal)
 
 
 class Femm5Backend:
-    """FEMM 5 backend for one spherical shell and multiple collinear sources.
+    """FEMM 5 backend for nested concentric shells and axial charge sites.
 
-    One independent finite charged core is created at each distinct active
-    source site. Non-collinear positions are explicitly rejected. The
-    numerical sources are not physical authored conductor components.
+    Each physical shell has its own grounded or fixed-Q constraint. One
+    independent charged core represents each active point-charge site.
+    Non-concentric/intersecting shells, charges outside the innermost
+    cavity and non-collinear source sites are explicitly rejected.
     """
 
     def __init__(
@@ -470,77 +509,94 @@ class Femm5Backend:
         self._session_factory = session_factory or (lambda: Femm5Session(binding_path))
 
     def supports(self, problem: ElectrostaticProblem) -> bool:
-        if len(problem.conductors) != 1:
+        if not 1 <= len(problem.conductors) <= 8:
             return False
-        shell = problem.conductors[0]
-        if (not isinstance(shell, SphericalShell)
-                or not isinstance(shell.constraint, (Grounded, FixedNetCharge))
-                or shell.name.startswith(_SOURCE_CORE)):
+        shells=_radial_shells(problem)
+        center=shells[0].center_m
+        if any(not isinstance(shell,SphericalShell)
+               or not isinstance(shell.constraint,(Grounded,FixedNetCharge))
+               or shell.name.startswith(_SOURCE_CORE)
+               or shell.center_m != center for shell in shells):
             return False
-        if any(_norm(_difference(q.position_m, shell.center_m)) >= shell.inner_radius_m
-               for q in problem.charges):
+        if any(left.outer_radius_m >= right.inner_radius_m
+               for left,right in zip(shells,shells[1:])):
+            return False
+        a=shells[0].inner_radius_m
+        if any(_norm(_difference(q.position_m,center)) >= a for q in problem.charges):
             return False
         try:
-            sites = _active_sites(problem)
-            axis, _ = _source_frame(problem)
-        except (OverflowError, ValueError):
+            sites=_active_sites(problem)
+            axis,_=_source_frame(problem)
+        except (OverflowError,ValueError):
             return False
-        if len(sites) > 16:
-            return False   # bounded solver complexity; no silent truncation
-        tolerance = 1e-11 * shell.inner_radius_m
-        for position, charge in sites:
-            delta = _difference(position, shell.center_m)
-            z = _dot(delta, axis)
-            transverse = tuple(delta[i]-z*axis[i] for i in range(3))
-            if _norm(transverse) > tolerance:
+        if len(sites)>16:
+            return False
+        tolerance=1e-11*a
+        for position,_ in sites:
+            delta=_difference(position,center)
+            z=_dot(delta,axis)
+            transverse=tuple(delta[i]-z*axis[i] for i in range(3))
+            if _norm(transverse)>tolerance:
                 return False
         return True
 
     def solve(self, problem: ElectrostaticProblem) -> Femm5Solution:
         if not self.supports(problem):
             raise UnsupportedProblem(
-                "FEMM 5 M4a requires one spherical shell and up to 16 active "
-                "charge sites on one common symmetry axis through its center; "
-                "non-collinear charges require a 3D backend"
+                "FEMM 5 M4b supports up to 8 strictly nested concentric shells "
+                "and up to 16 charge sites on one symmetry axis inside their "
+                "innermost cavity; eccentric, overlapping, or non-collinear "
+                "configurations require a different solver"
             )
         session = self._session_factory()
         workspace = TemporaryDirectory(prefix="conductor_sim_femm5_")
         try:
             client = session.open()
-            radius, cores, axis = _compile_shell(client, problem, self.settings)
+            radius, cores, axis, radial_shells = _compile_shell(client, problem, self.settings)
             client.ei_saveas((Path(workspace.name) / "charged_shell.fee").as_posix())
             client.ei_analyze(1)
             client.ei_loadsolution()
-            shell = problem.conductors[0]
-            voltage, shell_charge = _as_finite_values(
-                client.eo_getconductorproperties(shell.name), 2, "shell conductor results"
-            )
+            # Observe each numerical charge and each *physical* conductor.
+            # No analytical potential is substituted for FEMM output.
             measured: list[NumericalSource] = []
             for core in cores:
                 _, charge = _as_finite_values(
-                    client.eo_getconductorproperties(core.name), 2,
+                    client.eo_getconductorproperties(core.name),2,
                     f"numerical source {core.name} charge results")
-                measured.append(NumericalSource(
-                    core.name, core.position_m, core.axial_offset_m,
-                    core.radius_m, charge))
-            measured_total = fsum(item.measured_charge_c for item in measured)
-            # Each inner surface total is a Gauss-law inference from real
-            # FEMM-measured source and shell charges, not local density data.
-            inner = -measured_total
-            conductor = ConductorResult(
-                shell.name, voltage, shell_charge, inner, shell_charge-inner)
-            one = measured[0] if len(measured) == 1 else None
+                measured.append(NumericalSource(core.name,core.position_m,
+                                                core.axial_offset_m,core.radius_m,charge))
+            measured_total=fsum(item.measured_charge_c for item in measured)
+            observed_shells: dict[str,tuple[float,float]]={}
+            for shell in radial_shells:
+                observed_shells[shell.name]=_as_finite_values(
+                    client.eo_getconductorproperties(shell.name),2,
+                    f"physical shell {shell.name} results")
+            # On each metal inner surface: Q_inner = -Q_enclosed just inside.
+            # Outer face charge is Q_shell - Q_inner. This is a Gauss-law
+            # inference based on independently FEMM-measured net charges.
+            enclosed=measured_total
+            result_by_name: dict[str,ConductorResult]={}
+            for shell in radial_shells:
+                potential,net=observed_shells[shell.name]
+                inner=-enclosed
+                outer=net+enclosed
+                result_by_name[shell.name]=ConductorResult(
+                    shell.name,potential,net,inner,outer)
+                enclosed=outer
+            # Return results in *authored* conductor order, not sorted order.
+            results=tuple(result_by_name[s.name] for s in problem.conductors)
+            one=measured[0] if len(measured)==1 else None
             return Femm5Solution(
-                shell=shell, outer_radius_m=radius,
-                conductor_results=(conductor,), _session=session, _client=client,
-                _workspace=workspace,
+                shell=radial_shells[0], radial_shells=radial_shells,
+                outer_radius_m=radius,conductor_results=results,
+                _session=session,_client=client,_workspace=workspace,
                 source_radius_m=one.radius_m if one is not None else None,
                 numerical_source_charge_c=measured_total if measured else None,
                 numerical_sources=tuple(measured),
                 symmetry_axis=axis,
                 source_displacement_m=(
                     abs(one.axial_offset_m) if one is not None else
-                    max((abs(item.axial_offset_m) for item in measured), default=0.0)
+                    max((abs(item.axial_offset_m) for item in measured),default=0.0)
                 ),
                 permittivity_f_per_m=problem.permittivity_f_per_m,
             )
