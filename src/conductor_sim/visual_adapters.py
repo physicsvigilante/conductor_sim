@@ -3,6 +3,7 @@ from math import acos, fsum, hypot, pi
 
 from .model import ConductingPlane
 from .grounded_plane import GroundedPlaneSolution
+from .parallel_plates import ParallelPlateSolution
 from .analytical import ConcentricShellSolution
 from .image_charge import ImageChargeShellSolution
 from .multi_image import MultiImageShellSolution
@@ -79,13 +80,21 @@ def context_for_solution(problem, solution):
         known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
                                     ImageChargeShellSolution,ConcentricShellSolution,
                                     ExternalGroundedSphereSolution, ExternalMultiSphereSolution,
-                                    GroundedPlaneSolution))
+                                    GroundedPlaneSolution,ParallelPlateSolution))
         if known:
             conductor_method = 'Analytical reference conductor properties.'
         notes += [('Analytical reference samples, not FEMM output.' if known else
                    'Custom solver samples; configure SamplingContext for its numerical domain and exclusions.'),
                   'Small display-exclusion discs avoid ideal point singularities; they are not physical source radii.']
-        if isinstance(solution,GroundedPlaneSolution):
+        if isinstance(solution,ParallelPlateSolution):
+            density = lambda name,face,point: solution.surface_charge_density_at(
+                face,point,conductor_name=name)
+            method = f'parallel-plate symmetric image series (order {solution.image_order})'
+            conductor_method = ('Analytical infinite plates: charge totals are excess induced totals '
+                                'only if plate potentials match; otherwise undefined (n/a).')
+            notes.append('Image-charge fields are truncated approximations; test convergence by increasing image_order.')
+            notes.append('Infinite plates at different potentials have unbounded total charge, not a finite plate Q.')
+        elif isinstance(solution,GroundedPlaneSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)
             method = 'exact grounded infinite-plane mirror-charge density'
         elif isinstance(solution,ExternalMultiSphereSolution):

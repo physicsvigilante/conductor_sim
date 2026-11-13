@@ -32,7 +32,15 @@ class FixedNetCharge:
     def __post_init__(self) -> None:
         _finite(self.charge_c, "net charge")
 
-ElectricalConstraint: TypeAlias = Grounded | FixedNetCharge
+@dataclass(frozen=True, slots=True)
+class FixedPotential:
+    """Prescribed potential of a connected conductor in volts."""
+    potential_v: float
+
+    def __post_init__(self) -> None:
+        _finite(self.potential_v, "fixed potential")
+
+ElectricalConstraint: TypeAlias = Grounded | FixedNetCharge | FixedPotential
 
 @dataclass(frozen=True, slots=True)
 class PointCharge:
@@ -97,11 +105,13 @@ class SolidSphere:
 
 @dataclass(frozen=True, slots=True)
 class ConductingPlane:
-    """Ideal infinite grounded conductor occupying the negative-normal half-space.
+    """Ideal infinite conductor occupying the negative-normal half-space.
 
     ``point_m`` lies on the boundary; ``normal`` points into the physical
     vacuum half-space (where charges may be placed). The plane has no finite
-    area and cannot have a prescribed *total* charge. Solvers remain free to
+    area and cannot have a prescribed *total* charge. Supports Grounded() or
+    FixedPotential(volts); a numerical backend may support fewer constraints.
+    Solvers remain free to
     reject more complicated configurations involving this component.
     """
     point_m: Vector3 = ORIGIN
@@ -117,8 +127,8 @@ class ConductingPlane:
         if not isfinite(magnitude) or magnitude == 0:
             raise ValueError("plane normal must be finite and nonzero")
         object.__setattr__(self, "normal", tuple(v / magnitude for v in vector))
-        if not isinstance(self.constraint, Grounded):
-            raise TypeError("an infinite conducting plane only supports Grounded()")
+        if not isinstance(self.constraint, (Grounded, FixedPotential)):
+            raise TypeError("an infinite conducting plane requires Grounded() or FixedPotential(V)")
         if (not isinstance(self.name, str) or not self.name.strip()
                 or self.name == "<None>"
                 or any(ord(c) < 32 or c in '"\\' for c in self.name)):

@@ -11,12 +11,14 @@ from .external_isolated import (ExternalIsolatedSphereBackend, ExternalIsolatedS
 from .external_multi import ExternalMultiSphereBackend, ExternalMultiSphereSolution
 from .femm5_external import Femm5ExternalSphereBackend, Femm5ExternalSphereSolution
 from .grounded_plane import GroundedPlaneBackend, GroundedPlaneSolution
+from .parallel_plates import ParallelPlateBackend, ParallelPlateSolution
 from .femm5_plane import Femm5PlaneBackend, Femm5PlaneSolution
 from .model import (
     EPSILON_0,
     ElectrostaticProblem,
     ConductingPlane,
     FixedNetCharge,
+    FixedPotential,
     Grounded,
     PointCharge,
     SphericalShell,
@@ -41,6 +43,9 @@ __all__ = [
     "Femm5ExecutionError",
     "ElectrostaticProblem",
     "FixedNetCharge",
+    "FixedPotential",
+    "ParallelPlateBackend",
+    "ParallelPlateSolution",
     "Grounded",
     "ConductingPlane",
     "GroundedPlaneBackend",

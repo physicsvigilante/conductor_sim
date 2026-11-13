@@ -14,9 +14,11 @@ class SingularField(ValueError):
 class ConductorResult:
     name: str
     potential_v: float
-    net_charge_c: float
-    inner_surface_charge_c: float
-    outer_surface_charge_c: float
+    # None means the ideal infinite-conductor total is undefined/unbounded.
+    # Never substitute a finite number or NaN for that physical limit.
+    net_charge_c: float | None
+    inner_surface_charge_c: float | None
+    outer_surface_charge_c: float | None
 
 class FieldSolution(Protocol):
     @property

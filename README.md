@@ -259,3 +259,22 @@ conductor integrates charge on a **finite disk**, not the ideal infinite plane: 
 [physical/numerical distinctions](docs/m11.md) and [M11 numerical acceptance](docs/m11-acceptance.md)
 (83 real FEMM 5 tests, zero skipped). This does not expand numerical
 capability to arbitrary 3D, parallel plates, or browser-time solving.
+
+
+## M12a — Parallel plates (analytical only)
+
+Compose **two facing** `ConductingPlane` components with `Grounded()`
+or `FixedPotential(volts)` and any supported point charges strictly between
+them. `ParallelPlateBackend(image_order=48)` combines the exact uniform-field
+solution with a truncated image-charge series for charged arrangements.
+Infinite plates at different potentials have undefined/unbounded integrated
+charge totals; these are displayed as `n/a`, while local surface density
+remains defined. The existing viewer renders both planar metal faces.
+
+```bash
+python examples/parallel_plates.py --output output/parallel_plates.html
+```
+
+This is **not** a parallel-plate FEMM implementation yet. M12b is reserved
+for real FEMM source/electrode measurements and finite-radius sensitivity
+checks. See [M12a scope](docs/m12a.md).

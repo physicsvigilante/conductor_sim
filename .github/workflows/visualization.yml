@@ -57,6 +57,10 @@ jobs:
         run: python examples/femm5_multi_plane.py --resolution 25 --output review-artifacts/m11-multi-plane.html
       - name: M11 Chromium multi-source grounded plane
         run: python tools/check_viewer.py review-artifacts/m11-multi-plane.html --screenshot review-artifacts/m11-multi-plane.png > review-artifacts/m11-browser.json
+      - name: M12a analytical parallel-plate three-state preview
+        run: python examples/parallel_plates.py --resolution 25 --image-order 48 --output review-artifacts/m12a-parallel-plates.html
+      - name: M12a Chromium offline electrode and density acceptance
+        run: python tools/check_viewer.py review-artifacts/m12a-parallel-plates.html --screenshot review-artifacts/m12a-parallel-plates.png > review-artifacts/m12a-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
