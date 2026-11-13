@@ -204,10 +204,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
-        if any(c.signed_distance_m(initial) <= 0 for c in conductors):
-            raise UnsupportedProblem('moving charge must begin on the vacuum side of each plane')
         if len(conductors) == 2 and _dot(conductors[0].normal, conductors[1].normal) > -1+1e-10:
             raise UnsupportedProblem('M17a plate pair must have opposite parallel normals')
+        if any(c.signed_distance_m(initial) <= 0 for c in conductors):
+            raise UnsupportedProblem('moving charge must begin on the vacuum side of each plane')
         scale = min(c.signed_distance_m(initial) for c in conductors)
         origin = initial
         normal = _invariant_normal(conductors[0].normal, velocity)
