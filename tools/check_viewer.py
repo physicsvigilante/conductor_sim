@@ -38,6 +38,19 @@ def main():
             assert page.locator('#probe').inner_text().startswith('Move the pointer'), 'stale values from previous state'
             last=page.locator('#scene').evaluate('(c)=>c.toDataURL()')
             assert first!=last,'sweep controls did not change rendered pixels'
+        # Exercise the density slider on the actual exported numerical/analytical
+        # data, without retracing or changing stored SI values.
+        raw=page.evaluate('JSON.stringify(frame)')
+        builds=page.evaluate('window.conductorViewer.heatmapBuilds')
+        if page.evaluate('frame.field_lines.length')>1:
+            page.locator('#line-density').evaluate('(e)=>{e.value=1;e.dispatchEvent(new Event("input"))}')
+            sparse=page.evaluate('shownFieldLines().map(l=>JSON.stringify(l.points_m))')
+            page.locator('#line-density').evaluate('(e)=>{e.value=5;e.dispatchEvent(new Event("input"))}')
+            full=page.evaluate('shownFieldLines().map(l=>JSON.stringify(l.points_m))')
+            assert len(full)>len(sparse) and full[:len(sparse)]==sparse
+            page.locator('#line-density').evaluate('(e)=>{e.value=3;e.dispatchEvent(new Event("input"))}')
+        assert page.evaluate('window.conductorViewer.heatmapBuilds')==builds
+        assert page.evaluate('JSON.stringify(frame)')==raw
         baseline=page.locator('#scene').evaluate('(c)=>c.toDataURL()')
         page.locator('#lines').uncheck()
         assert page.locator('#scene').evaluate('(c)=>c.toDataURL()')!=baseline
@@ -89,7 +102,8 @@ def main():
                           'external_requests':requests,'slider':'passed','toggles':'passed',
                           'profile_selector':'passed','hover':'passed','mobile_overflow':False,
                           'state_probe_reset':'passed','missing_profile_reset':'passed','explicit_provenance':'passed',
-                          'plot_exit_probe_reset':'passed','small_nonzero_values':'passed'}))
+                          'plot_exit_probe_reset':'passed','small_nonzero_values':'passed',
+                          'field_line_density':'passed','potential_cache':'passed'}))
         browser.close()
 
 if __name__=='__main__':main()

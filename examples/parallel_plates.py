@@ -27,7 +27,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',default='output/parallel_plates.html')
     parser.add_argument('--backend',choices=('analytical','femm'),default='analytical')
-    parser.add_argument('--resolution',type=int,default=31)
+    parser.add_argument('--resolution',type=int,default=61)
     parser.add_argument('--image-order',type=int,default=48)
     args=parser.parse_args()
     scenarios=[
@@ -40,12 +40,10 @@ def main():
     reference=(ParallelPlateBackend(image_order=args.image_order) if args.backend=='analytical'
                else Femm5ParallelPlateBackend())
     plane=SliceSpec.meridian(scenarios[0][1],extent_m=.29,resolution=args.resolution)
-    # Explicit middle-gap seeds show capacitor field traces even with zero
-    # point charges. These are visualization seeds, not fictitious sources.
-    seeds=[((x,.10),direction) for x in (-.19,-.095,0.,.095,.19)
-           for direction in (-1,1)]
-    bundle=sample_sweep(scenarios,reference,plane=plane,seeds=seeds,
-                        line_steps=(180 if args.backend=='femm' else 360))
+    # The shared sampler creates a progressive charge/surface trace pool.
+    # No example-specific seeds: every supported backend uses the same policy.
+    bundle=sample_sweep(scenarios,reference,plane=plane,
+                        line_steps=(360 if args.backend=='femm' else 700))
     output=write_visualization(bundle,Path(args.output))
     output.with_suffix('.json').write_text(json.dumps(bundle,allow_nan=False),encoding='utf-8')
     print(f"M12 {args.backend} parallel-plate preview: {output}")
