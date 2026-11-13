@@ -1,0 +1,42 @@
+name: M15c authoring and browser acceptance
+on:
+  pull_request:
+    paths: ['src/**', 'm15c/**', 'tests/**', 'tools/**', '.github/workflows/m15c-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'm15c/**', 'tests/**', 'tools/**', '.github/workflows/m15c-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cavity-authoring:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Reproduce review regressions and score original cavity prompts
+        run: |
+          python -m pytest tests/test_post_m15_review.py tests/test_m15c_authoring.py -q
+          python -m m15c.evaluate grade --output review-artifacts/m15c-report.json
+      - name: Export inward, nested and connected-then-disconnected examples
+        run: |
+          python -m m15c.evaluate render negative-inward --resolution 25 --output review-artifacts/inward.html
+          python -m m15c.evaluate render nested-ground --resolution 25 --output review-artifacts/nested.html
+          python -m m15c.evaluate render connect-disconnect --resolution 25 --output review-artifacts/connected.html
+      - name: Chromium force, work, state and mobile checks
+        run: |
+          python tools/check_m13b_viewer.py review-artifacts/inward.html --screenshot review-artifacts/inward.png > review-artifacts/inward-browser.json
+          python tools/check_m13b_viewer.py review-artifacts/nested.html --screenshot review-artifacts/nested.png > review-artifacts/nested-browser.json
+          python tools/check_m13b_viewer.py review-artifacts/connected.html --screenshot review-artifacts/connected.png > review-artifacts/connected-browser.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m15c-authoring-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

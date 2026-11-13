@@ -9,7 +9,7 @@ No time integration, browser-time solve, or implicit FEMM analytical fallback.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import hypot, isfinite
+from math import fsum, hypot, isfinite
 
 from ._resources import cleanup_resources
 from .geometry import contains_metal
@@ -155,12 +155,15 @@ def sweep_slice(spec: PositionSweepSpec, *, resolution=25, extent_m=None) -> Sli
     anchors = [start, end]
     for charge in spec.problem.charges:
         anchors.append(charge.position_m)
-    if isinstance(conductor, ConductingPlane):
-        anchors.extend(c.point_m for c in spec.problem.conductors
-                       if isinstance(c, ConductingPlane))
-    reach = max((hypot(*sub(p, origin)) for p in anchors),default=.1)
-    if not isinstance(conductor, ConductingPlane):
-        reach=max(reach, conductor.outer_radius_m)
+    # A plane anchor may lie arbitrarily far away along its infinite surface.
+    # Use perpendicular separations, and include *every* spherical conductor,
+    # not just the first authored shell (which may be the innermost one).
+    reach = max([hypot(*sub(p, origin)) for p in anchors] +
+                [abs(c.signed_distance_m(origin)) for c in spec.problem.conductors
+                 if isinstance(c, ConductingPlane)] +
+                [hypot(*sub(c.center_m, origin)) + c.outer_radius_m
+                 for c in spec.problem.conductors if not isinstance(c, ConductingPlane)])
+
     extent = 1.40*max(reach, spec.length_m*.5) if extent_m is None else extent_m
     if not isfinite(extent) or extent<=0:
         raise ValueError('sweep slice extent must be finite and positive')
@@ -215,8 +218,11 @@ def sample_position_sweep(spec: PositionSweepSpec, backend, *, plane=None,
             f_parallel=dot(force,direction)
             total=observed.energy.total_j
             if reference is None:
-                reference=total
-            work=total-reference
+                reference=observed.energy
+            # Subtract before summing: a large constant conductor background
+            # can erase a physically nonzero work if total floats are subtracted.
+            work=fsum(getattr(observed.energy, name)-getattr(reference, name)
+                      for name in ('direct_j', 'induced_j', 'background_j'))
             frame=sample_frame(context_for_solution(problem,solution),plane,
                                label=f'Charge position {distance:.4f} m along path',
                                seeds=seeds,line_steps=line_steps,profile_samples=profile_samples)
