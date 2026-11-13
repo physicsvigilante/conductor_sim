@@ -396,3 +396,28 @@ Both are source-anchored, validated **static** results, not simulations of wire
 current. The imported spheres/shells must be concentric with no charges in the
 new hybrid solid+shell configuration. See [M14b](docs/m14b.md) for capability
 boundaries and the independent energy derivations.
+
+## M15a/b — Electrostatic forces and mechanical energy inside cavities
+
+The existing analytical shell/cavity solvers now expose the same
+`force_energy(solution)` observations as grounded planes, exterior spheres,
+and parallel plates. For one or more point charges *inside* a single spherical
+shell or the innermost cavity of nested concentric shells, M15 calculates
+self-field-free forces, exact Kelvin-induced interaction energies, conductor
+background terms, and quasistatic work as a charge changes its position.
+Grounded and fixed-net-charge shell constraints are supported; FEMM force
+observations remain explicitly unsupported.
+
+The same `PositionSweepSpec` and offline force/energy viewer handle valid
+straight-line paths **inside the cavity**, including an initial position at
+the exact centre (zero induced force and no arrow). No dynamics or scene graph
+is added. Five working examples extend the existing command:
+
+```bash
+python examples/force_energy_explorer.py --case cavity-grounded --output output/cavity.html
+python examples/force_energy_explorer.py --case cavity-nested --output output/nested-cavity.html
+python examples/force_energy_explorer.py --case cavity-multi --output output/multi-cavity.html
+```
+
+Other choices are `cavity-isolated` and `cavity-centered`. See the
+[M15a/b physics, interaction-energy and acceptance contract](docs/m15.md).

@@ -13,7 +13,7 @@ from math import hypot, isfinite
 
 from ._resources import cleanup_resources
 from .geometry import contains_metal
-from .model import (ConductingPlane, ElectrostaticProblem, PointCharge,
+from .model import (ConductingPlane, SphericalShell, ElectrostaticProblem, PointCharge,
                     Vector3, _position)
 from .observables import force_energy
 from .solver import UnsupportedProblem
@@ -87,10 +87,17 @@ class PositionSweepSpec:
             elif getattr(conductor, 'inner_radius_m', 0.) == 0:
                 if _line_distance(start, end, conductor.center_m) <= conductor.outer_radius_m:
                     raise UnsupportedProblem('moving source path intersects the solid conductor')
+            elif isinstance(conductor, SphericalShell):
+                # A spherical cavity is convex: if both endpoints are strictly
+                # inside, their entire straight segment stays in vacuum.
+                # More complex radial/connected configurations are checked by
+                # their chosen backend; never guess by crossing a shell wall.
+                center = conductor.center_m
+                if (hypot(*sub(start, center)) >= conductor.inner_radius_m or
+                        hypot(*sub(end, center)) >= conductor.inner_radius_m):
+                    raise UnsupportedProblem('source path must remain strictly within the spherical cavity')
             else:
-                # Nested conductor/cavity geometries are not supported by the
-                # M13a force API; do not imply safe trajectories through them.
-                raise UnsupportedProblem('M13b does not support shell/cavity force sweeps')
+                raise UnsupportedProblem('unsupported conductor for position sweep')
 
     @property
     def selected_charge(self):
@@ -137,7 +144,12 @@ def sweep_slice(spec: PositionSweepSpec, *, resolution=25, extent_m=None) -> Sli
         origin = sub(middle, tuple(height*x for x in v))
     else:
         origin = conductor.center_m
-        v = unit(sub(start, origin))
+        axis = sub(start, origin)
+        # A charge starting exactly at the cavity centre has no radial
+        # direction yet. Orient the display from the nonzero endpoint.
+        if hypot(*axis) <= 1e-14*max(1., spec.length_m):
+            axis = sub(end, origin)
+        v = unit(axis)
         lateral = _transverse(sub(end, origin), v)
         u = unit(lateral) if hypot(*lateral)>1e-12 else _perpendicular(v)
     anchors = [start, end]

@@ -1,4 +1,4 @@
-"""M13b offline force/energy explorer for reusable JEE conductor problems.
+"""Reusable offline analytical force/energy explorer for JEE conductor problems.
 
 Every frame is a static analytical equilibrium; the position slider does not
 run an electrostatic solver or represent elapsed time / particle motion.
@@ -8,7 +8,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from conductor_sim import (ConductingPlane, ElectrostaticProblem,
+from conductor_sim import (ConductingPlane, ElectrostaticProblem, SphericalShell,
+                           MultiImageShellBackend, NestedShellBackend,
                            ExternalSphereBackend, FixedNetCharge,
                            FixedPotential, Grounded, GroundedPlaneBackend,
                            ParallelPlateBackend, PointCharge, SolidSphere)
@@ -34,13 +35,32 @@ def scenario(name: str, image_order: int):
             ConductingPlane(name='lower'),
             ConductingPlane((0.,0.,.20),(0.,0.,-1.),upper,'upper')))
         return PositionSweepSpec(problem,0,(0.,0.,.155)),ParallelPlateBackend(image_order=image_order)
-    raise ValueError('unknown named M13b scenario')
+    if name in ('cavity-grounded', 'cavity-isolated', 'cavity-centered',
+                'cavity-nested', 'cavity-multi'):
+        constraint = (FixedNetCharge(-.7e-9) if name=='cavity-isolated'
+                      else FixedNetCharge(.4e-9) if name=='cavity-nested'
+                      else Grounded())
+        shell = SphericalShell(.10, .12, constraint, name='cavity-shell')
+        conductors = (shell,)
+        if name=='cavity-nested':
+            conductors += (SphericalShell(.20,.22,Grounded(),name='outer-shell'),)
+        moving = ((0.,0.,0.) if name=='cavity-centered' else
+                  (.018,0.,-.030) if name=='cavity-multi' else (0.,0.,.025))
+        other_sources = ((PointCharge(-.4e-9,(-.037,0.,.012)),)
+                         if name=='cavity-multi' else ())
+        problem = ElectrostaticProblem((PointCharge(q,moving),)+other_sources,conductors)
+        endpoint = ((.044,0.,.066) if name=='cavity-multi' else (0.,0.,.080))
+        backend = NestedShellBackend() if name=='cavity-nested' else MultiImageShellBackend()
+        return PositionSweepSpec(problem,0,endpoint),backend
+    raise ValueError('unknown named force-energy scenario')
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case',choices=('plane','sphere-grounded','sphere-isolated',
-                                           'plates-grounded','plates-biased'),
+                                           'plates-grounded','plates-biased',
+                                           'cavity-grounded','cavity-isolated','cavity-centered',
+                                           'cavity-nested','cavity-multi'),
                         default='plates-grounded')
     parser.add_argument('--output',type=Path,default=Path('output/force_energy_explorer.html'))
     parser.add_argument('--steps',type=int,default=11)

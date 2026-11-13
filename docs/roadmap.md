@@ -132,3 +132,14 @@ released after joining sphere and shell) and page 10 Linked Q13–14 (about
 0.09 J initially stored and fully released upon linking opposite shells).
 No FEMM wire geometry, off-center point charges in the mixed domain, or
 transient current. See [M14b](m14b.md); require exact-head regression gates.
+
+
+M15a/b — **Analytical cavity force and reusable position-sweep candidate:**
+provide exact self-field-free Kelvin-image force, induced/background and
+mechanical interaction energies for centered/one/multiple point charges in a
+single spherical cavity and the innermost cavity of concentric nested shells.
+The existing `PositionSweepSpec` now accepts strictly interior straight paths,
+including paths starting at the centre. The unchanged offline viewer shows
+force arrows, graphs, work and field/potential/density overlays. No FEMM force,
+physical time motion or new viewer renderer. See [M15](m15.md); exact-head
+Python 3.10/3.12, browser and retained real-FEMM regression acceptance required.

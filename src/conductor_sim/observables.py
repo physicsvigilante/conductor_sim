@@ -129,9 +129,30 @@ def force_energy(solution: object) -> ForceEnergyResult:
         elif isinstance(solution, (ExternalGroundedSphereSolution, ExternalMultiSphereSolution)):
             result = _sphere_observables(solution)
         else:
-            raise UnsupportedProblem(
-                f'{type(solution).__name__} does not provide self-field-free force/energy; '
-                'M13a supports analytical grounded planes, exterior spheres and parallel plates')
+            # The same exact Kelvin cavity kernel applies to a single shell
+            # and the innermost cavity of a concentric nested-shell system.
+            # Neither backend is a numerical FEMM force provider.
+            from .multi_image import MultiImageShellSolution
+            from .nested_shells import NestedShellSolution
+            from .analytical import ConcentricShellSolution
+            from .image_charge import ImageChargeShellSolution
+            if isinstance(solution, (MultiImageShellSolution, NestedShellSolution)):
+                result = _cavity_observables(solution)
+            elif isinstance(solution, (ConcentricShellSolution, ImageChargeShellSolution)):
+                # Older exact single-source and centered-source solutions have
+                # the same Kelvin boundary-value problem. Adapt their *saved*
+                # source/charge records without solving a second problem.
+                site = (PointCharge(solution.charge_c,solution.shell.center_m)
+                        if isinstance(solution,ConcentricShellSolution) else solution.source)
+                grouped = (site,) if site.charge_c else ()
+                reference = MultiImageShellSolution(solution.shell,grouped,
+                                    solution.permittivity_f_per_m,solution.conductor_results)
+                result = _cavity_observables(reference)
+            else:
+                raise UnsupportedProblem(
+                    f'{type(solution).__name__} does not provide self-field-free force/energy; '
+                    'analytical planes, exterior spheres, parallel plates, and spherical '
+                    'cavities are supported; numerical FEMM force is not')
     if not isinstance(result, ForceEnergyResult):
         raise TypeError('force_energy() must return ForceEnergyResult')
     return result
@@ -239,3 +260,70 @@ def _plate_observables(solution) -> ForceEnergyResult:
         'Displacement work requires unchanged charges, geometry, voltages and voltage gauge.')
     return ForceEnergyResult(tuple(charges), energy,
         'analytical plate-symmetric reciprocal image series (finite order)', solution.image_order)
+
+
+def _cavity_observables(solution) -> ForceEnergyResult:
+    """Exact Kelvin cavity response, independent of concentric outer shells.
+
+    Inner-surface polarization contributes a reciprocal image Green kernel.
+    The innermost shell's spatially uniform voltage contains (i) a source-
+    independent background and (ii) a source-induced constant term. The
+    latter belongs to the *half-weighted* induced energy. Both constants
+    have zero force and cancel in fixed-inventory displacement work.
+
+    The image of a centered charge is at infinity; the finite limiting
+    potential -q/a is retained by ``image_term`` without a fictitious point.
+    """
+    from .kelvin import image_term
+    from .model import ElectrostaticProblem
+    from .multi_image import MultiImageShellSolution
+    from .nested_shells import NestedShellBackend, NestedShellSolution
+    if isinstance(solution, MultiImageShellSolution):
+        sources = solution.charges  # grouped active sites, no phantom zeros
+        shell = solution.shell
+        voltage = solution.conductor_results[0].potential_v
+        background_v = (solution._k*shell.constraint.charge_c/shell.outer_radius_m
+                        if isinstance(shell.constraint, FixedNetCharge) else 0.)
+        method = 'exact spherical cavity Kelvin images (single shell)'
+    elif isinstance(solution, NestedShellSolution):
+        sources = solution.inner_reference.charges
+        shell = solution.radial_shells[0]
+        voltage = solution.conductor_by_name(shell.name).potential_v
+        empty_problem = ElectrostaticProblem(
+            (), solution.radial_shells, solution.permittivity_f_per_m)
+        source_free = NestedShellBackend().solve(empty_problem)
+        background_v = source_free.conductor_by_name(shell.name).potential_v
+        method = 'exact Kelvin cavity images with concentric-shell radial coupling'
+    else:
+        raise TypeError('cavity observation requires an analytical shell solution')
+
+    k = solution._k
+    direct, direct_energy = _direct(sources, k)
+    charges = []
+    image_energies = []
+    for i, site in enumerate(sources):
+        f_terms = [[], [], []]
+        potential_terms = []
+        for other in sources:
+            potential, field = image_term(site.position_m, other.position_m,
+                                          shell.center_m, shell.inner_radius_m)
+            potential_terms.append(other.charge_c*potential)
+            for axis in range(3):
+                f_terms[axis].append(other.charge_c*field[axis])
+        induced = tuple(k*site.charge_c*fsum(axis) for axis in f_terms)
+        image_energies.append(.5*k*site.charge_c*fsum(potential_terms))
+        charges.append(ChargeForce(site, direct[i], induced, _ZERO))
+
+    total_q = fsum(site.charge_c for site in sources)
+    uniform_induced = voltage - background_v
+    induced_energy = fsum((*image_energies, .5*total_q*uniform_induced))
+    energy = EnergyBreakdown(
+        direct_energy, induced_energy, total_q*background_v,
+        'Spherical cavity: mechanical point-charge interaction energy. '
+        'Direct point self terms and conductor-only constants omitted. '
+        'The source-dependent uniform shell voltage enters induced energy '
+        'with the factor 1/2; the source-free background enters in full. '
+        'Both are position-independent at fixed charge inventory, geometry, '
+        'electrical constraints and potential gauge. Quasistatic displacement '
+        'work is an energy difference only under those fixed conditions.')
+    return ForceEnergyResult(tuple(charges), energy, method)
