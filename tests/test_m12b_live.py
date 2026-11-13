@@ -171,3 +171,15 @@ def test_real_femm_invalid_offaxis_rejected_without_simulating_rings():
     assert not backend.supports(p)
     with pytest.raises(UnsupportedProblem,match='normal-line'):
         backend.solve(p)
+
+
+def test_real_femm_does_not_silently_supply_analytical_force_energy():
+    from conductor_sim import force_energy
+    p=prob(((Q,.065),),v1=20.)
+    with Femm5ParallelPlateBackend().solve(p) as numerical:
+        before=numerical.potential_at((.05,0.,.10))
+        with pytest.raises(UnsupportedProblem,match='does not provide'):
+            force_energy(numerical)
+        # Observation refusal must not close or mutate the caller-owned solve.
+        assert numerical.potential_at((.05,0.,.10))==before
+        assert len(numerical.numerical_sources)==1

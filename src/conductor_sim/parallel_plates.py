@@ -3,7 +3,7 @@
 Both surface normals must face *into the same open slab*, so the authored
 vacuum is the intersection of their positive-normal half-spaces. A linear
 Dirichlet background supports arbitrary prescribed plate potentials. Point
-sources use a finite *symmetric* image-charge series, not a claim of exact
+sources use a finite *reciprocal, plate-symmetric* image-charge series, not a claim of exact
 numerical convergence at an arbitrary sampling location.
 """
 from __future__ import annotations
@@ -80,6 +80,52 @@ class ParallelPlateSolution:
         tangent = tuple(delta[i]-axial*self.lower.normal[i] for i in range(3))
         return tangent, hypot(*tangent)
 
+    def _image_terms(self, height: float, source_height: float):
+        """Reciprocal finite kernel, averaged over the two plate orientations.
+
+        Positive images use n=-N..N. Negative images use the average of
+        -N..N and 1-N..1+N. Averaging preserves exchange reciprocity AND
+        plate-swap symmetry at finite order, removing the old midpoint bias.
+        It does not make finite-order Dirichlet fields exact everywhere.
+        """
+        d = self.gap_m
+        for n in range(-self.image_order, self.image_order+1):
+            yield n, (height-source_height-2*n*d), (height+source_height-2*n*d), (height+source_height-2*(n+1)*d)
+
+    def _source_potential(self, point: Vector3, source: PointCharge, *, exclude_direct=False):
+        _, radial = self._transverse(point, source)
+        terms = []
+        for n, z1, z2, z3 in self._image_terms(self._height(point), self._height(source.position_m)):
+            r2, r3 = hypot(radial, z2), hypot(radial, z3)
+            if exclude_direct and n == 0:
+                terms.append(-.5/r2-.5/r3)
+                continue
+            r1 = hypot(radial, z1)
+            if r1 == 0:
+                raise SingularField("potential is singular at an ideal point charge")
+            # Rationalized reciprocal differences reduce distant-image cancellation.
+            terms.append(.5*((z2-z1)/r2)*((z2+z1)/(r1+r2))/r1
+                         + .5*((z3-z1)/r3)*((z3+z1)/(r1+r3))/r1)
+        return self._k*source.charge_c*fsum(terms)
+
+    def _source_field(self, point: Vector3, source: PointCharge, *, exclude_direct=False):
+        tangent, radial = self._transverse(point, source)
+        axial_terms, radial_terms = [], []
+        for n, z1, z2, z3 in self._image_terms(self._height(point), self._height(source.position_m)):
+            if exclude_direct and n == 0:
+                inv1 = 0.
+            else:
+                r1 = hypot(radial, z1)
+                if r1 == 0:
+                    raise SingularField("electric field is singular at an ideal point charge")
+                inv1 = 1/r1**3
+            inv2, inv3 = .5/hypot(radial, z2)**3, .5/hypot(radial, z3)**3
+            axial_terms.append(z1*inv1-z2*inv2-z3*inv3)
+            radial_terms.append(inv1-inv2-inv3)
+        axial, transverse = fsum(axial_terms), fsum(radial_terms)
+        return tuple(self._k*source.charge_c*(axial*self.lower.normal[i]+transverse*tangent[i])
+                     for i in range(3))
+
     def potential_at(self, point_m: Vector3) -> float:
         point = _position(point_m, "sample point")
         h = self._height(point)
@@ -87,44 +133,30 @@ class ParallelPlateSolution:
             return _voltage(self.lower)
         if h >= self.gap_m:
             return _voltage(self.upper)
-        contributions = []
-        d = self.gap_m
-        for source in self.sources:
-            _, radial = self._transverse(point, source)
-            src_h = self._height(source.position_m)
-            for n in range(-self.image_order, self.image_order+1):
-                z1 = h-src_h-2*n*d
-                z2 = h+src_h-2*n*d
-                r1 = hypot(radial,z1)
-                if r1 == 0:
-                    raise SingularField("potential is singular at an ideal point charge")
-                contributions.append(source.charge_c*(1/r1-1/hypot(radial,z2)))
-        return self._background_v(h) + self._k*fsum(contributions)
+        return fsum((self._background_v(h), *(self._source_potential(point, q) for q in self.sources)))
 
     def _field_inside(self, point: Vector3) -> Vector3:
-        """Vacuum-side E, also evaluable exactly on either plate for sigma."""
-        h = self._height(point)
-        d = self.gap_m
-        normal = self.lower.normal
-        axial_terms = []
-        tangent_terms = [[],[],[]]
-        for source in self.sources:
-            tangent, radial = self._transverse(point,source)
-            src_h = self._height(source.position_m)
-            for n in range(-self.image_order,self.image_order+1):
-                z1 = h-src_h-2*n*d
-                z2 = h+src_h-2*n*d
-                r1 = hypot(radial,z1)
-                if r1 == 0:
-                    raise SingularField("electric field is singular at an ideal point charge")
-                r2 = hypot(radial,z2)
-                inv1, inv2 = 1/(r1**3), 1/(r2**3)
-                axial_terms.append(source.charge_c*(z1*inv1-z2*inv2))
-                for i in range(3):
-                    tangent_terms[i].append(source.charge_c*tangent[i]*(inv1-inv2))
-        background = -(_voltage(self.upper)-_voltage(self.lower))/d
-        axial = background + self._k*fsum(axial_terms)
-        return tuple(axial*normal[i]+self._k*fsum(tangent_terms[i]) for i in range(3))
+        """Vacuum-side E, also evaluable on the plates for one-sided sigma."""
+        background = -(_voltage(self.upper)-_voltage(self.lower))/self.gap_m
+        fields = [self._source_field(point, q) for q in self.sources]
+        return tuple(fsum((background*self.lower.normal[i], *(f[i] for f in fields)))
+                     for i in range(3))
+
+    def force_energy(self):
+        """Mechanical force/energy with only the direct point self-field omitted."""
+        from .observables import _plate_observables
+        return _plate_observables(self)
+
+    def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
+        """Force on a grouped site; conductor contribution includes the bias field."""
+        result = self.force_energy()
+        total = result.force_on_charge_n(index)  # shared strict index validation
+        return total if include_direct else result.charges[index].conductor_force_n
+
+    @property
+    def interaction_energy_j(self) -> float:
+        """Mechanical potential, NOT total field energy of an infinite capacitor."""
+        return self.force_energy().energy.total_j
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
         point = _position(point_m, "sample point")
@@ -153,8 +185,8 @@ class ParallelPlateSolution:
 class ParallelPlateBackend:
     """Two facing infinite plates; analytical field uses truncated images.
 
-    image_order=N retains n=-N,...,+N, with two images per n per active
-    source. Increasing N improves convergence but costs O(sources*N)
+    image_order=N averages the two plate-oriented truncations at n=-N..N.
+    The reciprocal kernel preserves plate-swap symmetry at every order. Increasing N improves convergence but costs O(sources*N)
     work per field sample. The source-free uniform field is exact.
     """
 

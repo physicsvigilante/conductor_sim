@@ -77,3 +77,14 @@ artificial zero-radial-flux cylindrical outer boundary. Independently measure
 all FEMM electrode/source charges; test the finite-cylinder weighting-potential
 charge identities, local analytic V/E/sigma and convergence. Keep arbitrary
 3D source configurations analytical-only. See [M12b](m12b.md) and [M12b acceptance](m12b-acceptance.md).
+
+
+M13a — **Analytical force/energy observation layer:** optional `force_energy(solution)`
+returns separately labeled direct, induced and conductor-background forces and
+mechanical interaction energies for grounded planes, exterior grounded/fixed-Q
+spheres and parallel plates. The plate image kernel now preserves reciprocity
+and plate-swap symmetry at finite order. Legacy APIs are retained; FEMM and
+cavity force observations are explicitly unsupported, not replaced by a fallback.
+See [M13a methods and acceptance contract](m13a.md). Exact-head acceptance is
+recorded in the associated pull request. **M13b force/energy visualization and
+M13c expanded JEE authoring validation are separate, not included here.**
