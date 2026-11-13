@@ -8,6 +8,7 @@ and the in-slice path overlay. Never interpolate or invent field solutions.
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from math import fsum, hypot, isclose, isfinite
 
 from ._resources import cleanup_resources
@@ -186,7 +187,7 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
                           profile_samples=profile_samples)
     if checked.next_index != len(selected):
         raise ValueError('field-frame solution count differs from actual motion samples')
-    physics = result.as_dict()
+    physics = json.loads(json.dumps(result.as_dict(), allow_nan=False))
     physics.update(schema='conductor_sim.motion_viewer_2d.v1',
                    frame_sample_indices=list(indices),
                    graph_sample_count=len(result.samples),

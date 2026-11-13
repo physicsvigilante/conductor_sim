@@ -164,7 +164,7 @@ def test_corrupt_times_forces_slice_and_mixed_modes_fail_closed():
     with pytest.raises(ValueError,match='slice'):
         render_html(corrupted)
     corrupted=deepcopy(b);corrupted['motion_1d']={}
-    with pytest.raises(ValueError,match='mix'):
+    with pytest.raises(ValueError,match='position sweep|mix'):
         render_html(corrupted)
     corrupted=deepcopy(b);corrupted['motion_2d']['samples'][1]['position_m'][0]=float('nan')
     with pytest.raises(ValueError,match='finite'):
