@@ -2,6 +2,7 @@
 from html import escape
 import json
 import re
+from math import isfinite
 
 
 def render_html(bundle, *, title='Conductor simulation'):
@@ -21,6 +22,34 @@ def render_html(bundle, *, title='Conductor simulation'):
                 any(f.get('force_energy') != row for f, row in
                     zip(frames, sweep['samples']))):
             raise ValueError('position sweep samples must match displayed frames exactly')
+    motion = display.get('motion_1d')
+    if motion is not None:
+        if sweep is not None or not isinstance(motion, dict) or motion.get('schema') != 'conductor_sim.motion_viewer.v1':
+            raise ValueError('elapsed-time motion cannot also be a position sweep')
+        samples = motion.get('samples')
+        indices = motion.get('frame_sample_indices')
+        if (not isinstance(samples, list) or len(samples) < 2 or
+                not isinstance(indices, list) or len(indices) != len(frames) or
+                not all(type(i) is int for i in indices) or
+                indices[0] != 0 or indices[-1] != len(samples)-1 or
+                any(a >= b for a,b in zip(indices, indices[1:]))):
+            raise ValueError('motion frame indices must span ordered real trajectory samples')
+        last = -float('inf')
+        for row in samples:
+            if (not isinstance(row, dict) or not all(type(row.get(k)) in (int,float) and isfinite(row[k])
+                         for k in ('time_s','displacement_m','velocity_m_s','force_n',
+                                   'kinetic_energy_j','interaction_energy_j','total_energy_j')) or
+                    row['time_s'] <= last):
+                raise ValueError('motion samples require strictly increasing finite elapsed times')
+            last = row['time_s']
+        if samples[0]['time_s'] != 0:
+            raise ValueError('motion playback must begin at t=0')
+        for frame, index in zip(frames,indices):
+            row=samples[index]
+            if (frame.get('motion_sample_index') != index or
+                    len(frame.get('charges',())) != 1 or
+                    list(frame['charges'][0]['position_m']) != list(row['position_m'])):
+                raise ValueError('every displayed field must match its actual trajectory position')
     display.setdefault('potential_colour_scale', potential_colour_scale(frames))
     data = json.dumps(display,allow_nan=False,separators=(',',':'))
     # JSON lives inside a script element: HTML escaping alone is insufficient.
@@ -33,11 +62,11 @@ TEMPLATE = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{color-scheme:light;--ink:#142334;--muted:#526579;--line:#d9e2eb;--blue:#165884}*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:var(--ink);font:15px/1.5 system-ui,-apple-system,sans-serif}header{background:#122b40;color:white;padding:24px max(20px,calc((100vw - 1260px)/2));border-bottom:4px solid #3ca5b0}h1{font-size:26px;margin:4px 0}h2{font-size:17px;margin:0 0 14px}p{margin:8px 0}.kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.75}.sub{color:#cbd9e4;max-width:850px;font-size:13px}main{max-width:1300px;margin:auto;padding:22px;display:grid;grid-template-columns:minmax(440px,1.6fr) minmax(310px,1fr);gap:20px}.card{background:white;border:1px solid var(--line);border-radius:10px;padding:20px;box-shadow:0 4px 16px #14233406}.wide{grid-column:1/-1}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.chip{font:12px ui-monospace,monospace;background:#e7f3f6;color:#17556a;padding:5px 9px;border-radius:5px}canvas{display:block;width:100%;height:auto}#scene{background:#f9fbfd;border:1px solid var(--line);border-radius:5px}#profile{border:1px solid var(--line);margin-top:12px}label{font-size:13px;cursor:pointer}select,button{padding:7px;border:1px solid #bbcbd7;border-radius:4px;background:white;color:var(--ink)}input[type=range]{flex:1;min-width:160px}input[type=checkbox]{accent-color:#176488}#case{font-weight:650;font-size:18px}#probe{font:12px/1.6 ui-monospace,monospace;min-height:42px;margin-top:9px;color:#344d65}table{border-collapse:collapse;width:100%;font-size:12px}td,th{padding:7px 5px;text-align:right;border-bottom:1px solid #e6ebf0}th:first-child,td:first-child{text-align:left}.small{font-size:12px;color:var(--muted)}#scale{height:12px;background:linear-gradient(90deg,#3476ae,#f8f9fb,#d95b43);border:1px solid var(--line);margin-top:10px}.ticks{display:flex;justify-content:space-between;font:11px ui-monospace,monospace;color:var(--muted)}.line-density-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 12px}.line-density-control input{min-width:100px;flex:1 1 120px}.line-density-control output{font-size:12px;min-width:96px}.controls{margin:14px 0 12px;display:flex;gap:18px;flex-wrap:wrap}#notes p{padding-left:12px;border-left:2px solid #d9e6ef;font-size:12px;color:var(--muted)}aside .card{margin-bottom:20px}.error{color:#b52222}[hidden]{display:none!important}.force-plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.force-plots canvas{border:1px solid var(--line);border-radius:5px;background:#fbfcfe}.force-plots h3{font-size:14px;margin:4px 0 8px}@media(max-width:850px){main{grid-template-columns:1fr}.wide{grid-column:auto}header{padding:18px}h1{font-size:22px}.card{padding:15px}.force-plots{grid-template-columns:1fr}}
+:root{color-scheme:light;--ink:#142334;--muted:#526579;--line:#d9e2eb;--blue:#165884}*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:var(--ink);font:15px/1.5 system-ui,-apple-system,sans-serif}header{background:#122b40;color:white;padding:24px max(20px,calc((100vw - 1260px)/2));border-bottom:4px solid #3ca5b0}h1{font-size:26px;margin:4px 0}h2{font-size:17px;margin:0 0 14px}p{margin:8px 0}.kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.75}.sub{color:#cbd9e4;max-width:850px;font-size:13px}main{max-width:1300px;margin:auto;padding:22px;display:grid;grid-template-columns:minmax(440px,1.6fr) minmax(310px,1fr);gap:20px}.card{background:white;border:1px solid var(--line);border-radius:10px;padding:20px;box-shadow:0 4px 16px #14233406}.wide{grid-column:1/-1}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.chip{font:12px ui-monospace,monospace;background:#e7f3f6;color:#17556a;padding:5px 9px;border-radius:5px}canvas{display:block;width:100%;height:auto}#scene{background:#f9fbfd;border:1px solid var(--line);border-radius:5px}#profile{border:1px solid var(--line);margin-top:12px}label{font-size:13px;cursor:pointer}select,button{padding:7px;border:1px solid #bbcbd7;border-radius:4px;background:white;color:var(--ink)}input[type=range]{flex:1;min-width:160px}input[type=checkbox]{accent-color:#176488}#case{font-weight:650;font-size:18px}#probe{font:12px/1.6 ui-monospace,monospace;min-height:42px;margin-top:9px;color:#344d65}table{border-collapse:collapse;width:100%;font-size:12px}td,th{padding:7px 5px;text-align:right;border-bottom:1px solid #e6ebf0}th:first-child,td:first-child{text-align:left}.small{font-size:12px;color:var(--muted)}#scale{height:12px;background:linear-gradient(90deg,#3476ae,#f8f9fb,#d95b43);border:1px solid var(--line);margin-top:10px}.ticks{display:flex;justify-content:space-between;font:11px ui-monospace,monospace;color:var(--muted)}.line-density-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 12px}.motion-playback{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 5px}.motion-playback select{font-size:13px}.motion-playback button{cursor:pointer;min-width:72px}.motion-playback button:focus-visible{outline:3px solid #14809a;outline-offset:2px}.motion-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.line-density-control input{min-width:100px;flex:1 1 120px}.line-density-control output{font-size:12px;min-width:96px}.controls{margin:14px 0 12px;display:flex;gap:18px;flex-wrap:wrap}#notes p{padding-left:12px;border-left:2px solid #d9e6ef;font-size:12px;color:var(--muted)}aside .card{margin-bottom:20px}.error{color:#b52222}[hidden]{display:none!important}.force-plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.force-plots canvas{border:1px solid var(--line);border-radius:5px;background:#fbfcfe}.force-plots h3{font-size:14px;margin:4px 0 8px}@media(max-width:850px){main{grid-template-columns:1fr}.wide{grid-column:auto}header{padding:18px}h1{font-size:22px}.card{padding:15px}.force-plots{grid-template-columns:1fr}}
 </style></head><body>
 <header><div class="kicker">CONDUCTOR_SIM / M5 VISUALIZATION</div><h1>__TITLE__</h1><p class="sub">Potential, field geometry and induced surface charge from one reusable sampling pipeline. No server or solver is needed to inspect this exported file.</p></header>
-<main><section class="card wide"><div class="row"><span id="case"></span><span id="backend" class="chip"></span></div><div class="row" style="margin-top:14px"><label for="frame" id="position-label">Stored state</label><input id="frame" type="range" min="0" step="1" value="0"><span id="counter" class="small"></span></div><p class="small">The slider selects precomputed solutions. It does not recompute FEMM or simulate charge motion in the browser.</p></section>
-<section class="card"><div class="row"><h2>Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label></div><div class="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
+<main><section class="card wide"><div class="row"><span id="case"></span><span id="backend" class="chip"></span></div><div class="row" style="margin-top:14px"><label for="frame" id="position-label">Stored state</label><input id="frame" type="range" min="0" step="1" value="0"><span id="counter" class="small"></span></div><p id="static-playback-note" class="small">The slider selects precomputed solutions. It does not recompute FEMM or simulate charge motion in the browser.</p><div id="motion-controls" hidden><div class="motion-playback"><button id="motion-play" type="button" aria-pressed="false">Play</button><button id="motion-reset" type="button">Restart</button><label for="motion-speed">Playback speed</label><select id="motion-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><output id="motion-clock" role="status" aria-live="off"></output></div><p class="small">Actual numerical elapsed-time trajectory. Playback selects only saved physical-time field snapshots; seconds on screen are compressed for viewing. There is no browser integrator or interpolated electrostatic field.</p></div></section>
+<section class="card"><div class="row"><h2>Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label><label id="velocity-toggle" hidden><input type="checkbox" id="velocity-arrow" checked> Velocity arrow</label></div><div class="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
 <aside><section class="card"><h2>Conductor results</h2><div style="overflow:auto"><table><thead><tr><th>Name</th><th>V</th><th>Net nC</th><th>Inner nC</th><th>Outer nC</th></tr></thead><tbody id="conductors"></tbody></table></div><p class="small" id="totals-note"></p></section><section class="card"><h2>Induced surface-charge profile</h2><div class="row"><label for="density">Conductor / face</label><select id="density"></select></div><canvas id="profile" width="450" height="260" aria-label="Induced charge density along a great circle"></canvas><p id="method" class="small"></p><p class="small">For spherical conductors the horizontal axis is polar angle; for planes it is signed distance (m) along the cross-section. These lines are not area integrals.</p></section><section class="card"><h2>Source and sampling details</h2><div id="sources" class="small"></div><div id="notes"></div></section></aside>
 <section class="card wide" id="force-panel" hidden><h2>Force and mechanical interaction energy</h2>
 <p class="small" id="force-summary" aria-live="polite"></p>
@@ -46,6 +75,10 @@ TEMPLATE = r'''<!doctype html>
 <p class="small" id="work-summary" aria-live="polite"></p>
 <details><summary>Direct, induced and background contributions</summary><p class="small" id="force-components"></p></details>
 <p class="small" id="force-method"></p><p class="small">The position slider selects precomputed static equilibria, not elapsed time or simulated motion. Force arrows show the in-slice component and their lengths are display-normalized; graphs carry the physical scales. Work assumes all other charges, electrode constraints and voltage references are unchanged.</p></section>
+<section class="card wide" id="motion-panel" hidden><h2>Elapsed-time charged-particle dynamics</h2><p class="small" id="motion-summary" aria-live="polite"></p><p class="small" id="motion-event"></p>
+<div class="force-plots"><section><h3>Displacement versus time</h3><canvas id="motion-position-chart" width="560" height="270" aria-label="Particle displacement versus elapsed time"></canvas></section><section><h3>Signed velocity versus time</h3><canvas id="motion-velocity-chart" width="560" height="270" aria-label="Particle signed velocity versus elapsed time"></canvas></section></div>
+<h3 id="motion-energy-heading" style="font-size:14px;margin-top:15px">Kinetic and mechanical interaction energy versus time</h3><canvas id="motion-energy-chart" width="1120" height="290" aria-label="Kinetic, electrostatic interaction and total mechanical energy versus elapsed time" style="border:1px solid var(--line);border-radius:5px"></canvas>
+<div class="motion-legend"><span style="color:#1965a5">● Kinetic K</span><span style="color:#ca6a35">● Interaction U</span><span style="color:#168875">● Total K + U</span></div><p class="small">Signed velocity and force arrows are relative to the authored 1D axis. Arrow lengths are normalized for display. The total energy trace is not a claim of exact conservation; the readout reports measured numerical drift. Surface guard means an approach cutoff, not an exact impact time. The model is Newtonian, with a strict speed limit below 0.1c.</p></section>
 </main><script id="simulation-data" type="application/json">__DATA__</script>
 <script>
 'use strict';
@@ -149,16 +182,35 @@ function updateLineDensityLabel(){
  $('line-density-value').textContent=label;$('line-density').setAttribute('aria-valuetext',label);
 }
 const sweep=data.position_sweep||null;
+const motion=data.motion_1d||null;
+const motionFrames=motion?motion.frame_sample_indices.map(i=>motion.samples[i]):null;
+function timeUnit(seconds){if(seconds<1e-7)return [1e9,'ns'];if(seconds<1e-4)return [1e6,'µs'];if(seconds<.1)return [1e3,'ms'];return [1,'s']}
+const [timeFactor,timeLabel]=motion?timeUnit(motionFrames[motionFrames.length-1].time_s):[1,'s'];
 if(sweep){
  $('force-panel').hidden=false;$('force-toggle').hidden=false;
  $('position-label').textContent='Charge position';
 }
+const motionEnergyExtent=motion?Math.max(...motion.samples.map(r=>Math.max(Math.abs(r.kinetic_energy_j),Math.abs(r.interaction_energy_j),Math.abs(r.total_energy_j)))):0;
+const motionEnergyUnits=motionEnergyExtent<1e-15?[1e18,'aJ']:motionEnergyExtent<1e-12?[1e15,'fJ']:motionEnergyExtent<1e-9?[1e12,'pJ']:motionEnergyExtent<1e-6?[1e9,'nJ']:motionEnergyExtent<1e-3?[1e6,'µJ']:motionEnergyExtent<1?[1e3,'mJ']:[1,'J'];
+const [motionEnergyScale,motionEnergyLabel]=motionEnergyUnits;
+if(motion){
+ document.querySelector('#motion-energy-chart').setAttribute('aria-label','Kinetic, interaction and total mechanical energy in '+motionEnergyLabel+' versus elapsed time');
+ $('motion-energy-heading').textContent='Kinetic and mechanical interaction energy ('+motionEnergyLabel+') versus time';
+ $('motion-panel').hidden=false;$('motion-controls').hidden=false;
+ $('static-playback-note').hidden=true;$('force-toggle').hidden=false;$('velocity-toggle').hidden=false;
+ $('position-label').textContent='Elapsed time';
+ $('force-toggle').lastChild.textContent=' Force arrow';
+ document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M16 TIME DYNAMICS';
+}
 function forceArrow(p,X,Y,project){
- if(!sweep||!$('force-arrow').checked||!frame.force_energy)return;
- const current=frame.force_energy,pos=project(current.position_m);
+ if((!sweep&&!motion)||!$('force-arrow').checked)return;
+ const current=motion?motionFrames[Number($('frame').value)]:frame.force_energy;
+ if(!current)return;
+ const pos=project(current.position_m);
  if(Math.abs(pos[2])>1e-9)return;
- const F=current.force_n,fu=F.reduce((z,v,i)=>z+v*p.u[i],0),fv=F.reduce((z,v,i)=>z+v*p.v[i],0);
- const n=Math.hypot(fu,fv),max=Math.max(...sweep.samples.map(r=>Math.hypot(...r.force_n)));
+ const F=motion?motion.axis.map(a=>a*current.force_n):current.force_n;
+ const fu=F.reduce((z,v,i)=>z+v*p.u[i],0),fv=F.reduce((z,v,i)=>z+v*p.v[i],0);
+ const n=Math.hypot(fu,fv),max=motion?Math.max(...motionFrames.map(r=>Math.abs(r.force_n))):Math.max(...sweep.samples.map(r=>Math.hypot(...r.force_n)));
  if(n<=Math.max(max*1e-11,1e-30)||max===0)return;
  const size=Math.max(9,Math.min(55,55*Math.sqrt(n/max))),dx=size*fu/n,dy=-size*fv/n;
  const x=X(pos[0]),y=Y(pos[1]);
@@ -167,6 +219,67 @@ function forceArrow(p,X,Y,project){
  const a=Math.atan2(dy,dx);ctx.translate(x+dx,y+dy);ctx.rotate(a);
  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-11,-5);ctx.lineTo(-11,5);ctx.closePath();ctx.fill();
  ctx.restore();
+}
+function velocityArrow(p,X,Y,project){
+ if(!motion||!$('velocity-arrow').checked)return;
+ const r=motionFrames[Number($('frame').value)],pos=project(r.position_m);
+ if(Math.abs(pos[2])>1e-9)return;
+ const v=r.velocity_m_s,max=Math.max(...motionFrames.map(s=>Math.abs(s.velocity_m_s)));
+ if(max===0||Math.abs(v)<=Math.max(max*1e-12,1e-30))return;
+ const vx=motion.axis.reduce((s,a,i)=>s+a*p.u[i],0),vy=motion.axis.reduce((s,a,i)=>s+a*p.v[i],0);
+ const norm=Math.hypot(vx,vy);if(norm<1e-12)return;
+ const L=Math.max(12,Math.min(54,54*Math.sqrt(Math.abs(v)/max))),dx=L*vx/norm*Math.sign(v),dy=-L*vy/norm*Math.sign(v);
+ ctx.save();ctx.strokeStyle='#07877f';ctx.fillStyle='#07877f';ctx.lineWidth=3;
+ ctx.beginPath();ctx.moveTo(X(pos[0]),Y(pos[1]));ctx.lineTo(X(pos[0])+dx,Y(pos[1])+dy);ctx.stroke();
+ ctx.translate(X(pos[0])+dx,Y(pos[1])+dy);ctx.rotate(Math.atan2(dy,dx));
+ ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-9,-4);ctx.lineTo(-9,4);ctx.closePath();ctx.fill();ctx.restore();
+}
+function drawMotionGraph(canvasId,tracks){
+ if(!motion)return;
+ const canvas=$(canvasId),c=canvas.getContext('2d'),W=canvas.width,H=canvas.height;
+ const times=motion.samples.map(r=>r.time_s),last=times[times.length-1];
+ const series=tracks.map(t=>motion.samples.map(r=>t.value(r)));
+ const all=series.flat().concat([0]);let min=Math.min(...all),max=Math.max(...all);
+ const gap=Math.max((max-min)*.10,Math.max(Math.abs(min),Math.abs(max))*1e-6,1e-20);min-=gap;max+=gap;
+ const left=76,right=W-20,top=18,bottom=H-45;
+ const X=t=>left+(right-left)*t/last,Y=v=>bottom-(bottom-top)*(v-min)/(max-min);
+ c.clearRect(0,0,W,H);c.fillStyle='#fbfcfe';c.fillRect(0,0,W,H);
+ c.font='12px system-ui';c.fillStyle='#51677b';c.strokeStyle='#d9e2eb';c.lineWidth=1;
+ for(let k=0;k<=4;k++){
+  let v=min+(max-min)*k/4,yy=Y(v);
+  c.beginPath();c.moveTo(left,yy);c.lineTo(right,yy);c.stroke();
+  c.textAlign='right';c.fillText(Number(v.toPrecision(3)).toString(),left-6,yy+4);
+  const t=last*k/4;c.textAlign='center';c.fillText(Number((t*timeFactor).toPrecision(3)).toString(),X(t),H-25);
+ }
+ c.textAlign='center';c.fillText('Elapsed time ('+timeLabel+')',W/2,H-6);
+ if(min<0&&max>0){c.strokeStyle='#a9b5c0';c.setLineDash([3,4]);c.beginPath();c.moveTo(left,Y(0));c.lineTo(right,Y(0));c.stroke();c.setLineDash([])}
+ for(const e of motion.events){
+  if(e.time_s>last)continue;
+  c.strokeStyle='#b87740';c.setLineDash([2,5]);c.beginPath();c.moveTo(X(e.time_s),top);c.lineTo(X(e.time_s),bottom);c.stroke();c.setLineDash([]);
+ }
+ for(let k=0;k<tracks.length;k++){
+  c.strokeStyle=tracks[k].color;c.lineWidth=k===2?2.5:2;c.beginPath();
+  series[k].forEach((v,i)=>i?c.lineTo(X(times[i]),Y(v)):c.moveTo(X(times[i]),Y(v)));c.stroke();
+  const row=motionFrames[Number($('frame').value)],v=tracks[k].value(row);
+  c.fillStyle=tracks[k].color;c.beginPath();c.arc(X(row.time_s),Y(v),4.5,0,Math.PI*2);c.fill();
+ }
+ const t=motionFrames[Number($('frame').value)].time_s;
+ c.strokeStyle='#273e57';c.setLineDash([3,4]);c.lineWidth=1;c.beginPath();c.moveTo(X(t),top);c.lineTo(X(t),bottom);c.stroke();c.setLineDash([]);
+}
+function drawMotionObservations(){
+ if(!motion)return;
+ const row=motionFrames[Number($('frame').value)];
+ $('motion-clock').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel;
+ $('motion-summary').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+fmt(row.displacement_m)+' m  ·  v = '+fmt(row.velocity_m_s)+' m/s  ·  a = '+fmt(row.acceleration_m_s2)+' m/s²  ·  F = '+fmt(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J';
+ const found=motion.events.filter(e=>e.time_s<=row.time_s+1e-14*Math.max(1,row.time_s));
+ $('motion-event').textContent='Termination: '+motion.termination+(found.length?'  ·  Events: '+found.map(e=>e.kind+' at '+fmt(e.time_s*timeFactor)+' '+timeLabel).join('; '):'  ·  No events yet');
+ const energyScale=motionEnergyScale;
+ drawMotionGraph('motion-position-chart',[{value:r=>r.displacement_m,color:'#1766a2'}]);
+ drawMotionGraph('motion-velocity-chart',[{value:r=>r.velocity_m_s,color:'#1766a2'}]);
+ drawMotionGraph('motion-energy-chart',[
+  {value:r=>r.total_energy_j*energyScale,color:'#168875'},
+  {value:r=>r.interaction_energy_j*energyScale,color:'#ca6a35'},
+  {value:r=>r.kinetic_energy_j*energyScale,color:'#1965a5'}]);
 }
 function drawSweepPlot(canvasId,key,scale,color){
  if(!sweep)return;
@@ -254,7 +367,7 @@ function drawScene(){
  function project(v){const d=v.map((x,i)=>x-p.origin_m[i]);const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);const n=[p.u[1]*p.v[2]-p.u[2]*p.v[1],p.u[2]*p.v[0]-p.u[0]*p.v[2],p.u[0]*p.v[1]-p.u[1]*p.v[0]];return[dot(d,p.u),dot(d,p.v),dot(d,n)]}
  for(const m of frame.source_masks){const [x,y,h]=project(m.center_m);if(Math.abs(h)>=m.radius_m)continue;ctx.beginPath();ctx.arc(X(x),Y(y),Math.sqrt(m.radius_m*m.radius_m-h*h)*scale,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.setLineDash([3,2]);ctx.strokeStyle='#7d8d9c';ctx.stroke();ctx.setLineDash([])}
  for(const q of frame.charges){const [x,y,h]=q.slice_position_m;if(Math.abs(h)>1e-10)continue;ctx.beginPath();ctx.arc(X(x),Y(y),4,0,Math.PI*2);ctx.fillStyle=q.charge_c>0?'#b83121':'#175ba3';ctx.fill();ctx.fillStyle='#10273a';ctx.font='bold 14px system-ui';ctx.fillText(q.charge_c>0?'+':'−',X(x)+7,Y(y)-7)}
- forceArrow(p,X,Y,project);
+ forceArrow(p,X,Y,project);velocityArrow(p,X,Y,project);
  ctx.fillStyle='#f9fbfd';ctx.fillRect(0,0,W,oy-1);ctx.fillRect(0,H-oy+1,W,oy);ctx.fillRect(0,0,ox-1,H);ctx.fillRect(W-ox+1,0,ox,H);
  ctx.strokeStyle='#99acbc';ctx.strokeRect(ox,oy,W-2*ox,H-2*oy);ctx.fillStyle='#4c6274';ctx.font='12px system-ui';ctx.textAlign='center';
  for(let i=0;i<=4;i++){const x=p.x_range_m[0]+i*(p.x_range_m[1]-p.x_range_m[0])/4,y=p.y_range_m[0]+i*(p.y_range_m[1]-p.y_range_m[0])/4;ctx.fillText(x.toFixed(3),X(x),H-oy+18);ctx.textAlign='right';ctx.fillText(y.toFixed(3),ox-7,Y(y)+4);ctx.textAlign='center'}ctx.fillText('slice u (m)',W/2,H-7);ctx.save();ctx.translate(12,H/2);ctx.rotate(-Math.PI/2);ctx.fillText('slice v (m)',0,0);ctx.restore();ctx.textAlign='left';
@@ -282,9 +395,36 @@ function drawProfile(){
  xs.forEach((x,i)=>{if(ys[i]===null){connected=false;return}if(connected)c.lineTo(X(x),Y(ys[i]));else c.moveTo(X(x),Y(ys[i]));connected=true});c.stroke();
  $('method').textContent=series.method+(isPlane?' · horizontal axis: signed distance (m)':'')+(available.length<ys.length?' · gaps: excluded samples':'');
 }
-function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile();drawSweepObservations()}
-$('frame').addEventListener('input',selectFrame);$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
+function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile();drawSweepObservations();drawMotionObservations()}
+let motionPlaying=false,rafRequest=null,playClock=null,playStart=0;
+function stopMotionPlayback(){
+ motionPlaying=false;if(rafRequest!==null)cancelAnimationFrame(rafRequest);rafRequest=null;playClock=null;
+ $('motion-play').textContent='Play';$('motion-play').setAttribute('aria-pressed','false');
+}
+function motionTick(now){
+ if(!motionPlaying||!motion)return;
+ if(playClock===null)playClock=now;
+ const last=motionFrames[motionFrames.length-1].time_s;
+ const speed=Number($('motion-speed').value);
+ const goal=Math.min(last,playStart+(now-playClock)*last*speed/4000);
+ let i=0;while(i+1<motionFrames.length&&motionFrames[i+1].time_s<=goal)i++;
+ if(Number($('frame').value)!==i){$('frame').value=String(i);selectFrame()}
+ if(goal>=last){$('frame').value=String(motionFrames.length-1);selectFrame();stopMotionPlayback();return}
+ rafRequest=requestAnimationFrame(motionTick);
+}
+function startMotionPlayback(){
+ if(!motion||motionPlaying)return;
+ if(Number($('frame').value)===motionFrames.length-1){$('frame').value='0';selectFrame()}
+ motionPlaying=true;playClock=null;playStart=motionFrames[Number($('frame').value)].time_s;
+ $('motion-play').textContent='Pause';$('motion-play').setAttribute('aria-pressed','true');
+ rafRequest=requestAnimationFrame(motionTick);
+}
+$('motion-play').addEventListener('click',()=>motionPlaying?stopMotionPlayback():startMotionPlayback());
+$('motion-reset').addEventListener('click',()=>{stopMotionPlayback();$('frame').value='0';selectFrame()});
+$('motion-speed').addEventListener('change',()=>{if(motionPlaying){stopMotionPlayback();startMotionPlayback()}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMotionPlayback()});
+$('frame').addEventListener('input',()=>{stopMotionPlayback();selectFrame()});$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);$('velocity-arrow').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
 canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(),px=(e.clientX-rect.left)*canvas.width/rect.width,py=(e.clientY-rect.top)*canvas.height/rect.height;const p=frame.plane,g=frame.grid;const x=p.x_range_m[0]+(px-map.ox)/map.scale,y=p.y_range_m[0]+(canvas.height-py-map.oy)/map.scale;const i=Math.round((x-g.x_m[0])/(g.x_m[1]-g.x_m[0])),j=Math.round((y-g.y_m[0])/(g.y_m[1]-g.y_m[0]));if(!frame||px<map.ox||px>canvas.width-map.ox||py<map.oy||py>canvas.height-map.oy||j<0||i<0||j>=g.y_m.length||i>=g.x_m.length){resetProbe();return;}const v=g.potential_v[j][i],f=g.electric_field_v_per_m[j][i];$('probe').textContent='u='+fmt(g.x_m[i])+' m   v='+fmt(g.y_m[j])+' m   '+g.region[j][i]+'\nV='+ (v===null?'masked':fmt(v)+' V')+'   |E|='+(f===null?'unavailable':fmt(Math.hypot(...f))+' V/m')});
 canvas.addEventListener('mouseleave',resetProbe);
-selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,get heatmapBuilds(){return heatmapBuilds}};
+selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get heatmapBuilds(){return heatmapBuilds}};
 </script></body></html>'''
