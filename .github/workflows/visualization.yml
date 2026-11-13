@@ -91,6 +91,14 @@ jobs:
         run: python examples/connected_shells.py --case pdf-p14-q7 --resolution 25 --line-steps 80 --output review-artifacts/m14-connected-shells.html
       - name: M14a Chromium connected-shell potential and profile acceptance
         run: python tools/check_viewer.py review-artifacts/m14-connected-shells.html --screenshot review-artifacts/m14-connected-shells.png > review-artifacts/m14-browser.json
+      - name: M14b PDF p3 solid-sphere plus shell force-energy static export
+        run: python examples/solid_sphere_connected.py --case pdf-p03-q27 --resolution 35 --line-steps 100 --output review-artifacts/m14b-solid.html
+      - name: M14b PDF p3 Chromium offline two-state acceptance
+        run: python tools/check_viewer.py review-artifacts/m14b-solid.html --screenshot review-artifacts/m14b-solid.png > review-artifacts/m14b-solid-browser.json
+      - name: M14b PDF p10 linked shell energy example
+        run: python examples/solid_sphere_connected.py --case pdf-p10-q13-q14 --resolution 35 --line-steps 100 --output review-artifacts/m14b-shells.html
+      - name: M14b PDF p10 Chromium offline two-state acceptance
+        run: python tools/check_viewer.py review-artifacts/m14b-shells.html --screenshot review-artifacts/m14b-shells.png > review-artifacts/m14b-shells-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

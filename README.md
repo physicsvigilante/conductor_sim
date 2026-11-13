@@ -374,3 +374,25 @@ Other composable examples are `--case ground-link`, `--case cavity-charge`, and
 `--case three-shell`. Scope is analytical, for 2–8 strictly concentric
 nonintersecting **shells**, with floating or grounded disjoint wire groups;
 not a 3D finite-wire or standalone FEMM wiring solver. See [M14a](docs/m14a.md).
+
+## M14b — A solid metal sphere inside connected concentric shells
+
+The same `ConnectionPlan` and `ElectricalLink` introduced in M14a now accept
+one innermost `SolidSphere` surrounded by strictly separated concentric
+`SphericalShell` objects, with arbitrary valid floating/grounded link groups.
+An exact new `MixedRadialBackend` handles that radial, charge-free geometry
+without treating the solid as a fictitious hollow shell; the existing
+nested-shell solver and HTML viewer are reused where applicable.
+
+```bash
+python examples/solid_sphere_connected.py --case pdf-p03-q27 --output output/m14b-solid.html
+python examples/solid_sphere_connected.py --case pdf-p10-q13-q14 --output output/m14b-shells.html
+```
+
+From `02_conductors_half_size.pdf`, page 3 Q27's +20 μC solid sphere (10 cm)
+joined to a 20 cm enclosing shell releases **approximately 9 J**; page 10
+linked Q13–14's oppositely charged shells release **approximately 0.09 J**.
+Both are source-anchored, validated **static** results, not simulations of wire
+current. The imported spheres/shells must be concentric with no charges in the
+new hybrid solid+shell configuration. See [M14b](docs/m14b.md) for capability
+boundaries and the independent energy derivations.

@@ -84,3 +84,6 @@ from .connections import (ElectricalLink, ConnectionPlan, ConductorTransfer,
                           ConnectionResult, ConnectedShellBackend)
 __all__ += ['ElectricalLink', 'ConnectionPlan', 'ConductorTransfer',
             'ConnectionResult', 'ConnectedShellBackend']
+
+from .mixed_radial import MixedRadialBackend, MixedRadialSolution
+__all__ += ["MixedRadialBackend", "MixedRadialSolution"]

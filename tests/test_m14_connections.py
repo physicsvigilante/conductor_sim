@@ -217,19 +217,26 @@ def test_grounded_link_charge_inside_cavity_and_ungrounded_middle_constraint():
     assert r.released_field_energy_j>=0
 
 
-def test_incompatible_conductor_shape_is_explicitly_unsupported():
-    from conductor_sim import SolidSphere, ConductingPlane
+def test_mixed_solid_and_shell_newly_supported_but_invalid_other_shapes_refused():
+    from conductor_sim import SolidSphere, ConductingPlane, MixedRadialBackend
     b=ConnectedShellBackend()
+    valid=ElectrostaticProblem(conductors=(
+        SolidSphere(.1,FixedNetCharge(Q),name='s0'),
+        SphericalShell(.2,.22,FixedNetCharge(0),name='s1')))
+    valid_plan=ConnectionPlan(valid,(ElectricalLink(('s0','s1')),))
+    assert b.supports(valid_plan) and MixedRadialBackend().supports(valid)
     for conductors in (
         (SolidSphere(.1,FixedNetCharge(Q),name='s0'),
-         SphericalShell(.2,.22,FixedNetCharge(0),name='s1')),
+         SolidSphere(.25,FixedNetCharge(0),name='s1')),
         (ConductingPlane(name='s0'),
          SphericalShell(.2,.22,FixedNetCharge(0),name='s1')),
+        (SphericalShell(.2,.22,FixedNetCharge(0),name='s0'),
+         SolidSphere(.25,FixedNetCharge(Q),name='s1')),
     ):
         plan=ConnectionPlan(ElectrostaticProblem(conductors=conductors),
                              (ElectricalLink(('s0','s1')),))
         assert not b.supports(plan)
-        with pytest.raises(UnsupportedProblem,match='SphericalShell'):
+        with pytest.raises(UnsupportedProblem):
             b.solve(plan)
 
 

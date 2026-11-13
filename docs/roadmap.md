@@ -121,3 +121,14 @@ ideal concentric-shell wiring class of `02_conductors_half_size.pdf`, including
 page 14 Numerical Q7 with exact `delta V_outer = 0 V`. No transient current,
 solid inner sphere, separated wired spheres or FEMM wire-geometry accuracy is
 claimed. See [M14a design](m14a.md); acceptance subject to complete CI.
+
+M14b — **Exact analytical mixed concentric conductors candidate:** extend
+M14a's `ConnectionPlan` to one solid conducting sphere enclosed by one or
+more separated concentric shells, grounded/floating links and radial energy
+release. The new shared `MixedRadialBackend` reuses the M14a capacitance
+response matrix but has **no fictitious cavity** in the solid. The accepted
+M14a all-shell domain remains intact. Reproduce JEE page 3 Q27 (about 9 J
+released after joining sphere and shell) and page 10 Linked Q13–14 (about
+0.09 J initially stored and fully released upon linking opposite shells).
+No FEMM wire geometry, off-center point charges in the mixed domain, or
+transient current. See [M14b](m14b.md); require exact-head regression gates.

@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from math import fsum, isclose, pi
 from typing import Literal
 
-from .model import ElectrostaticProblem, FixedNetCharge, Grounded, SphericalShell
+from .model import ElectrostaticProblem, FixedNetCharge, Grounded, SolidSphere, SphericalShell
 from .nested_shells import NestedShellBackend, NestedShellSolution, _solve_linear, _sorted_shells
+from .mixed_radial import MixedRadialBackend, MixedRadialSolution
 from .solver import UnsupportedProblem
 
 
@@ -81,8 +82,8 @@ class ConnectionResult:
 
     plan: ConnectionPlan
     resolved_problem: ElectrostaticProblem
-    before: NestedShellSolution
-    after: NestedShellSolution
+    before: NestedShellSolution | MixedRadialSolution
+    after: NestedShellSolution | MixedRadialSolution
     transfers: tuple[ConductorTransfer, ...]
     radial_field_energy_before_j: float
     radial_field_energy_after_j: float
@@ -92,18 +93,23 @@ class ConnectionResult:
                       seeds=None, profile_samples: int = 55):
         """Reuse the accepted static-state sampler, not a wiring-specific viewer."""
         from .visualization import sample_sweep
+        backend = (MixedRadialBackend() if any(isinstance(c, SolidSphere)
+                       for c in self.plan.initial.conductors) else NestedShellBackend())
         bundle = sample_sweep([
             ('Before connecting shells', self.plan.initial),
             ('After connecting shells', self.resolved_problem),
-        ], NestedShellBackend(), resolution=resolution, line_steps=line_steps,
+        ], backend, resolution=resolution, line_steps=line_steps,
            seeds=seeds, profile_samples=profile_samples)
         modes = ', '.join(link.mode + ': ' + '/'.join(link.members)
                           for link in self.plan.links)
         bundle['frames'][0]['notes'].append('Wire OPEN: ' + modes + '. This is an initial static equilibrium.')
         bundle['frames'][1]['notes'].append('Wire CONNECTED: ' + modes + '. This is the final static equilibrium, not a current transient.')
+        energy_scope = ('Fixed cavity-field energy is omitted equally from both states.'
+                        if self.plan.initial.charges else
+                        'Charge-free conductor model: this is the full field-energy difference.')
         bundle['frames'][1]['notes'].append(
-            'Energy released from gaps/exterior: {:.6g} J. Fixed cavity-field contribution is omitted from both energies.'.format(
-                self.released_field_energy_j))
+            'Energy released from gaps/exterior: {:.6g} J. {}'.format(
+                self.released_field_energy_j, energy_scope))
         bundle['connection'] = {
             'schema': 'conductor_sim.connection_equilibria.v1',
             'links': [{'members': list(link.members), 'mode': link.mode}
@@ -124,11 +130,16 @@ def _layout(plan: ConnectionPlan):
     if not isinstance(plan, ConnectionPlan):
         raise UnsupportedProblem('connected-shell solver requires a ConnectionPlan')
     problem = plan.initial
-    if any(not isinstance(c, SphericalShell) for c in problem.conductors):
-        raise UnsupportedProblem('connected-shell wiring requires SphericalShell conductors only')
+    if any(not isinstance(c, (SphericalShell, SolidSphere)) for c in problem.conductors):
+        raise UnsupportedProblem('connected radial wiring requires spherical conductors only')
     shells = _sorted_shells(problem)
-    if not (2 <= len(shells) <= 8) or not NestedShellBackend().supports(problem):
-        raise UnsupportedProblem('connected shells require 2–8 nonintersecting concentric SphericalShells with sources only in the innermost cavity')
+    if any(isinstance(c, SolidSphere) for c in shells):
+        if not MixedRadialBackend().supports(problem):
+            raise UnsupportedProblem('mixed connections require one innermost solid sphere, '
+                                     '1–7 concentric shells, and no point sources')
+    elif not (2 <= len(shells) <= 8) or not NestedShellBackend().supports(problem):
+        raise UnsupportedProblem('connected shells require 2–8 nonintersecting concentric '
+                                 'SphericalShells with sources only in the innermost cavity')
     indices = {shell.name: i for i, shell in enumerate(shells)}
     seen: set[str] = set()
     linked = []
@@ -158,7 +169,7 @@ def _coefficients(shells: tuple[SphericalShell, ...], charge_in_cavity: float):
     return A, b
 
 
-def _field_energy(solution: NestedShellSolution) -> float:
+def _field_energy(solution: NestedShellSolution | MixedRadialSolution) -> float:
     """Electric field energy in gaps + exterior, excluding fixed cavity field."""
     shells = solution.radial_shells
     flux = solution._fluxes()
@@ -186,7 +197,8 @@ class ConnectedShellBackend:
     def solve(self, plan: ConnectionPlan) -> ConnectionResult:
         shells, links, grouped = _layout(plan)  # before any solver execution
         original = plan.initial
-        solver = NestedShellBackend()
+        solver = (MixedRadialBackend() if isinstance(shells[0], SolidSphere)
+                  else NestedShellBackend())
         before = solver.solve(original)
         q_cavity = before.charge_inside_c
         A, b = _coefficients(shells, q_cavity)
