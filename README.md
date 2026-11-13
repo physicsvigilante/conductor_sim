@@ -439,3 +439,23 @@ python examples/particle_motion_1d.py --case cavity --output output/m16-cavity.j
 ```
 
 See [M16a equations, constraints and validation](docs/m16a.md).
+
+## M16b — Standalone animated elapsed-time electrostatics
+
+The M16a numerical motion result can now be displayed with **real time-based
+playback** in the same offline HTML viewer (not the M13–M15 quasistatic
+position slider). The exporter preserves every numerical sample for
+position/velocity/kinetic-and-interaction-energy plots, plus a bounded number
+of separately solved potential/field visual snapshots at those real times.
+Play, pause, restart, speed, sliders and the existing potential/field-line
+controls all work without a web server or browser-time physics solver.
+
+```powershell
+python examples/particle_motion_viewer.py --case cavity --output output/m16b-cavity.html
+Start-Process .\output\m16b-cavity.html
+```
+
+Other `--case` choices include `plane`, `plates`, `sphere-exterior` and
+`turning`. For an elementary electron between biased plates, supply its
+charge, mass, duration and sample interval explicitly. See
+[M16b implementation and scope](docs/m16b.md).
