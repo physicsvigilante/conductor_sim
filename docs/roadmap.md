@@ -61,12 +61,13 @@ Non-collinear charges remain analytically supported. See [M11 design](m11.md)
 and [M11 numerical acceptance](m11-acceptance.md).
 
 
-M12a — **Analytical implementation candidate; CI acceptance pending:** two
+M12a — **Accepted analytical two-plate reference (297 ordinary tests, retained 83 real-FEMM regressions, Chromium):** two
 facing infinite conducting half-spaces, with `Grounded`/`FixedPotential`
 boundary values, zero or multiple point sources in the slab, and the existing
 viewer. Exact capacitor background plus finite symmetric image series for
 sources; transparent `None` for undefined infinite-plate total charge.
-**M12b real FEMM 5 finite plate validation remains unimplemented.** See [M12a](m12a.md).
+M12b subsequently added separately validated finite-radius FEMM support.
+See [M12a](m12a.md) and [PR #15](https://github.com/physicsvigilante/conductor_sim/pull/15).
 
 
 M12b — **Numerical acceptance passed (90 actual FEMM 5 tests, including seven new plate-pair cases):**

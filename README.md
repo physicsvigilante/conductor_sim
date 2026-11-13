@@ -275,9 +275,9 @@ remains defined. The existing viewer renders both planar metal faces.
 python examples/parallel_plates.py --output output/parallel_plates.html
 ```
 
-This is **not** a parallel-plate FEMM implementation yet. M12b is reserved
-for real FEMM source/electrode measurements and finite-radius sensitivity
-checks. See [M12a scope](docs/m12a.md).
+The M12a backend itself remains **analytical only**. The separately
+validated M12b FEMM numerical backend appears below; it reuses the same
+authored models. See [M12a scope](docs/m12a.md).
 
 
 ## M12b — finite-cylinder FEMM 5 parallel-plate numerical acceptance
