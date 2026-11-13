@@ -83,8 +83,10 @@ def test_reordering_all_author_sources_does_not_change_motion():
     second=spec_for(tuple(reversed(first.problem.charges)),moving_index=1)
     ra=integrate_motion_2d(first,GroundedPlaneBackend())
     rb=integrate_motion_2d(second,GroundedPlaneBackend())
-    assert [row.position_m for row in ra.samples]==pytest.approx([row.position_m for row in rb.samples],abs=1e-10)
-    assert [row.velocity_m_s for row in ra.samples]==pytest.approx([row.velocity_m_s for row in rb.samples],abs=1e-9)
+    assert len(ra.samples)==len(rb.samples)
+    for a, b in zip(ra.samples, rb.samples):
+        assert a.position_m == pytest.approx(b.position_m, abs=1e-10)
+        assert a.velocity_m_s == pytest.approx(b.velocity_m_s, abs=1e-9)
 
 
 def test_independent_force_potential_gradient_and_energy_drift():
