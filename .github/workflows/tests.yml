@@ -23,6 +23,8 @@ jobs:
       - run: python examples/particle_motion_2d.py --case plates --output output/m17a-plates.json
       - run: python examples/particle_motion_2d.py --case sphere --output output/m17a-sphere.json
       - run: python examples/particle_motion_2d.py --case cavity --output output/m17a-cavity.json
+      - run: python examples/particle_motion_2d_viewer.py --case plates --visual-frames 5 --resolution 9 --line-steps 10 --output output/m17b-plates.html
+      - run: python examples/particle_motion_2d_viewer.py --case sphere --visual-frames 5 --resolution 9 --line-steps 10 --output output/m17b-sphere.html
       - run: python examples/particle_motion_1d.py --case plates --charge-c=-1.602176634e-19 --mass-kg 9.1093837139e-31 --duration-s 5e-8 --sample-interval-s 5e-9 --output output/m16a-electron.json
       - run: python examples/connected_shells.py --case pdf-p14-q7 --resolution 11 --line-steps 20 --output output/m14-shells.html
       - run: python examples/solid_sphere_connected.py --case pdf-p03-q27 --resolution 11 --line-steps 20 --output output/m14b-solid.html

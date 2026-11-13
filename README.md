@@ -475,5 +475,24 @@ python examples/particle_motion_2d.py --case plates --output output/m17a-plates.
 python examples/particle_motion_2d.py --case sphere --output output/m17a-sphere.json
 ```
 
-The first milestone exports numerical trajectories as JSON; the reusable
-curved-path viewer is a later M17b task. See [M17a scope](docs/m17a.md).
+M17a exports numerical trajectory data as JSON; M17b now renders it in the
+same reusable offline HTML field viewer. See [M17a scope](docs/m17a.md).
+
+## M17b — Interactive curved-trajectory explorer
+
+The existing standalone offline viewer now understands `sample_motion_2d`:
+real curved particle paths, projected vector velocity/force arrows and two
+planar displacement/velocity component plots, alongside M16b time controls,
+shared potential/field-line/density maps and K/U/K+U energy graphs. The browser
+**never integrates electrostatic dynamics**. Field maps are independently solved
+at selected actual M17a times (at most 24), and every full numerical time
+sample remains in the trajectory plot. Unsupported FEMM force remains an
+explicit refusal, not a fallback.
+
+```powershell
+python examples/particle_motion_2d_viewer.py --case plates --output output/m17b-plates.html
+Start-Process .\output\m17b-plates.html
+```
+
+Further cases: `plane`, `sphere`, `cavity`, `center` and `guard`.
+See [M17b design and scientific constraints](docs/m17b.md).

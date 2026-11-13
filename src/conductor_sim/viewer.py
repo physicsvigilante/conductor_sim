@@ -50,6 +50,67 @@ def render_html(bundle, *, title='Conductor simulation'):
                     len(frame.get('charges',())) != 1 or
                     list(frame['charges'][0]['position_m']) != list(row['position_m'])):
                 raise ValueError('every displayed field must match its actual trajectory position')
+    planar_motion = display.get('motion_2d')
+    if planar_motion is not None:
+        if (sweep is not None or motion is not None or
+                not isinstance(planar_motion, dict) or
+                planar_motion.get('schema') != 'conductor_sim.motion_viewer_2d.v1'):
+            raise ValueError('planar elapsed-time motion cannot mix with static sweeps or M16 motion')
+        samples = planar_motion.get('samples')
+        indices = planar_motion.get('frame_sample_indices')
+        if (not isinstance(samples, list) or not 2 <= len(samples) <= 2001 or
+                not isinstance(indices, list) or len(indices) != len(frames) or
+                not 2 <= len(indices) <= 24 or
+                not all(type(i) is int for i in indices) or
+                indices[0] != 0 or indices[-1] != len(samples)-1 or
+                any(a >= b for a,b in zip(indices,indices[1:]))):
+            raise ValueError('planar motion frame indices must span ordered real numerical samples')
+
+        def vector3(value):
+            return (isinstance(value, (list,tuple)) and len(value) == 3 and
+                    all(type(x) in (float,int) and isfinite(x) for x in value))
+
+        if (not vector3(planar_motion.get('plane_normal')) or
+                not vector3(planar_motion.get('plane_origin_m'))):
+            raise ValueError('planar motion must record its finite physical invariant plane')
+        last = -float('inf')
+        for row in samples:
+            if (not isinstance(row, dict) or
+                    not all(type(row.get(k)) in (int,float) and isfinite(row[k])
+                            for k in ('time_s','kinetic_energy_j','interaction_energy_j',
+                                      'total_energy_j','energy_drift_j')) or
+                    not all(vector3(row.get(k)) for k in (
+                        'position_m','displacement_m','velocity_m_s','acceleration_m_s2','force_n')) or
+                    row['time_s'] <= last):
+                raise ValueError('planar motion samples require finite SI vectors and increasing time')
+            last = row['time_s']
+        if samples[0]['time_s'] != 0:
+            raise ValueError('planar motion must start at t=0')
+        plane0 = frames[0].get('plane')
+        if not isinstance(plane0,dict):
+            raise ValueError('planar motion fields require a shared display slice')
+        for key in ('origin_m','u','v'):
+            if not vector3(plane0.get(key)):
+                raise ValueError('planar motion slice must be finite')
+        u,v = plane0['u'],plane0['v']
+        normal = (u[1]*v[2]-u[2]*v[1],
+                  u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])
+        if abs(sum(x*y for x,y in zip(normal,planar_motion['plane_normal']))) < 1-1e-8:
+            raise ValueError('planar motion slice must match its proven physical plane')
+        for frame,index in zip(frames,indices):
+            row = samples[index]
+            if (frame.get('plane') != plane0 or
+                    frame.get('motion_sample_index') != index or
+                    len(frame.get('charges',())) != 1 or
+                    list(frame['charges'][0]['position_m']) != list(row['position_m'])):
+                raise ValueError('each curved-motion field must match its actual numerical position and fixed slice')
+            projected = frame['charges'][0].get('slice_position_m')
+            if (not vector3(projected) or
+                    any(abs(projected[i]-sum((row['position_m'][j]-plane0['origin_m'][j])*
+                                             (u,v,normal)[i][j] for j in range(3))) >
+                        1e-9*max(1.,abs(projected[i])) for i in range(3)) or
+                    abs(projected[2]) > 1e-9*max(1., *(abs(x) for x in row['position_m']))):
+                raise ValueError('curved-motion source must remain in the displayed physical slice')
     display.setdefault('potential_colour_scale', potential_colour_scale(frames))
     data = json.dumps(display,allow_nan=False,separators=(',',':'))
     # JSON lives inside a script element: HTML escaping alone is insufficient.
@@ -66,7 +127,7 @@ TEMPLATE = r'''<!doctype html>
 </style></head><body>
 <header><div class="kicker">CONDUCTOR_SIM / M5 VISUALIZATION</div><h1>__TITLE__</h1><p class="sub">Potential, field geometry and induced surface charge from one reusable sampling pipeline. No server or solver is needed to inspect this exported file.</p></header>
 <main><section class="card wide"><div class="row"><span id="case"></span><span id="backend" class="chip"></span></div><div class="row" style="margin-top:14px"><label for="frame" id="position-label">Stored state</label><input id="frame" type="range" min="0" step="1" value="0"><span id="counter" class="small"></span></div><p id="static-playback-note" class="small">The slider selects precomputed solutions. It does not recompute FEMM or simulate charge motion in the browser.</p><div id="motion-controls" hidden><div class="motion-playback"><button id="motion-play" type="button" aria-pressed="false">Play</button><button id="motion-reset" type="button">Restart</button><label for="motion-speed">Playback speed</label><select id="motion-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><output id="motion-clock" role="status" aria-live="off"></output></div><p class="small">Actual numerical elapsed-time trajectory. Playback selects only saved physical-time field snapshots; seconds on screen are compressed for viewing. There is no browser integrator or interpolated electrostatic field.</p></div></section>
-<section class="card"><div class="row"><h2>Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label><label id="velocity-toggle" hidden><input type="checkbox" id="velocity-arrow" checked> Velocity arrow</label></div><div class="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
+<section class="card"><div class="row"><h2>Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label><label id="velocity-toggle" hidden><input type="checkbox" id="velocity-arrow" checked> Velocity arrow</label><label id="trajectory-toggle" hidden><input type="checkbox" id="trajectory" checked> Trajectory</label></div><div class="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
 <aside><section class="card"><h2>Conductor results</h2><div style="overflow:auto"><table><thead><tr><th>Name</th><th>V</th><th>Net nC</th><th>Inner nC</th><th>Outer nC</th></tr></thead><tbody id="conductors"></tbody></table></div><p class="small" id="totals-note"></p></section><section class="card"><h2>Induced surface-charge profile</h2><div class="row"><label for="density">Conductor / face</label><select id="density"></select></div><canvas id="profile" width="450" height="260" aria-label="Induced charge density along a great circle"></canvas><p id="method" class="small"></p><p class="small">For spherical conductors the horizontal axis is polar angle; for planes it is signed distance (m) along the cross-section. These lines are not area integrals.</p></section><section class="card"><h2>Source and sampling details</h2><div id="sources" class="small"></div><div id="notes"></div></section></aside>
 <section class="card wide" id="force-panel" hidden><h2>Force and mechanical interaction energy</h2>
 <p class="small" id="force-summary" aria-live="polite"></p>
@@ -78,7 +139,7 @@ TEMPLATE = r'''<!doctype html>
 <section class="card wide" id="motion-panel" hidden><h2>Elapsed-time charged-particle dynamics</h2><p class="small" id="motion-summary" aria-live="polite"></p><p class="small" id="motion-event"></p>
 <div class="force-plots"><section><h3>Displacement versus time</h3><canvas id="motion-position-chart" width="560" height="270" aria-label="Particle displacement versus elapsed time"></canvas></section><section><h3>Signed velocity versus time</h3><canvas id="motion-velocity-chart" width="560" height="270" aria-label="Particle signed velocity versus elapsed time"></canvas></section></div>
 <h3 id="motion-energy-heading" style="font-size:14px;margin-top:15px">Kinetic and mechanical interaction energy versus time</h3><canvas id="motion-energy-chart" width="1120" height="290" aria-label="Kinetic, electrostatic interaction and total mechanical energy versus elapsed time" style="border:1px solid var(--line);border-radius:5px"></canvas>
-<div class="motion-legend"><span style="color:#1965a5">● Kinetic K</span><span style="color:#ca6a35">● Interaction U</span><span style="color:#168875">● Total K + U</span></div><p class="small">Signed velocity and force arrows are relative to the authored 1D axis. Arrow lengths are normalized for display. The total energy trace is not a claim of exact conservation; the readout reports measured numerical drift. Surface guard means an approach cutoff, not an exact impact time. The model is Newtonian, with a strict speed limit below 0.1c.</p></section>
+<div class="motion-legend"><span style="color:#1965a5">● Kinetic K</span><span style="color:#ca6a35">● Interaction U</span><span style="color:#168875">● Total K + U</span></div><div id="motion-vector-legend" class="motion-legend" hidden><span style="color:#1766a2">● Slice u component</span><span style="color:#d07834">● Slice v component</span></div><p class="small" id="motion-scope-note">Signed velocity and force arrows are relative to the authored 1D axis. Arrow lengths are normalized for display. The total energy trace is not a claim of exact conservation; the readout reports measured numerical drift. Surface guard means an approach cutoff, not an exact impact time. The model is Newtonian, with a strict speed limit below 0.1c.</p></section>
 </main><script id="simulation-data" type="application/json">__DATA__</script>
 <script>
 'use strict';
@@ -182,7 +243,8 @@ function updateLineDensityLabel(){
  $('line-density-value').textContent=label;$('line-density').setAttribute('aria-valuetext',label);
 }
 const sweep=data.position_sweep||null;
-const motion=data.motion_1d||null;
+const motion1=data.motion_1d||null, motion2=data.motion_2d||null;
+const motion=motion1||motion2, motionIsVector=!!motion2;
 const motionFrames=motion?motion.frame_sample_indices.map(i=>motion.samples[i]):null;
 function timeUnit(seconds){if(seconds<1e-7)return [1e9,'ns'];if(seconds<1e-4)return [1e6,'µs'];if(seconds<.1)return [1e3,'ms'];return [1,'s']}
 const [timeFactor,timeLabel]=motion?timeUnit(motionFrames[motionFrames.length-1].time_s):[1,'s'];
@@ -200,7 +262,13 @@ if(motion){
  $('static-playback-note').hidden=true;$('force-toggle').hidden=false;$('velocity-toggle').hidden=false;
  $('position-label').textContent='Elapsed time';
  $('force-toggle').lastChild.textContent=' Force arrow';
- document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M16 TIME DYNAMICS';
+ document.querySelector('header .kicker').textContent=motionIsVector?'CONDUCTOR_SIM / M17 CURVED MOTION':'CONDUCTOR_SIM / M16 TIME DYNAMICS';
+ if(motionIsVector){
+  $('trajectory-toggle').hidden=false;$('motion-vector-legend').hidden=false;
+  $('motion-position-chart').parentElement.querySelector('h3').textContent='Planar displacement components versus time';
+  $('motion-velocity-chart').parentElement.querySelector('h3').textContent='Planar velocity components versus time';
+  $('motion-scope-note').textContent='The full curved path and velocity/force vectors are projected into the proven invariant physical plane. The full stored M17a trajectory drives the traces; electrostatic fields are solved only at selected real time samples. Vector arrows are display-normalized. Surface guard means a pre-contact approach cutoff, not an exact impact. Classical speeds remain below 0.1c.';
+ }
 }
 function forceArrow(p,X,Y,project){
  if((!sweep&&!motion)||!$('force-arrow').checked)return;
@@ -208,9 +276,9 @@ function forceArrow(p,X,Y,project){
  if(!current)return;
  const pos=project(current.position_m);
  if(Math.abs(pos[2])>1e-9)return;
- const F=motion?motion.axis.map(a=>a*current.force_n):current.force_n;
+ const F=motionIsVector?current.force_n:motion?motion.axis.map(a=>a*current.force_n):current.force_n;
  const fu=F.reduce((z,v,i)=>z+v*p.u[i],0),fv=F.reduce((z,v,i)=>z+v*p.v[i],0);
- const n=Math.hypot(fu,fv),max=motion?Math.max(...motionFrames.map(r=>Math.abs(r.force_n))):Math.max(...sweep.samples.map(r=>Math.hypot(...r.force_n)));
+ const n=Math.hypot(fu,fv),max=motion?Math.max(...motionFrames.map(r=>motionIsVector?Math.hypot(...r.force_n):Math.abs(r.force_n))):Math.max(...sweep.samples.map(r=>Math.hypot(...r.force_n)));
  if(n<=Math.max(max*1e-11,1e-30)||max===0)return;
  const size=Math.max(9,Math.min(55,55*Math.sqrt(n/max))),dx=size*fu/n,dy=-size*fv/n;
  const x=X(pos[0]),y=Y(pos[1]);
@@ -224,11 +292,12 @@ function velocityArrow(p,X,Y,project){
  if(!motion||!$('velocity-arrow').checked)return;
  const r=motionFrames[Number($('frame').value)],pos=project(r.position_m);
  if(Math.abs(pos[2])>1e-9)return;
- const v=r.velocity_m_s,max=Math.max(...motionFrames.map(s=>Math.abs(s.velocity_m_s)));
- if(max===0||Math.abs(v)<=Math.max(max*1e-12,1e-30))return;
- const vx=motion.axis.reduce((s,a,i)=>s+a*p.u[i],0),vy=motion.axis.reduce((s,a,i)=>s+a*p.v[i],0);
- const norm=Math.hypot(vx,vy);if(norm<1e-12)return;
- const L=Math.max(12,Math.min(54,54*Math.sqrt(Math.abs(v)/max))),dx=L*vx/norm*Math.sign(v),dy=-L*vy/norm*Math.sign(v);
+ const vector=motionIsVector?r.velocity_m_s:motion.axis.map(a=>a*r.velocity_m_s);
+ const max=Math.max(...motionFrames.map(s=>motionIsVector?Math.hypot(...s.velocity_m_s):Math.abs(s.velocity_m_s)));
+ const vx=vector.reduce((s,a,i)=>s+a*p.u[i],0),vy=vector.reduce((s,a,i)=>s+a*p.v[i],0);
+ const speed=Math.hypot(vx,vy);
+ if(max===0||speed<=Math.max(max*1e-12,1e-30))return;
+ const L=Math.max(12,Math.min(54,54*Math.sqrt(speed/max))),dx=L*vx/speed,dy=-L*vy/speed;
  ctx.save();ctx.strokeStyle='#07877f';ctx.fillStyle='#07877f';ctx.lineWidth=3;
  ctx.beginPath();ctx.moveTo(X(pos[0]),Y(pos[1]));ctx.lineTo(X(pos[0])+dx,Y(pos[1])+dy);ctx.stroke();
  ctx.translate(X(pos[0])+dx,Y(pos[1])+dy);ctx.rotate(Math.atan2(dy,dx));
@@ -270,12 +339,19 @@ function drawMotionObservations(){
  if(!motion)return;
  const row=motionFrames[Number($('frame').value)];
  $('motion-clock').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel;
- $('motion-summary').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+fmt(row.displacement_m)+' m  ·  v = '+fmt(row.velocity_m_s)+' m/s  ·  a = '+fmt(row.acceleration_m_s2)+' m/s²  ·  F = '+fmt(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J';
+ const vec=x=>'['+x.map(fmt).join(', ')+']';
+ $('motion-summary').textContent=motionIsVector?'t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+vec(row.displacement_m)+' m  ·  v = '+vec(row.velocity_m_s)+' m/s  ·  a = '+vec(row.acceleration_m_s2)+' m/s²  ·  F = '+vec(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J':'t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+fmt(row.displacement_m)+' m  ·  v = '+fmt(row.velocity_m_s)+' m/s  ·  a = '+fmt(row.acceleration_m_s2)+' m/s²  ·  F = '+fmt(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J';
  const found=motion.events.filter(e=>e.time_s<=row.time_s+1e-14*Math.max(1,row.time_s));
  $('motion-event').textContent='Termination: '+motion.termination+(found.length?'  ·  Events: '+found.map(e=>e.kind+' at '+fmt(e.time_s*timeFactor)+' '+timeLabel).join('; '):'  ·  No events yet');
  const energyScale=motionEnergyScale;
- drawMotionGraph('motion-position-chart',[{value:r=>r.displacement_m,color:'#1766a2'}]);
- drawMotionGraph('motion-velocity-chart',[{value:r=>r.velocity_m_s,color:'#1766a2'}]);
+ if(motionIsVector){
+  const p=frame.plane,along=(a,b)=>a.reduce((sum,value,i)=>sum+value*b[i],0);
+  drawMotionGraph('motion-position-chart',[{value:r=>along(r.displacement_m,p.u),color:'#1766a2'},{value:r=>along(r.displacement_m,p.v),color:'#d07834'}]);
+  drawMotionGraph('motion-velocity-chart',[{value:r=>along(r.velocity_m_s,p.u),color:'#1766a2'},{value:r=>along(r.velocity_m_s,p.v),color:'#d07834'}]);
+ }else{
+  drawMotionGraph('motion-position-chart',[{value:r=>r.displacement_m,color:'#1766a2'}]);
+  drawMotionGraph('motion-velocity-chart',[{value:r=>r.velocity_m_s,color:'#1766a2'}]);
+ }
  drawMotionGraph('motion-energy-chart',[
   {value:r=>r.total_energy_j*energyScale,color:'#168875'},
   {value:r=>r.interaction_energy_j*energyScale,color:'#ca6a35'},
@@ -322,6 +398,18 @@ function drawSweepObservations(){
  drawSweepPlot('force-chart','force_parallel_n',1e6,'#7533a9');
  drawSweepPlot('energy-chart','energy_j',1e9,'#087b85');
 }
+function drawTrajectory(p,X,Y,project){
+ if(!motionIsVector||!$('trajectory').checked)return;
+ const points=motion.samples.map(row=>project(row.position_m));
+ const lastIndex=motion.frame_sample_indices[Number($('frame').value)];
+ const path=(end)=>{ctx.beginPath();points.slice(0,end+1).forEach((q,i)=>
+     i?ctx.lineTo(X(q[0]),Y(q[1])):ctx.moveTo(X(q[0]),Y(q[1])));ctx.stroke()};
+ ctx.save();ctx.lineWidth=2;ctx.lineCap='round';ctx.lineJoin='round';
+ ctx.strokeStyle='#1965a5';ctx.globalAlpha=.44;ctx.setLineDash([5,5]);
+ path(points.length-1);ctx.setLineDash([]);
+ ctx.strokeStyle='#d17a29';ctx.globalAlpha=.95;ctx.lineWidth=3;
+ path(lastIndex);ctx.restore();
+}
 function drawScene(){
  const p=frame.plane,g=frame.grid,W=canvas.width,H=canvas.height,pad=46;
  const scale=Math.min((W-2*pad)/(p.x_range_m[1]-p.x_range_m[0]),(H-2*pad)/(p.y_range_m[1]-p.y_range_m[0]));
@@ -365,6 +453,7 @@ function drawScene(){
   }
  }
  function project(v){const d=v.map((x,i)=>x-p.origin_m[i]);const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);const n=[p.u[1]*p.v[2]-p.u[2]*p.v[1],p.u[2]*p.v[0]-p.u[0]*p.v[2],p.u[0]*p.v[1]-p.u[1]*p.v[0]];return[dot(d,p.u),dot(d,p.v),dot(d,n)]}
+ drawTrajectory(p,X,Y,project);
  for(const m of frame.source_masks){const [x,y,h]=project(m.center_m);if(Math.abs(h)>=m.radius_m)continue;ctx.beginPath();ctx.arc(X(x),Y(y),Math.sqrt(m.radius_m*m.radius_m-h*h)*scale,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.setLineDash([3,2]);ctx.strokeStyle='#7d8d9c';ctx.stroke();ctx.setLineDash([])}
  for(const q of frame.charges){const [x,y,h]=q.slice_position_m;if(Math.abs(h)>1e-10)continue;ctx.beginPath();ctx.arc(X(x),Y(y),4,0,Math.PI*2);ctx.fillStyle=q.charge_c>0?'#b83121':'#175ba3';ctx.fill();ctx.fillStyle='#10273a';ctx.font='bold 14px system-ui';ctx.fillText(q.charge_c>0?'+':'−',X(x)+7,Y(y)-7)}
  forceArrow(p,X,Y,project);velocityArrow(p,X,Y,project);
@@ -423,8 +512,8 @@ $('motion-play').addEventListener('click',()=>motionPlaying?stopMotionPlayback()
 $('motion-reset').addEventListener('click',()=>{stopMotionPlayback();$('frame').value='0';selectFrame()});
 $('motion-speed').addEventListener('change',()=>{if(motionPlaying){stopMotionPlayback();startMotionPlayback()}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMotionPlayback()});
-$('frame').addEventListener('input',()=>{stopMotionPlayback();selectFrame()});$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);$('velocity-arrow').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
+$('frame').addEventListener('input',()=>{stopMotionPlayback();selectFrame()});$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);$('velocity-arrow').addEventListener('change',drawScene);$('trajectory').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
 canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(),px=(e.clientX-rect.left)*canvas.width/rect.width,py=(e.clientY-rect.top)*canvas.height/rect.height;const p=frame.plane,g=frame.grid;const x=p.x_range_m[0]+(px-map.ox)/map.scale,y=p.y_range_m[0]+(canvas.height-py-map.oy)/map.scale;const i=Math.round((x-g.x_m[0])/(g.x_m[1]-g.x_m[0])),j=Math.round((y-g.y_m[0])/(g.y_m[1]-g.y_m[0]));if(!frame||px<map.ox||px>canvas.width-map.ox||py<map.oy||py>canvas.height-map.oy||j<0||i<0||j>=g.y_m.length||i>=g.x_m.length){resetProbe();return;}const v=g.potential_v[j][i],f=g.electric_field_v_per_m[j][i];$('probe').textContent='u='+fmt(g.x_m[i])+' m   v='+fmt(g.y_m[j])+' m   '+g.region[j][i]+'\nV='+ (v===null?'masked':fmt(v)+' V')+'   |E|='+(f===null?'unavailable':fmt(Math.hypot(...f))+' V/m')});
 canvas.addEventListener('mouseleave',resetProbe);
-selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get heatmapBuilds(){return heatmapBuilds}};
+selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:motionIsVector?'elapsed-time-2d':motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get motionSampleCount(){return motion?motion.samples.length:0},get heatmapBuilds(){return heatmapBuilds}};
 </script></body></html>'''

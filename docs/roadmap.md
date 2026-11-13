@@ -178,3 +178,15 @@ No new FEMM force, numerical fallback, multi-moving-charge or browser
 curved-path viewer. See [M17a](m17a.md); exact-head Python 3.10/3.12,
 retained Chromium/authorability and all real-FEMM regressions required before
 merge. M17b will add curved-trajectory visualization.
+
+M17b — **Offline curved-trajectory time viewer candidate:** reuses M17a's
+`Motion2DResult` and M16b's field-frame selection/sampling pipeline, offline
+HTML renderer, elapsed-time controls and energy graphs. Adds the complete
+curved path, synchronous vector force and velocity arrows and two-component
+position/velocity-time charts in the proven physical plane. All field frames
+are solved only at exact saved trajectory times; up to 24 field snapshots
+but up to 2001 authentic physics samples. No browser ODE, FEMM force
+fallback or fabricated out-of-plane constraints. Original static, sweep and
+M16b time modes remain distinct. See [M17b](m17b.md); acceptance requires
+exact-head Python 3.10/3.12, full retained Chromium/authorability regressions
+and all 97 real FEMM non-regression tests with zero skips.

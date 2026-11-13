@@ -123,6 +123,14 @@ jobs:
         run: python examples/particle_motion_viewer.py --case plates --charge-c=-1.602176634e-19 --mass-kg 9.1093837139e-31 --duration-s 5e-8 --sample-interval-s 5e-9 --resolution 15 --line-steps 25 --output review-artifacts/m16b-electron.html
       - name: M16b Chromium electron nanosecond time and energy acceptance
         run: python tools/check_m16b_viewer.py review-artifacts/m16b-electron.html --screenshot review-artifacts/m16b-electron.png > review-artifacts/m16b-electron-browser.json
+      - name: M17b real curved-angle plane trajectory HTML
+        run: python examples/particle_motion_2d_viewer.py --case plane --visual-frames 9 --resolution 13 --line-steps 25 --output review-artifacts/m17b-plane.html
+      - name: M17b Chromium offline curved path, vectors and time controls
+        run: python tools/check_m17b_viewer.py review-artifacts/m17b-plane.html --screenshot review-artifacts/m17b-plane.png > review-artifacts/m17b-plane-browser.json
+      - name: M17b real central-force exterior sphere trajectory
+        run: python examples/particle_motion_2d_viewer.py --case sphere --visual-frames 7 --resolution 13 --line-steps 25 --output review-artifacts/m17b-sphere.html
+      - name: M17b Chromium central-force vectors, energy and path
+        run: python tools/check_m17b_viewer.py review-artifacts/m17b-sphere.html --screenshot review-artifacts/m17b-sphere.png > review-artifacts/m17b-sphere-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
