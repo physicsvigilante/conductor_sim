@@ -115,6 +115,14 @@ jobs:
         run: python examples/force_energy_explorer.py --case cavity-centered --steps 5 --resolution 15 --line-steps 25 --output review-artifacts/m15-cavity-centered.html
       - name: M15 cavity-centre Chromium zero-force arrow acceptance
         run: python tools/check_m15_centered_cavity.py review-artifacts/m15-cavity-centered.html --screenshot review-artifacts/m15-cavity-centered.png > review-artifacts/m15-cavity-centered-browser.json
+      - name: M16b actual elapsed-time cavity HTML export
+        run: python examples/particle_motion_viewer.py --case cavity --duration-s .06 --sample-interval-s .006 --resolution 19 --line-steps 45 --output review-artifacts/m16b-cavity.html
+      - name: M16b Chromium time controls, velocity, energy and field consistency
+        run: python tools/check_m16b_viewer.py review-artifacts/m16b-cavity.html --screenshot review-artifacts/m16b-cavity.png > review-artifacts/m16b-cavity-browser.json
+      - name: M16b actual electron transit between biased plates
+        run: python examples/particle_motion_viewer.py --case plates --charge-c=-1.602176634e-19 --mass-kg 9.1093837139e-31 --duration-s 5e-8 --sample-interval-s 5e-9 --resolution 15 --line-steps 25 --output review-artifacts/m16b-electron.html
+      - name: M16b Chromium electron nanosecond time and energy acceptance
+        run: python tools/check_m16b_viewer.py review-artifacts/m16b-electron.html --screenshot review-artifacts/m16b-electron.png > review-artifacts/m16b-electron-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
