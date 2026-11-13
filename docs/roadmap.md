@@ -201,7 +201,7 @@ M17a physics, M17b renderer and public model components are reused; no new
 geometry/force solver or browser ODE. See [M17c](m17c.md) for scope, evidence,
 limitations and exact-head Python/browser/97-real-FEMM acceptance gates.
 
-M18a — **One moving charge plus externally held fixed charges (candidate):**
+M18a — **Accepted in PR #33: one moving charge plus externally held fixed charges:**
 reuse the original immutable authoring components, M17 vector RK4 and
 self-field-free `force_energy`, identify the moving component by its original
 authored index independently of sorted grouped sites, and preserve all held
@@ -209,13 +209,13 @@ charge locations across every solver call. Admit only a proved reflection-
 symmetry plane through the motion and *all* held sources. Record mechanical
 energy drift and terminate at a guarded conductor or fixed point-charge
 approach, without claiming impact. M18a exports genuine numerical motion as
-JSON only; the M17b viewer refuses these new multi-source trajectories until
-M18b can show and validate the complete inventory. New independent mirror/
+JSON only; this milestone deliberately deferred multi-source HTML. Accepted
+M18b now shows and validates the complete inventory. New independent mirror/
 Kelvin, finite-difference and refusal tests. See [M18a](m18a.md); exact-head
 Python 3.10/3.12, all retained browser/authoring gates and 97 real-FEMM
 non-regression tests with zero skips required before acceptance.
 
-M18b — **Held-source viewer and output correctness:** extend the shared
+M18b — **Accepted in PR #34: held-source viewer and output correctness:** extend the shared
 `sample_motion_2d`/HTML pipeline to preserve and label every moving/held
 source, certify full field inventories and keep all sources inside a fixed
 physical slice. Reuse elapsed-time controls, vector arrows and energy graphs.
@@ -224,3 +224,13 @@ saved speed/guard metadata; omit sparse chords through held-charge guards.
 No new force law, RK4 implementation or multi-moving-charge support. See
 [M18b](m18b.md); acceptance requires all retained and new Python/browser
 workflows and 97 real FEMM regressions with zero skips.
+
+M18c — **Independent held-source motion authoring trial:** twelve original
+textual prompts, eight supported trajectories (168 independently checked
+states) and four justified refusals. Public-API authored models are separate
+from standard-library boundary Green functions, a shell-constraint linear
+solve and step-halved test-only velocity-Verlet. Includes source-identity,
+unit, energy-convention and corrupted-output mutations, rotation/source-order/
+voltage-gauge invariance, and production-only multi-charge browser exports.
+No production solver, integrator or renderer changes. See [M18c](m18c.md);
+require exact-candidate Python/browser and 97 real-FEMM gates before acceptance.
