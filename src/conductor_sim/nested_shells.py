@@ -130,9 +130,12 @@ class NestedShellBackend:
     """Independent exact benchmark for one or more strictly nested shells."""
 
     def supports(self,problem:ElectrostaticProblem)->bool:
-        shells=_sorted_shells(problem)
-        if not shells or any(not isinstance(s,SphericalShell) for s in shells):
+        # Capability queries must be safe for every authored shape. A plane
+        # has no spherical radii, so validate types before radial sorting.
+        if not problem.conductors or any(
+                not isinstance(s, SphericalShell) for s in problem.conductors):
             return False
+        shells=_sorted_shells(problem)
         center=shells[0].center_m
         if any(s.center_m != center for s in shells):
             return False

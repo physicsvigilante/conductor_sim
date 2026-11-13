@@ -1,6 +1,6 @@
 """Optional, self-field-free force/energy observations of a static solution.
 
-No backend is selected or solved here. Unsupported numerical/cavity solutions
+No numerical backend is selected or solved here. Unsupported solutions
 fail explicitly. Fixed-voltage energies are mechanical interaction potentials
 (with voltage-source work accounted for), not total field/capacitor energies.
 """
@@ -262,6 +262,31 @@ def _plate_observables(solution) -> ForceEnergyResult:
         'analytical plate-symmetric reciprocal image series (finite order)', solution.image_order)
 
 
+def _cavity_voltage_parts(shells, total_q: float, k: float) -> tuple[float, float]:
+    """Induced and source-free uniform cavity voltages, without subtraction.
+
+    In concentric geometry, the nearest grounded shell fixes the outer end
+    of this radial voltage sum. Until that shell, each gap's flux is total_q
+    plus the enclosed prescribed shell charges. With no ground, include the
+    exterior term relative to infinity. This is the exact Gauss-law response,
+    computed separately so a large fixed Q cannot hide a small source charge.
+    """
+    from .model import Grounded
+    first_ground = next((i for i, shell in enumerate(shells)
+                         if isinstance(shell.constraint, Grounded)), len(shells))
+    weights = [(1/shells[i].outer_radius_m - 1/shells[i+1].inner_radius_m)
+               for i in range(min(first_ground, len(shells)-1))]
+    if first_ground == len(shells):
+        weights.append(1/shells[-1].outer_radius_m)
+    background = []
+    net = []
+    for i, weight in enumerate(weights):
+        net.append(shells[i].constraint.charge_c)
+        background.append(fsum(net)*weight)
+    return k*total_q*fsum(weights), k*fsum(background)
+
+
+
 def _cavity_observables(solution) -> ForceEnergyResult:
     """Exact Kelvin cavity response, independent of concentric outer shells.
 
@@ -275,24 +300,17 @@ def _cavity_observables(solution) -> ForceEnergyResult:
     potential -q/a is retained by ``image_term`` without a fictitious point.
     """
     from .kelvin import image_term
-    from .model import ElectrostaticProblem
     from .multi_image import MultiImageShellSolution
-    from .nested_shells import NestedShellBackend, NestedShellSolution
+    from .nested_shells import NestedShellSolution
     if isinstance(solution, MultiImageShellSolution):
         sources = solution.charges  # grouped active sites, no phantom zeros
         shell = solution.shell
-        voltage = solution.conductor_results[0].potential_v
-        background_v = (solution._k*shell.constraint.charge_c/shell.outer_radius_m
-                        if isinstance(shell.constraint, FixedNetCharge) else 0.)
+        radial_shells = (shell,)
         method = 'exact spherical cavity Kelvin images (single shell)'
     elif isinstance(solution, NestedShellSolution):
         sources = solution.inner_reference.charges
         shell = solution.radial_shells[0]
-        voltage = solution.conductor_by_name(shell.name).potential_v
-        empty_problem = ElectrostaticProblem(
-            (), solution.radial_shells, solution.permittivity_f_per_m)
-        source_free = NestedShellBackend().solve(empty_problem)
-        background_v = source_free.conductor_by_name(shell.name).potential_v
+        radial_shells = solution.radial_shells
         method = 'exact Kelvin cavity images with concentric-shell radial coupling'
     else:
         raise TypeError('cavity observation requires an analytical shell solution')
@@ -315,7 +333,7 @@ def _cavity_observables(solution) -> ForceEnergyResult:
         charges.append(ChargeForce(site, direct[i], induced, _ZERO))
 
     total_q = fsum(site.charge_c for site in sources)
-    uniform_induced = voltage - background_v
+    uniform_induced, background_v = _cavity_voltage_parts(radial_shells, total_q, k)
     induced_energy = fsum((*image_energies, .5*total_q*uniform_induced))
     energy = EnergyBreakdown(
         direct_energy, induced_energy, total_q*background_v,
