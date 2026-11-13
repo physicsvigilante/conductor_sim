@@ -8,10 +8,11 @@ This is data/physics, not a browser or finite-particle collision model.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from math import ceil, fsum, hypot, isfinite
+from math import fsum, hypot, isfinite
 from typing import Literal
 
 from ._motion_rk4 import rk4_step
+from ._motion_time import output_times
 from ._resources import cleanup_resources
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
@@ -113,8 +114,7 @@ class Motion2DSpec:
             raise ValueError('relative_tolerance must be smaller than 0.05')
         if self.sample_interval_s > self.duration_s:
             raise ValueError('sample interval cannot exceed motion duration')
-        if ceil(self.duration_s/self.sample_interval_s) > 2000:
-            raise ValueError('at most 2000 requested output intervals')
+        output_times(self.duration_s, self.sample_interval_s)
         if isinstance(self.max_internal_steps, bool) or not isinstance(self.max_internal_steps, int) or self.max_internal_steps < 10:
             raise ValueError('max_internal_steps must be an integer >= 10')
         if self.surface_guard_m is not None and (
@@ -426,8 +426,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
     h = spec.sample_interval_s/4
     steps_done = 0
     termination: Literal['duration', 'surface-guard', 'charge-guard'] = 'duration'
-    targets = [min(spec.duration_s, i*spec.sample_interval_s)
-               for i in range(1, ceil(spec.duration_s/spec.sample_interval_s)+1)]
+    targets = output_times(spec.duration_s, spec.sample_interval_s)
 
     for target in targets:
         while t < target-2e-15*spec.duration_s:

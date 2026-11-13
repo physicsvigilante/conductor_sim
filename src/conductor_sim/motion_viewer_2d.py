@@ -1,4 +1,4 @@
-"""M17b: actual M17a curved trajectories in the existing offline viewer.
+"""M17b/M18b: actual planar trajectories in the existing offline viewer.
 
 All physics comes from integrate_motion_2d and the accepted analytical
 force_energy providers. Only selected genuine time samples receive solved
@@ -7,14 +7,13 @@ and the in-slice path overlay. Never interpolate or invent field solutions.
 """
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 from math import fsum, hypot, isclose, isfinite
 
 from ._resources import cleanup_resources
 from ._motion_validation import validate_planar_motion, planar_path_breaks
-from .model import ConductingPlane, PointCharge
-from .motion_2d import Motion2DResult, Motion2DSpec, integrate_motion_2d
+from .model import ConductingPlane
+from .motion_2d import Motion2DResult, Motion2DSpec, integrate_motion_2d, _geometry
 from .motion_viewer import _choose_indices
 from .observables import force_energy
 from .solver import UnsupportedProblem
@@ -48,12 +47,14 @@ def _slice_contains_trajectory(plane, trajectory, *, scale):
     normal = plane.normal
     if abs(_dot(normal, trajectory.plane_normal)) < 1-1e-8:
         raise UnsupportedProblem('display slice must be parallel to the proven invariant motion plane')
-    for row in trajectory.samples:
-        x, y, h = plane.project(row.position_m)
-        if abs(h) > 1e-8*max(scale, _norm(_sub(row.position_m, trajectory.plane_origin_m)), 1e-12):
+    positions = [row.position_m for row in trajectory.samples]
+    positions.extend(q.position_m for q in trajectory.spec.stationary_charges)
+    for position in positions:
+        x, y, h = plane.project(position)
+        if abs(h) > 1e-8*max(scale, _norm(_sub(position, trajectory.plane_origin_m)), 1e-12):
             raise UnsupportedProblem('motion trajectory is not entirely in the authored display slice')
         if not plane.contains((x, y)):
-            raise UnsupportedProblem('motion display slice must include the complete trajectory')
+            raise UnsupportedProblem('motion display slice must include the complete trajectory and every held charge')
 
 
 def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolution=25) -> SliceSpec:
@@ -65,13 +66,13 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
     """
     if not isinstance(spec, Motion2DSpec) or not isinstance(trajectory, Motion2DResult):
         raise TypeError('expected Motion2DSpec and Motion2DResult')
-    if spec.stationary_charges:
-        raise UnsupportedProblem('M18a exports multi-charge numerical motion only; M18b viewer not yet supported')
     if trajectory.spec != spec or len(trajectory.samples) < 2:
         raise ValueError('motion slice requires the matching nonempty M17a trajectory')
     conductors = spec.problem.conductors
     initial = spec.selected_charge.position_m
     normal = trajectory.plane_normal
+    positions = [row.position_m for row in trajectory.samples]
+    positions.extend(q.position_m for q in spec.stationary_charges)
     if isinstance(conductors[0], ConductingPlane):
         v = conductors[0].normal
         height = conductors[0].signed_distance_m(initial)
@@ -83,8 +84,8 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
         # Physical intercepts of the authored plane boundaries through the
         # chosen reference, not their arbitrary position along the surface.
         boundary = [-c.signed_distance_m(origin)/_dot(c.normal, v) for c in conductors]
-        points = [(_dot(_sub(row.position_m, origin), u),
-                   _dot(_sub(row.position_m, origin), v)) for row in trajectory.samples]
+        points = [(_dot(_sub(point, origin), u),
+                   _dot(_sub(point, origin), v)) for point in positions]
         scale = max([abs(b) for b in boundary] + [abs(height), 1e-6])
         xs = [x for x,_ in points]
         ys = [y for _,y in points] + boundary
@@ -109,7 +110,7 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
         # Subtracting nearly parallel vectors can normalize pure roundoff
         # into an axis parallel to v on a perfectly valid radial launch.
         u = _unit(_cross(normal, v))
-        reach = max(_norm(_sub(row.position_m, origin)) for row in trajectory.samples)
+        reach = max(_norm(_sub(point, origin)) for point in positions)
         outer = max(c.outer_radius_m for c in conductors)
         span = 1.24*max(reach, outer, 1e-6)
         xrange = (-span, span)
@@ -131,8 +132,6 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
     """
     if not isinstance(spec, Motion2DSpec):
         raise TypeError('expected Motion2DSpec')
-    if spec.stationary_charges:
-        raise UnsupportedProblem('M18a exports multi-charge numerical motion only; M18b viewer not yet supported')
     if result is None:
         result = integrate_motion_2d(spec, backend)
     if not isinstance(result, Motion2DResult) or result.spec != spec:
@@ -142,6 +141,11 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
         validate_planar_motion(physics)
     except ValueError as error:
         raise UnsupportedProblem(f'supplied trajectory disagrees with its physical metadata: {error}') from error
+    geometry = _geometry(spec)
+    for row in result.samples:
+        if (geometry.clearance(row.position_m) <= 0 or
+                geometry.charge_clearance(row.position_m) <= 0):
+            raise UnsupportedProblem('supplied trajectory crosses a conductor or held-charge guard')
     indices = _choose_indices(result, visual_frames)
     if plane is None:
         plane = motion_slice_2d(spec, result, resolution=resolution)
@@ -153,9 +157,8 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
     selected = [result.samples[i] for i in indices]
     models = []
     for row in selected:
-        source = PointCharge(spec.selected_charge.charge_c, row.position_m)
         models.append((f'Elapsed time {row.time_s:.5g} s',
-                       replace(spec.problem, charges=(source,))))
+                       spec.problem_at(row.position_m)))
 
     class _CheckedBackend:
         """No FEMM substitution and no matching a field to the wrong time."""
@@ -169,17 +172,19 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
             if self.next_index >= len(selected):
                 raise ValueError('unexpected extra field-frame solve')
             expected = selected[self.next_index]
-            if (len(problem.charges) != 1 or
-                    problem.charges[0].position_m != expected.position_m or
-                    problem.charges[0].charge_c != spec.selected_charge.charge_c):
+            if problem != spec.problem_at(expected.position_m):
                 raise UnsupportedProblem('field frame must match a genuine ordered M17a time sample')
+            if not self.supports(problem):
+                raise UnsupportedProblem('selected backend does not support this motion field frame')
             solution = backend.solve(problem)
             try:
                 readings = force_energy(solution)  # unsupported FEMM must refuse
-                if (len(readings.charges) != 1 or
-                        readings.charges[0].source != problem.charges[0]):
+                if (len(readings.charges) != len(problem.charges) or
+                        {reading.source for reading in readings.charges} != set(problem.charges)):
                     raise UnsupportedProblem('field-frame charge identity does not match motion')
-                actual = readings.charges[0].total_force_n
+                moving = next(reading for reading in readings.charges
+                              if reading.source == problem.charges[spec.charge_index])
+                actual = moving.total_force_n
                 if (any(not isclose(a, b, rel_tol=2e-10, abs_tol=1e-28)
                         for a,b in zip(actual, expected.force_n)) or
                         not isclose(readings.energy.total_j, expected.interaction_energy_j,
@@ -206,6 +211,16 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
                    fields='Each field frame solved at the matching actual numerical position/time; no interpolation between field frames.')
     for frame, index in zip(bundle['frames'], indices):
         frame['motion_sample_index'] = index
+        if spec.stationary_charges:
+            # Sampling uses grouped/sorted source order, not authored indices.
+            # Attach identities by the complete physical site, never list order.
+            problem = spec.problem_at(result.samples[index].position_m)
+            identities = {(q.position_m, q.charge_c): i
+                          for i, q in enumerate(problem.charges)}
+            for source in frame['charges']:
+                authored = identities[(tuple(source['position_m']), source['charge_c'])]
+                source['charge_index'] = authored
+                source['motion_role'] = 'moving' if authored == spec.charge_index else 'held'
     physics['trajectory_break_indices'] = planar_path_breaks(physics, bundle['frames'][0])
     validate_planar_motion(physics, frames=bundle['frames'])
     bundle['motion_2d'] = physics

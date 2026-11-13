@@ -214,3 +214,13 @@ M18b can show and validate the complete inventory. New independent mirror/
 Kelvin, finite-difference and refusal tests. See [M18a](m18a.md); exact-head
 Python 3.10/3.12, all retained browser/authoring gates and 97 real-FEMM
 non-regression tests with zero skips required before acceptance.
+
+M18b — **Held-source viewer and output correctness:** extend the shared
+`sample_motion_2d`/HTML pipeline to preserve and label every moving/held
+source, certify full field inventories and keep all sources inside a fixed
+physical slice. Reuse elapsed-time controls, vector arrows and energy graphs.
+Correct duplicate final timestamps in scalar/vector motion; reject invalid
+saved speed/guard metadata; omit sparse chords through held-charge guards.
+No new force law, RK4 implementation or multi-moving-charge support. See
+[M18b](m18b.md); acceptance requires all retained and new Python/browser
+workflows and 97 real FEMM regressions with zero skips.

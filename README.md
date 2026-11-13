@@ -535,3 +535,20 @@ This milestone produces numerical time-series **JSON**. The older M17b
 single-charge HTML viewer explicitly refuses multi-charge motion rather than
 omitting stationary sources; rendering *all* charges is M18b's task.
 See [M18a domain and scientific limitations](docs/m18a.md).
+
+## M18b — Interactive motion with held point charges
+
+The existing `sample_motion_2d` exporter now displays every M18a source, with
+stable original indices, a moving circle and held-source squares. It reuses
+the time controls, field maps, force/velocity arrows and energy graphs. Every
+field snapshot is solved with the complete charge inventory at its actual
+saved time; there is no second integrator or omitted stationary source.
+
+```powershell
+python examples/particle_motion_fixed_viewer.py --case plane --output output/m18b-plane.html
+Start-Process .\output\m18b-plane.html
+```
+
+Other cases: `plates`, `sphere`, `cavity`, `nested`, `guard`. See
+[M18b scope, corrections and acceptance](docs/m18b.md). The earlier M18a
+viewer refusal is superseded; its JSON-only CLI remains unchanged.

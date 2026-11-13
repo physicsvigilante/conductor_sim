@@ -196,6 +196,7 @@ const sweep=data.position_sweep||null;
 const motion1=data.motion_1d||null, motion2=data.motion_2d||null;
 const motion=motion1||motion2, motionIsVector=!!motion2;
 const motionFrames=motion?motion.frame_sample_indices.map(i=>motion.samples[i]):null;
+const heldMotion=motionIsVector&&Array.isArray(motion.stationary_charges);
 function timeUnit(seconds){if(seconds<1e-7)return [1e9,'ns'];if(seconds<1e-4)return [1e6,'µs'];if(seconds<.1)return [1e3,'ms'];return [1,'s']}
 const [timeFactor,timeLabel]=motion?timeUnit(motionFrames[motionFrames.length-1].time_s):[1,'s'];
 if(sweep){
@@ -219,7 +220,12 @@ if(motion){
   $('motion-velocity-chart').setAttribute('aria-label','Two planar velocity components in metres per second versus elapsed time');
   $('motion-position-chart').parentElement.querySelector('h3').textContent='Planar displacement components (m) versus time';
   $('motion-velocity-chart').parentElement.querySelector('h3').textContent='Planar velocity components (m/s) versus time';
-  $('motion-scope-note').textContent='The full curved path and velocity/force vectors are projected into the proven invariant physical plane. The full stored M17a trajectory drives the traces; electrostatic fields are solved only at selected real time samples. Vector arrows are display-normalized. Surface guard means a pre-contact approach cutoff, not an exact impact. Classical speeds remain below 0.1c. Dashed path: saved-sample preview; orange: traversed samples. Connecting lines are display chords, not extra integration samples. '+((motion.trajectory_break_indices||[]).length?'Gaps omit chords that would cross conducting metal; refine output sampling to resolve the curve.':'');
+  $('motion-scope-note').textContent='The full curved path and velocity/force vectors are projected into the proven invariant physical plane. The full stored M17a trajectory drives the traces; electrostatic fields are solved only at selected real time samples. Vector arrows are display-normalized. Surface guard means a pre-contact approach cutoff, not an exact impact. Classical speeds remain below 0.1c. Dashed path: saved-sample preview; orange: traversed samples. Connecting lines are display chords, not extra integration samples. '+((motion.trajectory_break_indices||[]).length?'Gaps omit chords that would cross conducting metal or a held-charge approach guard; refine output sampling to resolve the curve.':'');
+  if(heldMotion){
+   document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M18 HELD-SOURCE MOTION';
+   $('motion-panel').querySelector('h2').textContent='One moving charge with externally held sources';
+   $('motion-scope-note').textContent+=' Labels qN use original zero-based authored indices: circles mark the moving charge; squares mark externally held charges. Only the circle moves. K is its kinetic energy; U is the full configuration interaction energy, including constant held-source terms. Fixed supports have zero displacement; this is not a freely moving isolated many-particle system. Charge guard is a pre-contact cutoff, not a collision or a physical source radius.';
+  }
  }
 }
 function forceArrow(p,X,Y,project){
@@ -408,9 +414,18 @@ function drawScene(){
   }
  }
  function project(v){const d=v.map((x,i)=>x-p.origin_m[i]);const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);const n=[p.u[1]*p.v[2]-p.u[2]*p.v[1],p.u[2]*p.v[0]-p.u[0]*p.v[2],p.u[0]*p.v[1]-p.u[1]*p.v[0]];return[dot(d,p.u),dot(d,p.v),dot(d,n)]}
- drawTrajectory(p,X,Y,project);
  for(const m of frame.source_masks){const [x,y,h]=project(m.center_m);if(Math.abs(h)>=m.radius_m)continue;ctx.beginPath();ctx.arc(X(x),Y(y),Math.sqrt(m.radius_m*m.radius_m-h*h)*scale,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.setLineDash([3,2]);ctx.strokeStyle='#7d8d9c';ctx.stroke();ctx.setLineDash([])}
- for(const q of frame.charges){const [x,y,h]=q.slice_position_m;if(Math.abs(h)>1e-10)continue;ctx.beginPath();ctx.arc(X(x),Y(y),4,0,Math.PI*2);ctx.fillStyle=q.charge_c>0?'#b83121':'#175ba3';ctx.fill();ctx.fillStyle='#10273a';ctx.font='bold 14px system-ui';ctx.fillText(q.charge_c>0?'+':'−',X(x)+7,Y(y)-7)}
+ drawTrajectory(p,X,Y,project);
+ for(const q of frame.charges){
+  const [x,y,h]=q.slice_position_m;if(Math.abs(h)>1e-10)continue;
+  ctx.beginPath();
+  if(heldMotion&&q.motion_role==='held')ctx.rect(X(x)-4,Y(y)-4,8,8);
+  else ctx.arc(X(x),Y(y),4,0,Math.PI*2);
+  ctx.fillStyle=q.charge_c>0?'#b83121':'#175ba3';ctx.fill();
+  ctx.fillStyle='#10273a';ctx.font='bold 12px system-ui';
+  const sign=q.charge_c>0?'+':'−';
+  ctx.fillText(heldMotion?sign+' q'+q.charge_index+' ('+q.motion_role+')':sign,X(x)+7,Y(y)-7);
+ }
  forceArrow(p,X,Y,project);velocityArrow(p,X,Y,project);
  ctx.fillStyle='#f9fbfd';ctx.fillRect(0,0,W,oy-1);ctx.fillRect(0,H-oy+1,W,oy);ctx.fillRect(0,0,ox-1,H);ctx.fillRect(W-ox+1,0,ox,H);
  ctx.strokeStyle='#99acbc';ctx.strokeRect(ox,oy,W-2*ox,H-2*oy);ctx.fillStyle='#4c6274';ctx.font='12px system-ui';ctx.textAlign='center';
@@ -439,7 +454,7 @@ function drawProfile(){
  xs.forEach((x,i)=>{if(ys[i]===null){connected=false;return}if(connected)c.lineTo(X(x),Y(ys[i]));else c.moveTo(X(x),Y(ys[i]));connected=true});c.stroke();
  $('method').textContent=series.method+(isPlane?' · horizontal axis: signed distance (m)':'')+(available.length<ys.length?' · gaps: excluded samples':'');
 }
-function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile();drawSweepObservations();drawMotionObservations()}
+function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),(heldMotion?'q'+q.charge_index+' · '+q.motion_role+' · ':'')+fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile();drawSweepObservations();drawMotionObservations()}
 let motionPlaying=false,rafRequest=null,playClock=null,playStart=0;
 function stopMotionPlayback(){
  motionPlaying=false;if(rafRequest!==null)cancelAnimationFrame(rafRequest);rafRequest=null;playClock=null;
@@ -470,5 +485,5 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMotionP
 $('frame').addEventListener('input',()=>{stopMotionPlayback();selectFrame()});$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);$('velocity-arrow').addEventListener('change',drawScene);$('trajectory').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
 canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(),px=(e.clientX-rect.left)*canvas.width/rect.width,py=(e.clientY-rect.top)*canvas.height/rect.height;const p=frame.plane,g=frame.grid;const x=p.x_range_m[0]+(px-map.ox)/map.scale,y=p.y_range_m[0]+(canvas.height-py-map.oy)/map.scale;const i=Math.round((x-g.x_m[0])/(g.x_m[1]-g.x_m[0])),j=Math.round((y-g.y_m[0])/(g.y_m[1]-g.y_m[0]));if(!frame||px<map.ox||px>canvas.width-map.ox||py<map.oy||py>canvas.height-map.oy||j<0||i<0||j>=g.y_m.length||i>=g.x_m.length){resetProbe();return;}const v=g.potential_v[j][i],f=g.electric_field_v_per_m[j][i];$('probe').textContent='u='+fmt(g.x_m[i])+' m   v='+fmt(g.y_m[j])+' m   '+g.region[j][i]+'\nV='+ (v===null?'masked':fmt(v)+' V')+'   |E|='+(f===null?'unavailable':fmt(Math.hypot(...f))+' V/m')});
 canvas.addEventListener('mouseleave',resetProbe);
-selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:motionIsVector?'elapsed-time-2d':motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get motionSampleCount(){return motion?motion.samples.length:0},get heatmapBuilds(){return heatmapBuilds}};
+selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:heldMotion?'elapsed-time-held-sources':motionIsVector?'elapsed-time-2d':motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get motionSampleCount(){return motion?motion.samples.length:0},get heatmapBuilds(){return heatmapBuilds}};
 </script></body></html>'''
