@@ -421,3 +421,21 @@ python examples/force_energy_explorer.py --case cavity-multi --output output/mul
 
 Other choices are `cavity-isolated` and `cavity-centered`. See the
 [M15a/b physics, interaction-energy and acceptance contract](docs/m15.md).
+
+## M16a — True 1D electrostatic particle motion (analytical)
+
+A single charge with mass and initial velocity can now evolve under the same
+self-field-free electrostatic force/energy API used by M13–M15.
+`Motion1DSpec` proves a physically invariant 1D direction for normal plane
+motion, radial exterior-sphere motion or motion along a line through a cavity
+centre. `integrate_motion_1d()` returns elapsed-time states, velocity,
+acceleration, kinetic and interaction energy, turning points and guarded
+surface-approach events. It rejects an unsupported transverse force rather
+than simulating a fictitious straight track. No numerical FEMM force or
+browser-time animation has been added.
+
+```bash
+python examples/particle_motion_1d.py --case cavity --output output/m16-cavity.json
+```
+
+See [M16a equations, constraints and validation](docs/m16a.md).

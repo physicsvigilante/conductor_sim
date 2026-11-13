@@ -87,3 +87,8 @@ __all__ += ['ElectricalLink', 'ConnectionPlan', 'ConductorTransfer',
 
 from .mixed_radial import MixedRadialBackend, MixedRadialSolution
 __all__ += ["MixedRadialBackend", "MixedRadialSolution"]
+
+from .motion_1d import (Motion1DSpec, MotionSample, MotionEvent, Motion1DResult,
+                        MotionIntegrationError, integrate_motion_1d)
+__all__ += ["Motion1DSpec", "MotionSample", "MotionEvent", "Motion1DResult",
+            "MotionIntegrationError", "integrate_motion_1d"]
