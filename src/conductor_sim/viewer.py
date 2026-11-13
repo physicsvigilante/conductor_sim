@@ -56,61 +56,11 @@ def render_html(bundle, *, title='Conductor simulation'):
                 not isinstance(planar_motion, dict) or
                 planar_motion.get('schema') != 'conductor_sim.motion_viewer_2d.v1'):
             raise ValueError('planar elapsed-time motion cannot mix with static sweeps or M16 motion')
-        samples = planar_motion.get('samples')
-        indices = planar_motion.get('frame_sample_indices')
-        if (not isinstance(samples, list) or not 2 <= len(samples) <= 2001 or
-                not isinstance(indices, list) or len(indices) != len(frames) or
-                not 2 <= len(indices) <= 24 or
-                not all(type(i) is int for i in indices) or
-                indices[0] != 0 or indices[-1] != len(samples)-1 or
-                any(a >= b for a,b in zip(indices,indices[1:]))):
-            raise ValueError('planar motion frame indices must span ordered real numerical samples')
-
-        def vector3(value):
-            return (isinstance(value, (list,tuple)) and len(value) == 3 and
-                    all(type(x) in (float,int) and isfinite(x) for x in value))
-
-        if (not vector3(planar_motion.get('plane_normal')) or
-                not vector3(planar_motion.get('plane_origin_m'))):
-            raise ValueError('planar motion must record its finite physical invariant plane')
-        last = -float('inf')
-        for row in samples:
-            if (not isinstance(row, dict) or
-                    not all(type(row.get(k)) in (int,float) and isfinite(row[k])
-                            for k in ('time_s','kinetic_energy_j','interaction_energy_j',
-                                      'total_energy_j','energy_drift_j')) or
-                    not all(vector3(row.get(k)) for k in (
-                        'position_m','displacement_m','velocity_m_s','acceleration_m_s2','force_n')) or
-                    row['time_s'] <= last):
-                raise ValueError('planar motion samples require finite SI vectors and increasing time')
-            last = row['time_s']
-        if samples[0]['time_s'] != 0:
-            raise ValueError('planar motion must start at t=0')
-        plane0 = frames[0].get('plane')
-        if not isinstance(plane0,dict):
-            raise ValueError('planar motion fields require a shared display slice')
-        for key in ('origin_m','u','v'):
-            if not vector3(plane0.get(key)):
-                raise ValueError('planar motion slice must be finite')
-        u,v = plane0['u'],plane0['v']
-        normal = (u[1]*v[2]-u[2]*v[1],
-                  u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])
-        if abs(sum(x*y for x,y in zip(normal,planar_motion['plane_normal']))) < 1-1e-8:
-            raise ValueError('planar motion slice must match its proven physical plane')
-        for frame,index in zip(frames,indices):
-            row = samples[index]
-            if (frame.get('plane') != plane0 or
-                    frame.get('motion_sample_index') != index or
-                    len(frame.get('charges',())) != 1 or
-                    list(frame['charges'][0]['position_m']) != list(row['position_m'])):
-                raise ValueError('each curved-motion field must match its actual numerical position and fixed slice')
-            projected = frame['charges'][0].get('slice_position_m')
-            if (not vector3(projected) or
-                    any(abs(projected[i]-sum((row['position_m'][j]-plane0['origin_m'][j])*
-                                             (u,v,normal)[i][j] for j in range(3))) >
-                        1e-9*max(1.,abs(projected[i])) for i in range(3)) or
-                    abs(projected[2]) > 1e-9*max(1., *(abs(x) for x in row['position_m']))):
-                raise ValueError('curved-motion source must remain in the displayed physical slice')
+        from ._motion_validation import validate_planar_motion, planar_path_breaks
+        validate_planar_motion(planar_motion, frames=frames)
+        # Older saved M17b exports get the same honest sparse-path treatment.
+        display['motion_2d'] = dict(planar_motion,
+            trajectory_break_indices=planar_path_breaks(planar_motion, frames[0]))
     display.setdefault('potential_colour_scale', potential_colour_scale(frames))
     data = json.dumps(display,allow_nan=False,separators=(',',':'))
     # JSON lives inside a script element: HTML escaping alone is insufficient.
@@ -265,9 +215,11 @@ if(motion){
  document.querySelector('header .kicker').textContent=motionIsVector?'CONDUCTOR_SIM / M17 CURVED MOTION':'CONDUCTOR_SIM / M16 TIME DYNAMICS';
  if(motionIsVector){
   $('trajectory-toggle').hidden=false;$('motion-vector-legend').hidden=false;
-  $('motion-position-chart').parentElement.querySelector('h3').textContent='Planar displacement components versus time';
-  $('motion-velocity-chart').parentElement.querySelector('h3').textContent='Planar velocity components versus time';
-  $('motion-scope-note').textContent='The full curved path and velocity/force vectors are projected into the proven invariant physical plane. The full stored M17a trajectory drives the traces; electrostatic fields are solved only at selected real time samples. Vector arrows are display-normalized. Surface guard means a pre-contact approach cutoff, not an exact impact. Classical speeds remain below 0.1c.';
+  $('motion-position-chart').setAttribute('aria-label','Two planar displacement components in metres versus elapsed time');
+  $('motion-velocity-chart').setAttribute('aria-label','Two planar velocity components in metres per second versus elapsed time');
+  $('motion-position-chart').parentElement.querySelector('h3').textContent='Planar displacement components (m) versus time';
+  $('motion-velocity-chart').parentElement.querySelector('h3').textContent='Planar velocity components (m/s) versus time';
+  $('motion-scope-note').textContent='The full curved path and velocity/force vectors are projected into the proven invariant physical plane. The full stored M17a trajectory drives the traces; electrostatic fields are solved only at selected real time samples. Vector arrows are display-normalized. Surface guard means a pre-contact approach cutoff, not an exact impact. Classical speeds remain below 0.1c. Dashed path: saved-sample preview; orange: traversed samples. Connecting lines are display chords, not extra integration samples. '+((motion.trajectory_break_indices||[]).length?'Gaps omit chords that would cross conducting metal; refine output sampling to resolve the curve.':'');
  }
 }
 function forceArrow(p,X,Y,project){
@@ -402,13 +354,16 @@ function drawTrajectory(p,X,Y,project){
  if(!motionIsVector||!$('trajectory').checked)return;
  const points=motion.samples.map(row=>project(row.position_m));
  const lastIndex=motion.frame_sample_indices[Number($('frame').value)];
+ const breaks=new Set(motion.trajectory_break_indices||[]);
  const path=(end)=>{ctx.beginPath();points.slice(0,end+1).forEach((q,i)=>
-     i?ctx.lineTo(X(q[0]),Y(q[1])):ctx.moveTo(X(q[0]),Y(q[1])));ctx.stroke()};
+     i&&!breaks.has(i)?ctx.lineTo(X(q[0]),Y(q[1])):ctx.moveTo(X(q[0]),Y(q[1])));ctx.stroke()};
  ctx.save();ctx.lineWidth=2;ctx.lineCap='round';ctx.lineJoin='round';
  ctx.strokeStyle='#1965a5';ctx.globalAlpha=.44;ctx.setLineDash([5,5]);
  path(points.length-1);ctx.setLineDash([]);
  ctx.strokeStyle='#d17a29';ctx.globalAlpha=.95;ctx.lineWidth=3;
- path(lastIndex);ctx.restore();
+ path(lastIndex);
+ if(breaks.size){ctx.fillStyle='#1965a5';for(const q of points){ctx.beginPath();ctx.arc(X(q[0]),Y(q[1]),2.5,0,2*Math.PI);ctx.fill()}}
+ ctx.restore();
 }
 function drawScene(){
  const p=frame.plane,g=frame.grid,W=canvas.width,H=canvas.height,pad=46;

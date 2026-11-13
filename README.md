@@ -385,8 +385,8 @@ without treating the solid as a fictitious hollow shell; the existing
 nested-shell solver and HTML viewer are reused where applicable.
 
 ```bash
-python examples/solid_sphere_connected.py --case pdf-p03-q27 --output output/m14b-solid.html
-python examples/solid_sphere_connected.py --case pdf-p10-q13-q14 --output output/m14b-shells.html
+python examples/solid_sphere_connected.py --case pdf-p03-q27 --resolution 11 --line-steps 20 --output output/m14b-solid.html
+python examples/solid_sphere_connected.py --case pdf-p10-q13-q14 --resolution 11 --line-steps 20 --output output/m14b-shells.html
 ```
 
 From `02_conductors_half_size.pdf`, page 3 Q27's +20 μC solid sphere (10 cm)
@@ -496,3 +496,20 @@ Start-Process .\output\m17b-plates.html
 
 Further cases: `plane`, `sphere`, `cavity`, `center` and `guard`.
 See [M17b design and scientific constraints](docs/m17b.md).
+
+## M17c — Curved-motion authoring and correctness review
+
+The original open motion-authoring trial has **12 prompts: 8 runnable
+trajectories and 4 justified refusals**. It independently checks authored
+models, units, time evolution, conductor forces and mechanical invariants.
+This is not blind LLM accuracy, an automatic prompt parser or new PDF coverage.
+Rotated radial viewing, saved-data validation and sparse paths near metal
+have also been corrected without changing the force laws or integrator.
+
+```powershell
+python -m m17c.evaluate grade --output output/m17c-grade.json
+python -m m17c.evaluate render electron-plates --output output/m17c-electron.html
+Start-Process .\output\m17c-electron.html
+```
+
+See [M17c references, repairs and verification](docs/m17c.md).
