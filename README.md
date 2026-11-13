@@ -322,3 +322,24 @@ The calculations remain analytical and explicit: an unsupported FEMM force
 observation is rejected, not substituted with an image result. Existing
 visualization exports without this metadata retain their original interface.
 See [M13b design and limitations](docs/m13b.md).
+
+
+## M13c — open JEE authorability trial (requested new PDF pending)
+
+A separate `m13c` evaluation suite authors ten analytical force/energy
+position sweeps from fresh JEE-style prompts and explains eight unsupported
+requests **without editing the electrostatics engine**. Its independent
+image-charge scoring also checks geometry, individual force/energy components
+and work, not just rendered pixels. This is one **open assistant attempt**;
+it is not a blind LLM-generalization measurement.
+
+```bash
+python -m m13c.evaluate grade --output output/m13c.json
+python -m m13c.evaluate render plates-grounded --output output/m13c.html
+```
+
+The newly mentioned `02_conductors_half_size.pdf` was **not found in the
+GitHub `main` tree when this preliminary trial was prepared**. The report
+includes a source-presence audit and scores zero questions from that PDF;
+see [M13c source status and methodology](docs/m13c.md). A PDF-page-anchored
+follow-up requires the actual file on `main`, rather than an invented link.

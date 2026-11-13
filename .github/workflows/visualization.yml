@@ -71,6 +71,12 @@ jobs:
         run: python examples/force_energy_explorer.py --case plates-grounded --steps 9 --resolution 21 --image-order 48 --line-steps 80 --output review-artifacts/m13b-explorer.html
       - name: M13b Chromium synchronized force-arrow, graphs and work acceptance
         run: python tools/check_m13b_viewer.py review-artifacts/m13b-explorer.html --screenshot review-artifacts/m13b-explorer.png > review-artifacts/m13b-browser.json
+      - name: M13c open problem authorability and independent SI grading
+        run: python -m m13c.evaluate grade --output review-artifacts/m13c-grade.json
+      - name: M13c grounded slab nine-position authored explorer
+        run: python -m m13c.evaluate render plates-grounded --resolution 19 --output review-artifacts/m13c-explorer.html
+      - name: M13c Chromium force-energy, work and metadata viewer acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m13c-explorer.html --screenshot review-artifacts/m13c-explorer.png > review-artifacts/m13c-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
