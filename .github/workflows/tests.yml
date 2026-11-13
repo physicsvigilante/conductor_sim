@@ -18,3 +18,4 @@ jobs:
       - run: python examples/concentric_shell.py
       - run: python -m conductor_sim.pdf_benchmark check
       - run: python examples/force_energy.py --output output/force_energy.json
+      - run: python examples/force_energy_explorer.py --steps 3 --resolution 9 --image-order 12 --line-steps 12 --output output/m13b-explorer.html

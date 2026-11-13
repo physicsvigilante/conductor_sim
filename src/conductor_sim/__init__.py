@@ -76,3 +76,6 @@ __all__ = [
 from .observables import (ChargeForce, EnergyBreakdown, ForceEnergyResult,
                           ForceEnergyProvider, force_energy)
 __all__ += ["ChargeForce", "EnergyBreakdown", "ForceEnergyResult", "ForceEnergyProvider", "force_energy"]
+
+from .position_sweep import (PositionSweepSpec, sample_position_sweep, sweep_slice)
+__all__ += ["PositionSweepSpec", "sample_position_sweep", "sweep_slice"]

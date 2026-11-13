@@ -88,3 +88,12 @@ cavity force observations are explicitly unsupported, not replaced by a fallback
 See [M13a methods and acceptance contract](m13a.md). Exact-head acceptance is
 recorded in the associated pull request. **M13b force/energy visualization and
 M13c expanded JEE authoring validation are separate, not included here.**
+
+
+M13b — **Implementation candidate; separate acceptance required:** a reusable
+analytical position sweep of one explicitly tracked authored point charge,
+precomputed static equilibria, in-slice force arrow, force-versus-position
+and mechanical-energy graphs, and external quasistatic work readouts in the
+existing offline viewer. Preserve all other charges, conductor geometry,
+constraints and voltage gauge. Refuse unsupported FEMM force observations.
+See [M13b design](m13b.md).
