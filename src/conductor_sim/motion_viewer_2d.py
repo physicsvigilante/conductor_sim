@@ -12,6 +12,7 @@ import json
 from math import fsum, hypot, isclose, isfinite
 
 from ._resources import cleanup_resources
+from ._motion_validation import validate_planar_motion, planar_path_breaks
 from .model import ConductingPlane, PointCharge
 from .motion_2d import Motion2DResult, Motion2DSpec, integrate_motion_2d
 from .motion_viewer import _choose_indices
@@ -73,9 +74,10 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
         v = conductors[0].normal
         height = conductors[0].signed_distance_m(initial)
         origin = tuple(initial[i]-height*v[i] for i in range(3))
-        tangent = _sub(spec.initial_velocity_m_s,
-                       tuple(_dot(spec.initial_velocity_m_s, v)*x for x in v))
-        u = _unit(tangent if _norm(tangent) else _cross(v, normal))
+        # Cross the proven normal with the radial/electrode direction.
+        # Subtracting nearly parallel vectors can normalize pure roundoff
+        # into an axis parallel to v on a perfectly valid radial launch.
+        u = _unit(_cross(normal, v))
         # Physical intercepts of the authored plane boundaries through the
         # chosen reference, not their arbitrary position along the surface.
         boundary = [-c.signed_distance_m(origin)/_dot(c.normal, v) for c in conductors]
@@ -101,9 +103,10 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
             if not _norm(direction):
                 direction = _cross(normal, (0., 1., 0.))
         v = _unit(direction)
-        tangent = _sub(spec.initial_velocity_m_s,
-                       tuple(_dot(spec.initial_velocity_m_s, v)*x for x in v))
-        u = _unit(tangent if _norm(tangent) else _cross(v, normal))
+        # Cross the proven normal with the radial/electrode direction.
+        # Subtracting nearly parallel vectors can normalize pure roundoff
+        # into an axis parallel to v on a perfectly valid radial launch.
+        u = _unit(_cross(normal, v))
         reach = max(_norm(_sub(row.position_m, origin)) for row in trajectory.samples)
         outer = max(c.outer_radius_m for c in conductors)
         span = 1.24*max(reach, outer, 1e-6)
@@ -130,6 +133,11 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
         result = integrate_motion_2d(spec, backend)
     if not isinstance(result, Motion2DResult) or result.spec != spec:
         raise ValueError('supplied trajectory must be an M17a result for this exact specification')
+    physics = json.loads(json.dumps(result.as_dict(), allow_nan=False))
+    try:
+        validate_planar_motion(physics)
+    except ValueError as error:
+        raise UnsupportedProblem(f'supplied trajectory disagrees with its physical metadata: {error}') from error
     indices = _choose_indices(result, visual_frames)
     if plane is None:
         plane = motion_slice_2d(spec, result, resolution=resolution)
@@ -187,7 +195,6 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
                           profile_samples=profile_samples)
     if checked.next_index != len(selected):
         raise ValueError('field-frame solution count differs from actual motion samples')
-    physics = json.loads(json.dumps(result.as_dict(), allow_nan=False))
     physics.update(schema='conductor_sim.motion_viewer_2d.v1',
                    frame_sample_indices=list(indices),
                    graph_sample_count=len(result.samples),
@@ -195,6 +202,8 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
                    fields='Each field frame solved at the matching actual numerical position/time; no interpolation between field frames.')
     for frame, index in zip(bundle['frames'], indices):
         frame['motion_sample_index'] = index
+    physics['trajectory_break_indices'] = planar_path_breaks(physics, bundle['frames'][0])
+    validate_planar_motion(physics, frames=bundle['frames'])
     bundle['motion_2d'] = physics
     bundle['units'].update(time='s', velocity='m/s', acceleration='m/s^2',
                            kinetic_energy='J', mechanical_interaction_energy='J')

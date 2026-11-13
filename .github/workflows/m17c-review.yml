@@ -1,0 +1,43 @@
+name: M17c motion authoring and review
+on:
+  pull_request:
+    paths: ['src/**', 'm17c/**', 'tests/**', 'tools/**', '.github/workflows/m17c-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'm17c/**', 'tests/**', 'tools/**', '.github/workflows/m17c-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  motion-authoring:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Regressions and independent original-prompt grading
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_post_m17_review.py tests/test_m17c_authoring.py -q --junitxml=review-artifacts/m17c-tests.xml
+          python -m m17c.evaluate grade --output review-artifacts/m17c-grade.json
+      - name: Reuse existing exporter and Chromium playback checks
+        run: |
+          for case in tilted-plane electron-plates nested-cavity; do
+            python -m m17c.evaluate render "$case" --resolution 13 --visual-frames 8 --output "review-artifacts/m17c-$case.html"
+            python tools/check_m17b_viewer.py "review-artifacts/m17c-$case.html" --screenshot "review-artifacts/m17c-$case.png" > "review-artifacts/m17c-$case-browser.json"
+          done
+      - name: Verify actual vector directions and omitted metal-crossing chord
+        run: python tools/check_m17c_review.py review-artifacts/m17c-electron-plates.html --screenshot review-artifacts/m17c-sparse-orbit.png > review-artifacts/m17c-vector-review.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m17c-motion-authoring-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

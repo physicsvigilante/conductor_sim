@@ -166,7 +166,7 @@ solved electrostatic field; no browser ODE, time-proxy position sweep or FEMM
 force substitution. See [M16b](m16b.md). Full Python 3.10/3.12,
 Chromium and retained real-FEMM validation required before acceptance.
 
-M17a — **Planar vector electrostatic dynamics candidate:** reusable
+M17a — **Accepted in PR #30: planar vector electrostatic dynamics:** reusable
 `Motion2DSpec` and `integrate_motion_2d` over existing analytical
 `force_energy` providers; true 3-vector positions/velocities confined to a
 physically invariant plane by symmetry, not by a fabricated constraint.
@@ -179,7 +179,7 @@ curved-path viewer. See [M17a](m17a.md); exact-head Python 3.10/3.12,
 retained Chromium/authorability and all real-FEMM regressions required before
 merge. M17b will add curved-trajectory visualization.
 
-M17b — **Offline curved-trajectory time viewer candidate:** reuses M17a's
+M17b — **Accepted in PR #31: offline curved-trajectory time viewer:** reuses M17a's
 `Motion2DResult` and M16b's field-frame selection/sampling pipeline, offline
 HTML renderer, elapsed-time controls and energy graphs. Adds the complete
 curved path, synchronous vector force and velocity arrows and two-component
@@ -190,3 +190,13 @@ fallback or fabricated out-of-plane constraints. Original static, sweep and
 M16b time modes remain distinct. See [M17b](m17b.md); acceptance requires
 exact-head Python 3.10/3.12, full retained Chromium/authorability regressions
 and all 97 real FEMM non-regression tests with zero skips.
+
+M17c — **Correctness review and original curved-motion authoring trial:**
+fix rotated radial slice degeneracy, validate every saved planar graph row
+and field-frame identity, and omit sparse display chords crossing metal.
+Twelve original prompts comprise eight supported trajectories (168 checked
+states) and four explicit refusals. Independent test-only velocity-Verlet
+and closed-form references do not import the production engine. Existing
+M17a physics, M17b renderer and public model components are reused; no new
+geometry/force solver or browser ODE. See [M17c](m17c.md) for scope, evidence,
+limitations and exact-head Python/browser/97-real-FEMM acceptance gates.
