@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from conductor_sim import (
@@ -46,6 +47,7 @@ def main():
     bundle=sample_sweep(scenarios,reference,plane=plane,seeds=seeds,
                         line_steps=(180 if args.backend=='femm' else 360))
     output=write_visualization(bundle,Path(args.output))
+    output.with_suffix('.json').write_text(json.dumps(bundle,allow_nan=False),encoding='utf-8')
     print(f"M12 {args.backend} parallel-plate preview: {output}")
     print("Source-free capacitor field: 100 V/m, uniform between the plates")
     for label,problem in scenarios:

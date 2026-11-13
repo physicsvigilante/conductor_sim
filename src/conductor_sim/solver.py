@@ -7,6 +7,9 @@ from .model import ElectrostaticProblem, Vector3
 class UnsupportedProblem(ValueError):
     """The chosen backend cannot solve the requested arrangement."""
 
+class OutsideDomain(UnsupportedProblem):
+    """A sample lies outside the explicitly finite numerical solution domain."""
+
 class SingularField(ValueError):
     """Field sampling is undefined at a singular source or jump."""
 

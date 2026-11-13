@@ -53,7 +53,8 @@ class GroundedPlaneSolution:
 
     def potential_at(self, point_m: Vector3) -> float:
         point = _position(point_m, "sample point")
-        if self.plane.signed_distance_m(point) <= 0:
+        height = self.plane.signed_distance_m(point)
+        if height <= 0:
             return 0.0
         terms = []
         for q in self.sources:
@@ -61,7 +62,12 @@ class GroundedPlaneSolution:
             if distance == 0:
                 raise SingularField("potential is singular at an ideal point charge")
             image_distance = hypot(*_minus(point, _mirror(q.position_m, self.plane)))
-            terms.append(q.charge_c * (1/distance - 1/image_distance))
+            # Rationalize the difference: ri^2-r^2 = 4*h*h_source.
+            # Direct reciprocal subtraction loses weak far/near-plane values.
+            source_height = self.plane.signed_distance_m(q.position_m)
+            relative_separation = (2*(height/image_distance)*source_height /
+                                   (.5*distance+.5*image_distance))
+            terms.append(q.charge_c * relative_separation / distance)
         return self._k * fsum(terms)
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
@@ -79,8 +85,15 @@ class GroundedPlaneSolution:
                 raise SingularField("electric field is singular at an ideal point charge")
             image = _minus(point, _mirror(q.position_m, self.plane))
             di = hypot(*image)
+            source_height = self.plane.signed_distance_m(q.position_m)
+            # (di-dr)/di, obtained without subtracting nearly equal distances.
+            separation = 2*(height/di)*source_height/(.5*dr+.5*di)
+            ratio = dr/di
+            inverse_cube_difference = separation*(1+ratio+ratio*ratio)
             for i in range(3):
-                terms[i].append(q.charge_c * (direct[i]/dr**3 - image[i]/di**3))
+                terms[i].append(q.charge_c * (
+                    (direct[i]/dr)*inverse_cube_difference/dr/dr
+                    - (2*source_height/di)*self.plane.normal[i]/di/di))
         return tuple(self._k * fsum(component) for component in terms)
 
     def surface_charge_density_at(self, surface: str, point_m: Vector3) -> float:

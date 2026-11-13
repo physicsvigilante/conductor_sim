@@ -6,7 +6,7 @@ and cross-section metadata. It never computes an electrostatic solution.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot, sqrt, isfinite
+from math import copysign, hypot, sqrt, isfinite
 
 from .model import ConductingPlane, SphericalShell, SolidSphere, Vector3
 
@@ -17,6 +17,18 @@ def _sub(a, b):
 
 def _dot(a, b):
     return sum(x*y for x, y in zip(a,b))
+
+
+def _segment_roots(a, b, c):
+    """Stable quadratic roots on (0,1]; never discard a positive early hit."""
+    if a == 0:
+        return ()
+    discriminant = b*b-4*a*c
+    if discriminant < 0:
+        return ()
+    q = -.5*(b+copysign(sqrt(discriminant),b))
+    roots = (q/a,c/q) if q else (-b/(2*a),)
+    return tuple(t for t in roots if 0 < t <= 1)
 
 
 @dataclass(frozen=True)
@@ -31,12 +43,9 @@ class SphereBoundary:
         if l2 == 0:
             return None
         f = _sub(a,self.center_m)
-        proj = _dot(f,d)
-        discr = proj*proj-l2*(_dot(f,f)-self.radius_m*self.radius_m)
-        if discr < 0:
-            return None
-        hits = [t for t in ((-proj-sqrt(discr))/l2,(-proj+sqrt(discr))/l2)
-                if 1e-10 < t <= 1]
+        distance = hypot(*f)
+        c = (distance-self.radius_m)*(distance+self.radius_m)
+        hits = _segment_roots(l2,2*_dot(f,d),c)
         return min(hits) if hits else None
 
 
@@ -52,7 +61,7 @@ class PlaneBoundary:
         if h0 == h1 or h0*h1 > 0:
             return None
         t = h0/(h0-h1)
-        return t if 1e-10 < t <= 1 else None
+        return t if 0 < t <= 1 else None
 
 
 @dataclass(frozen=True)
@@ -80,14 +89,11 @@ class CylinderSideBoundary:
         if aa==0:
             return None
         bb=2*_dot(radial,dr)
-        cc=_dot(radial,radial)-self.radius_m**2
-        disc=bb*bb-4*aa*cc
-        if disc<0:
-            return None
-        square=sqrt(disc)
+        distance=hypot(*radial)
+        cc=(distance-self.radius_m)*(distance+self.radius_m)
         hits=[]
-        for t in ((-bb-square)/(2*aa),(-bb+square)/(2*aa)):
-            if 1e-10<t<=1 and self.min_height_m<=h0+t*dh<=self.max_height_m:
+        for t in _segment_roots(aa,bb,cc):
+            if self.min_height_m<=h0+t*dh<=self.max_height_m:
                 hits.append(t)
         return min(hits) if hits else None
 
@@ -119,6 +125,7 @@ def slice_geometry(shape, plane):
         denom = nx*nx+ny*ny
         if denom < 1e-20:
             return {"kind":"plane","name":shape.name,"visible":False,
+                    "fills_metal":d0<=0,
                     "point_m":[0.,0.],"normal_xy":[0.,0.]}
         xy = [-d0*nx/denom,-d0*ny/denom]
         return {"kind":"plane","name":shape.name,"visible":True,

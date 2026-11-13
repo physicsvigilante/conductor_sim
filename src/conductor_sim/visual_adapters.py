@@ -83,13 +83,24 @@ def context_for_solution(problem, solution):
         sites = {}
         for source in problem.charges:
             sites.setdefault(source.position_m,[]).append(source.charge_c)
+        sites = {point:fsum(charges) for point,charges in sites.items() if fsum(charges)!=0}
         a = min((s.inner_radius_m or s.outer_radius_m
                  for s in problem.conductors if not isinstance(s,ConductingPlane)),
-                default=min((abs(conductor.signed_distance_m(p)) for p,_ in sites.items())
-                            if isinstance(conductor,ConductingPlane) and sites else [1.]))
-        for point,charges in sites.items():
-            if fsum(charges) != 0:
-                masks.append(SourceMask(point,a*.015,'display-exclusion'))
+                default=min((abs(c.signed_distance_m(p)) for c in problem.conductors
+                             if isinstance(c,ConductingPlane) for p in sites),default=1.))
+        for point in sites:
+            clearances = []
+            for c in problem.conductors:
+                if isinstance(c,ConductingPlane):
+                    clearances.append(abs(c.signed_distance_m(point)))
+                else:
+                    distance = hypot(*sub(point,c.center_m))
+                    clearances.extend(abs(distance-r) for r in
+                                      (c.inner_radius_m,c.outer_radius_m) if r>0)
+            neighbours = [hypot(*sub(point,other)) for other in sites if other!=point]
+            size = min(a*.015, min(clearances,default=float('inf'))/4,
+                       min(neighbours,default=float('inf'))/4)
+            masks.append(SourceMask(point,size,'display-exclusion'))
         known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
                                     ImageChargeShellSolution,ConcentricShellSolution,
                                     ExternalGroundedSphereSolution, ExternalMultiSphereSolution,

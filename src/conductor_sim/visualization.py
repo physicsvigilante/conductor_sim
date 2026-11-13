@@ -17,7 +17,8 @@ import tempfile
 
 from .model import ConductingPlane, ElectrostaticProblem, Vector3, _position
 from .geometry import SphereBoundary, CylinderSideBoundary, contains_metal, physical_boundaries, slice_geometry
-from .solver import FieldSolution, SingularField
+from .solver import FieldSolution, OutsideDomain, SingularField
+from ._resources import cleanup_resources
 
 Vec2 = tuple[float, float]
 Density = Callable[[str, str, Vector3], float]
@@ -93,12 +94,24 @@ class SliceSpec:
             ref = (1.,0.,0.) if abs(v[0]) < .9 else (0.,1.,0.)
             u = unit(tuple(ref[i]-dot(ref,v)*v[i] for i in range(3)))
             center = conductor.point_m
+            sites = _sites(problem)
+            if sites:
+                # A plane anchor is arbitrary; a meridian should contain the
+                # active charge's normal line, not miss a translated source.
+                point = sites[0][0]
+                height = conductor.signed_distance_m(point)
+                center = tuple(point[i]-height*v[i] for i in range(3))
+                transverse = [tuple(p[i]-center[i]-dot(sub(p,center),v)*v[i]
+                                    for i in range(3)) for p,_ in sites]
+                tangent = max(transverse,key=lambda t:hypot(*t))
+                if hypot(*tangent) > 1e-12*max(1.,hypot(*sub(point,center))):
+                    u = unit(tangent)
         else:
             center = conductor.center_m
         reach = max([hypot(*sub(s.center_m,center))+s.outer_radius_m
                      for s in problem.conductors if not isinstance(s,ConductingPlane)] +
                     [hypot(*sub(p,center)) for p,_ in _sites(problem)] +
-                    [hypot(*sub(c.point_m,center)) for c in problem.conductors
+                    [abs(c.signed_distance_m(center)) for c in problem.conductors
                      if isinstance(c,ConductingPlane)] + [0.01])
         extent = extent_m if extent_m is not None else 1.55*reach
         if not isfinite(extent) or extent <= 0:
@@ -320,7 +333,33 @@ def _default_seeds(context, plane):
             t = 2*pi*(k+.25)/8
             for direction in (-1,1):
                 seeds.append(((x+r*cos(t),y+r*sin(t)),direction))
+    if not seeds and len(context.problem.conductors) == 2 and all(
+            isinstance(c,ConductingPlane) for c in context.problem.conductors):
+        geometries = [slice_geometry(c,plane) for c in context.problem.conductors]
+        if all(g['visible'] for g in geometries):
+            first,second = geometries
+            midpoint = tuple((first['point_m'][i]+second['point_m'][i])/2 for i in range(2))
+            nx,ny = first['normal_xy']
+            tangent = (-ny/hypot(nx,ny),nx/hypot(nx,ny))
+            span = min(plane.x_range_m[1]-plane.x_range_m[0],
+                       plane.y_range_m[1]-plane.y_range_m[0])*.3
+            for fraction in (-1.,-.5,0.,.5,1.):
+                xy = tuple(midpoint[i]+fraction*span*tangent[i] for i in range(2))
+                if plane.contains(xy) and context.region(plane.world(xy)) == 'vacuum':
+                    seeds.extend((xy,direction) for direction in (-1,1))
     return seeds[:96]
+
+
+def _profile_value(context, name, face, point):
+    """Missing density data is null, never zero or an analytical fallback."""
+    if context.region(point) in ('outside-domain','source-mask'):
+        return None
+    try:
+        return _finite(context.density_at(name,face,point),'surface density')
+    except OutsideDomain:
+        # The one-sided numerical density probe can leave the domain even
+        # when the surface point itself is just inside its radial edge.
+        return None
 
 
 def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulation',
@@ -387,8 +426,7 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                 values=[]
                 for d in distances:
                     point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
-                    values.append(_finite(context.density_at(conductor.name,'outer',point),
-                                          'plane surface density'))
+                    values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,
                                  'method':context.density_method})
@@ -399,7 +437,7 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                 values = []
                 for t in angles:
                     point = tuple(conductor.center_m[i]+radius*(cos(t)*plane.v[i]+sin(t)*plane.u[i]) for i in range(3))
-                    values.append(_finite(context.density_at(conductor.name,face,point),'surface density'))
+                    values.append(_profile_value(context,conductor.name,face,point))
                 profiles.append({'conductor':conductor.name,'surface':face,'theta_rad':angles,
                                  'sigma_c_per_m2':values,'method':context.density_method})
     geometry = [slice_geometry(c,plane) for c in context.problem.conductors]
@@ -450,13 +488,10 @@ def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, p
                     axis = axis if hypot(*axis) else (0.,0.,1.)
                 plane = SliceSpec.meridian(problem,axis,resolution=resolution)
             frames.append(sample_frame(context,plane,label=label,line_steps=line_steps,seeds=seeds))
-        except BaseException:
+        except BaseException as error:
             close = getattr(solution,'close',None)
             if callable(close):
-                try:
-                    close()
-                except Exception:
-                    pass  # preserve the sampling/solver failure, not a secondary cleanup error
+                cleanup_resources((("sampled solution",close),),primary=error)
             raise
         else:
             close = getattr(solution,'close',None)
