@@ -280,7 +280,7 @@ for real FEMM source/electrode measurements and finite-radius sensitivity
 checks. See [M12a scope](docs/m12a.md).
 
 
-## M12b — finite-cylinder FEMM 5 parallel-plate candidate
+## M12b — finite-cylinder FEMM 5 parallel-plate numerical acceptance
 
 The same M12a authored capacitor can be solved numerically with
 `Femm5ParallelPlateBackend()` for **zero or up to 16 axial active charge
@@ -294,5 +294,8 @@ checks, and non-axisymmetric sources are refused before opening FEMM.
 python examples/parallel_plates.py --backend femm --resolution 21 --output output/m12-femm.html
 ```
 
-This is a **candidate until its dedicated real-FEMM tests and Chromium
-acceptance pass**. See [M12b design and separate finite-disk charge identity](docs/m12b.md).
+**M12b numerical acceptance passed: 90 actual FEMM 5 tests, zero skipped;
+303 ordinary Python tests on each supported version, and Chromium on an
+actual FEMM-generated HTML preview.** See [M12b design and finite-disk
+identity](docs/m12b.md) and [real numerical acceptance](docs/m12b-acceptance.md).
+This is not a uniform numerical-error guarantee or support for non-axial FEMM.

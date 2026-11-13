@@ -69,10 +69,10 @@ sources; transparent `None` for undefined infinite-plate total charge.
 **M12b real FEMM 5 finite plate validation remains unimplemented.** See [M12a](m12a.md).
 
 
-M12b — **Finite-domain FEMM 5 implementation candidate (not yet accepted):**
+M12b — **Numerical acceptance passed (90 actual FEMM 5 tests, including seven new plate-pair cases):**
 reuse the same authored two-plane capacitor to compile separately constrained
 finite electrode disks, charged axial spherical FEMM source cores and an
 artificial zero-radial-flux cylindrical outer boundary. Independently measure
 all FEMM electrode/source charges; test the finite-cylinder weighting-potential
 charge identities, local analytic V/E/sigma and convergence. Keep arbitrary
-3D source configurations analytical-only. See [M12b](m12b.md).
+3D source configurations analytical-only. See [M12b](m12b.md) and [M12b acceptance](m12b-acceptance.md).
