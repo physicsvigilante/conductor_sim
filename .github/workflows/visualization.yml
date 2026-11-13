@@ -99,6 +99,22 @@ jobs:
         run: python examples/solid_sphere_connected.py --case pdf-p10-q13-q14 --resolution 35 --line-steps 100 --output review-artifacts/m14b-shells.html
       - name: M14b PDF p10 Chromium offline two-state acceptance
         run: python tools/check_viewer.py review-artifacts/m14b-shells.html --screenshot review-artifacts/m14b-shells.png > review-artifacts/m14b-shells-browser.json
+      - name: M15a+b grounded cavity position sweep with exact Kelvin force
+        run: python examples/force_energy_explorer.py --case cavity-grounded --steps 7 --resolution 19 --line-steps 60 --output review-artifacts/m15-cavity-grounded.html
+      - name: M15 grounded-cavity Chromium force and energy acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m15-cavity-grounded.html --screenshot review-artifacts/m15-cavity-grounded.png > review-artifacts/m15-cavity-grounded-browser.json
+      - name: M15 nested cavity with shell constraints
+        run: python examples/force_energy_explorer.py --case cavity-nested --steps 5 --resolution 15 --line-steps 35 --output review-artifacts/m15-cavity-nested.html
+      - name: M15 nested-cavity Chromium synchronized force-energy acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m15-cavity-nested.html --screenshot review-artifacts/m15-cavity-nested.png > review-artifacts/m15-cavity-nested-browser.json
+      - name: M15 two signed cavity charges reusable viewer
+        run: python examples/force_energy_explorer.py --case cavity-multi --steps 5 --resolution 15 --line-steps 35 --output review-artifacts/m15-cavity-multi.html
+      - name: M15 multiple-source Chromium force-energy acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m15-cavity-multi.html --screenshot review-artifacts/m15-cavity-multi.png > review-artifacts/m15-cavity-multi-browser.json
+      - name: M15 cavity-centre zero-force analytical equilibrium
+        run: python examples/force_energy_explorer.py --case cavity-centered --steps 5 --resolution 15 --line-steps 25 --output review-artifacts/m15-cavity-centered.html
+      - name: M15 cavity-centre Chromium zero-force arrow acceptance
+        run: python tools/check_m15_centered_cavity.py review-artifacts/m15-cavity-centered.html --screenshot review-artifacts/m15-cavity-centered.png > review-artifacts/m15-cavity-centered-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

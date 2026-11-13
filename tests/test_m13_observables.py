@@ -319,10 +319,18 @@ def test_numerical_observation_refusal_does_not_sample_or_close_session(pair):
     assert session.closes==1
 
 
-def test_cavity_force_not_fabricated_from_singular_total_field():
+def test_cavity_force_uses_regular_kelvin_images_not_singular_direct_self_field():
     p=ElectrostaticProblem((point(.03),),(SphericalShell(.1,.12,Grounded()),))
     s=NestedShellBackend().solve(p)
-    with pytest.raises(UnsupportedProblem,match='does not provide'):force_energy(s)
+    out=force_energy(s)
+    charge=out.charges[0]
+    r=.03
+    a=.1
+    assert charge.direct_force_n==(0.,0.,0.)
+    assert charge.total_force_n[2]==pytest.approx(K*Q**2*a*r/(a*a-r*r)**2)
+    assert out.energy.total_j==pytest.approx(-K*Q**2*a/(2*(a*a-r*r)))
+    with pytest.raises(SingularField):
+        s.electric_field_at((0.,0.,r))
 
 
 @pytest.mark.parametrize('family',['plane','sphere','slab'])

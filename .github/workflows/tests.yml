@@ -24,3 +24,5 @@ jobs:
       - run: python -m m13c.evaluate grade --output output/m13c-grade.json
       - run: python -m m13c.pdf_cases grade --output output/m13c-pdf-audit.json
       - run: python examples/force_energy_explorer.py --steps 3 --resolution 9 --image-order 12 --line-steps 12 --output output/m13b-explorer.html
+      - run: python examples/force_energy_explorer.py --case cavity-grounded --steps 3 --resolution 11 --line-steps 18 --output output/m15-cavity-grounded.html
+      - run: python examples/force_energy_explorer.py --case cavity-nested --steps 3 --resolution 11 --line-steps 18 --output output/m15-cavity-nested.html
