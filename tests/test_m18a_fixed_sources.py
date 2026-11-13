@@ -274,16 +274,17 @@ def test_reject_mismatched_backend_inventory_and_close_solution():
     assert closed==[True]
 
 
-def test_M18b_viewer_is_explicitly_not_implemented_in_M18a():
+def test_M18b_viewer_keeps_all_M18a_sources():
+    # M18b replaces the old deliberate refusal; it must never drop held sites.
     s=spec_for()
-    class MustNotSolve:
-        def supports(self,p):raise AssertionError('viewer touched backend')
-        def solve(self,p):raise AssertionError('viewer touched backend')
-    with pytest.raises(UnsupportedProblem,match='M18b viewer'):
-        sample_motion_2d(s,MustNotSolve())
-    r=integrate_motion_2d(s,GroundedPlaneBackend())
-    with pytest.raises(UnsupportedProblem,match='M18b viewer'):
-        motion_slice_2d(s,r)
+    backend=GroundedPlaneBackend()
+    r=integrate_motion_2d(s,backend)
+    bundle=sample_motion_2d(s,backend,result=r,resolution=9,seeds=[],profile_samples=9,
+                            visual_frames=3)
+    assert all(len(frame['charges'])==2 for frame in bundle['frames'])
+    assert all({q['motion_role'] for q in frame['charges']}=={'moving','held'}
+               for frame in bundle['frames'])
+    assert motion_slice_2d(s,r).contains(motion_slice_2d(s,r).project(s.stationary_charges[0].position_m)[:2])
 
 
 def test_one_source_M17a_payload_backward_compatible():
@@ -374,4 +375,4 @@ def test_standalone_M18a_cli_cases_retain_stationary_inventory(tmp_path):
         assert len(data['samples'])>=2
         validate_planar_motion(data)
         assert data['termination']==('charge-guard' if case=='guard' else 'duration')
-        assert not path.with_suffix('.html').exists()  # M18b visualization still unimplemented
+        assert not path.with_suffix('.html').exists()  # M18a CLI remains numerical JSON only

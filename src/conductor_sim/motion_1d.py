@@ -10,11 +10,12 @@ claim a finite-radius particle, impact dynamics, or an exact collision time.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from math import ceil, fsum, hypot, isfinite
+from math import fsum, hypot, isfinite
 from typing import Literal
 
 from ._resources import cleanup_resources
 from ._motion_rk4 import rk4_step
+from ._motion_time import output_times
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .observables import force_energy
 from .solver import UnsupportedProblem
@@ -88,8 +89,7 @@ class Motion1DSpec:
             raise ValueError('max_internal_steps must be an integer >= 10')
         if self.sample_interval_s > self.duration_s:
             raise ValueError('sample_interval_s must not exceed duration_s')
-        if ceil(self.duration_s/self.sample_interval_s) > 2000:
-            raise ValueError('at most 2000 requested output intervals')
+        output_times(self.duration_s, self.sample_interval_s)
         if self.surface_guard_m is not None and (isinstance(self.surface_guard_m, bool) or
                                                  not isinstance(self.surface_guard_m, (int, float)) or
                                                  not isfinite(self.surface_guard_m) or self.surface_guard_m <= 0):
@@ -309,8 +309,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     # Preserve output timestamps regardless of adaptive internal step sizes.
     steps_done=0
     h=spec.sample_interval_s/4
-    targets=[min(spec.duration_s,i*spec.sample_interval_s)
-             for i in range(1,ceil(spec.duration_s/spec.sample_interval_s)+1)]
+    targets = output_times(spec.duration_s, spec.sample_interval_s)
     for target in targets:
         while t < target-2e-15*spec.duration_s:
             if steps_done>=spec.max_internal_steps:

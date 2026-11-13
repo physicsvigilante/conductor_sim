@@ -52,12 +52,13 @@ def validate_planar_motion(motion, *, frames=None):
     for key in ('initial_position_m', 'initial_velocity_m_s', 'plane_origin_m', 'plane_normal'):
         if not _vector(motion.get(key)):
             raise ValueError('motion requires finite initial vectors and physical plane')
+    if not _number(motion.get('guard_m')) or motion['guard_m'] <= 0:
+        raise ValueError('motion surface guard must be finite and positive')
     normal, origin = motion['plane_normal'], motion['plane_origin_m']
     if not isclose(hypot(*normal), 1., rel_tol=1e-10, abs_tol=1e-12):
         raise ValueError('motion plane normal must be a unit vector')
-    # M18a extends the *numerical* planar result with externally held sites.
-    # The existing M17b field-frame renderer remains one-charge-only until
-    # M18b can display every authored charge without silently discarding any.
+    # Optional M18 source inventory is shared by numerical and viewer data.
+    # Original one-source M17 exports remain valid without these fields.
     stationary = motion.get('stationary_charges')
     if stationary is None:
         if any(key in motion for key in ('moving_charge_index', 'charge_guard_m')):
@@ -65,8 +66,7 @@ def validate_planar_motion(motion, *, frames=None):
     else:
         moving_index = motion.get('moving_charge_index')
         charge_guard = motion.get('charge_guard_m')
-        if (motion.get('schema') != 'conductor_sim.motion_2d.v1' or
-                not isinstance(stationary, list) or not 1 <= len(stationary) <= 31 or
+        if (not isinstance(stationary, list) or not 1 <= len(stationary) <= 31 or
                 type(moving_index) is not int or not 0 <= moving_index <= len(stationary) or
                 not _number(charge_guard) or charge_guard <= 0):
             raise ValueError('invalid M18a stationary-charge identity or guard metadata')
@@ -82,8 +82,6 @@ def validate_planar_motion(motion, *, frames=None):
         if (set(indices) != set(range(len(stationary)+1))-{moving_index} or
                 len({tuple(p) for p in positions}) != len(positions)):
             raise ValueError('held point-charge indices and locations must be distinct and stable')
-        if frames is not None:
-            raise ValueError('M18a multi-charge motion has no M17b field-frame viewer')
     rows = motion.get('samples')
     if not isinstance(rows, list) or not 2 <= len(rows) <= 2001:
         raise ValueError('motion requires 2 to 2001 finite numerical samples')
@@ -123,6 +121,9 @@ def validate_planar_motion(motion, *, frames=None):
             raise ValueError('motion velocity/force disagrees with physical planar symmetry')
         if any(not _close(a, f/mass) for a,f in zip(row['acceleration_m_s2'], force)):
             raise ValueError('motion acceleration disagrees with force and mass')
+        from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
+        if hypot(*velocity) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
+            raise ValueError('saved classical motion speed must be below 0.1c')
         kinetic = .5*mass*hypot(*velocity)**2
         if row['kinetic_energy_j'] < 0 or not _close(row['kinetic_energy_j'], kinetic):
             raise ValueError('motion kinetic energy disagrees with velocity and mass')
@@ -174,20 +175,36 @@ def validate_planar_motion(motion, *, frames=None):
             raise ValueError('slice must match the physical invariant plane')
     except (ValueError,TypeError,KeyError) as error:
         raise ValueError('invalid planar motion display slice') from error
-    for row in rows:
-        x,y,h = plane.project(row['position_m'])
-        if not plane.contains((x,y)) or abs(h) > 2e-9*scale + 16*max(ulp(abs(v)) for v in row['position_m']):
-            raise ValueError('every graph row must be inside the fixed physical display slice')
+    positions = [row['position_m'] for row in rows]
+    positions.extend(q['position_m'] for q in stationary or ())
+    for position in positions:
+        x,y,h = plane.project(position)
+        if not plane.contains((x,y)) or abs(h) > 2e-9*scale + 16*max(ulp(abs(v)) for v in position):
+            raise ValueError('every graph row and held charge must be inside the fixed physical display slice')
     for frame, index in zip(frames,indices):
         row = rows[index]
         sources = frame.get('charges',())
         if (frame.get('plane') != saved or frame.get('motion_sample_index') != index or
-                len(sources) != 1 or sources[0].get('charge_c') != charge or
-                not _vector(sources[0].get('position_m')) or
-                list(sources[0]['position_m']) != list(row['position_m']) or
-                not _vector(sources[0].get('slice_position_m')) or
-                not _position_close(sources[0]['slice_position_m'],plane.project(row['position_m']),scale)):
-            raise ValueError('each motion field must match its sample, charge identity and fixed slice')
+                not isinstance(sources,(list,tuple)) or len(sources) != 1+len(stationary or ())):
+            raise ValueError('each motion field must match its sample, full charge inventory and fixed slice')
+        expected = {q['charge_index']: (q['position_m'],q['charge_c'],'held')
+                    for q in stationary or ()}
+        expected[moving_index if stationary is not None else 0] = (row['position_m'],charge,'moving')
+        seen = set()
+        for source in sources:
+            if not isinstance(source,dict):
+                raise ValueError('invalid motion field source')
+            authored = source.get('charge_index') if stationary is not None else 0
+            if type(authored) is not int or authored not in expected or authored in seen:
+                raise ValueError('motion field source identity must be unique and authored')
+            seen.add(authored)
+            position, value, role = expected[authored]
+            if (source.get('charge_c') != value or
+                    not _vector(source.get('position_m')) or list(source['position_m']) != list(position) or
+                    not _vector(source.get('slice_position_m')) or
+                    not _position_close(source['slice_position_m'],plane.project(position),scale) or
+                    (stationary is not None and source.get('motion_role') != role)):
+                raise ValueError('each motion field must match its source charge identity, role, position and slice')
 
 
 def planar_path_breaks(motion, frame):
@@ -210,6 +227,11 @@ def planar_path_breaks(motion, frame):
         elif shape['kind']=='sphere':
             boundaries.extend(SphereBoundary((*shape['center_m'],0.),radius)
                 for radius in (shape['inner_radius_m'],shape['outer_radius_m']) if radius>0)
+    # A chord through a held source's approach cutoff is also misleading.
+    # These circles are numerical guards, not physical particle radii.
+    for source in motion.get('stationary_charges',()):
+        boundaries.append(SphereBoundary((*plane.project(source['position_m'])[:2],0.),
+                                          motion['charge_guard_m']))
     points = [(*plane.project(row['position_m'])[:2],0.) for row in motion['samples']]
     return [i for i,(a,b) in enumerate(zip(points,points[1:]),1)
             if any(boundary.first_hit(a,b) is not None for boundary in boundaries)]
