@@ -155,3 +155,13 @@ No phantom constraint forces, numerical FEMM force, physical surface
 collisions, true 3D particle dynamics or HTML time animation. M16b will add
 a distinct time-playback viewer only after the dynamics validation. See
 [M16a](m16a.md); acceptance subject to exact-head GitHub CI.
+
+M16b — **Offline time-based playback over accepted M16a dynamics:** reuse
+`sample_motion_1d` and the existing field-map viewer with a synchronized
+elapsed-time slider, play/pause/restart, particle and signed velocity arrows,
+position/velocity-versus-time, kinetic/interaction/total energy traces, and
+the original force/energy-drift readouts. Every curve uses saved actual M16a
+samples, while a bounded selection of true time snapshots each has a matching
+solved electrostatic field; no browser ODE, time-proxy position sweep or FEMM
+force substitution. See [M16b](m16b.md). Full Python 3.10/3.12,
+Chromium and retained real-FEMM validation required before acceptance.
