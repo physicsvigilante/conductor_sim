@@ -52,13 +52,34 @@ def main():
         assert page.evaluate('window.conductorViewer.heatmapBuilds')==builds
         assert page.evaluate('JSON.stringify(frame)')==raw
         baseline=page.locator('#scene').evaluate('(c)=>c.toDataURL()')
+        has_traces=page.evaluate('shownFieldLines().some(l=>l.points_m.length>=2)')
         page.locator('#lines').uncheck()
-        assert page.locator('#scene').evaluate('(c)=>c.toDataURL()')!=baseline
+        after_toggle=page.locator('#scene').evaluate('(c)=>c.toDataURL()')
+        # A grounded, charge-free final equilibrium may have no field lines.
+        # A toggled checkbox cannot remove pixels that were never drawn.
+        if has_traces:
+            assert after_toggle!=baseline
+        else:
+            assert after_toggle==baseline
         page.locator('#lines').check()
         before=page.locator('#profile').evaluate('(c)=>c.toDataURL()')
         if page.locator('#density option').count()>1:
-            page.locator('#density').select_option('1')
-            assert page.locator('#profile').evaluate('(c)=>c.toDataURL()')!=before
+            # Different conductor faces can legitimately have identical sigma
+            # arrays (e.g. both zero after a wire is connected). Prefer a
+            # distinct actual profile when there is one; never demand changed
+            # pixels merely because a dropdown option changed.
+            changed=page.evaluate('''(()=>{
+                const profiles=frame.profiles;
+                const base=JSON.stringify(profiles[0].sigma_c_per_m2);
+                for(let i=1;i<profiles.length;i++)
+                    if(JSON.stringify(profiles[i].sigma_c_per_m2)!==base)return i;
+                return null;
+            })()''')
+            index=changed if changed is not None else 1
+            page.locator('#density').select_option(str(index))
+            assert page.locator('#density').input_value()==str(index)
+            if changed is not None:
+                assert page.locator('#profile').evaluate('(c)=>c.toDataURL()')!=before
             page.locator('#density').select_option('0')
         page.locator('#scene').hover(position={'x':300,'y':300})
         assert 'u=' in page.locator('#probe').inner_text()

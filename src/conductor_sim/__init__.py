@@ -79,3 +79,8 @@ __all__ += ["ChargeForce", "EnergyBreakdown", "ForceEnergyResult", "ForceEnergyP
 
 from .position_sweep import (PositionSweepSpec, sample_position_sweep, sweep_slice)
 __all__ += ["PositionSweepSpec", "sample_position_sweep", "sweep_slice"]
+
+from .connections import (ElectricalLink, ConnectionPlan, ConductorTransfer,
+                          ConnectionResult, ConnectedShellBackend)
+__all__ += ['ElectricalLink', 'ConnectionPlan', 'ConductorTransfer',
+            'ConnectionResult', 'ConnectedShellBackend']
