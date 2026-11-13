@@ -67,3 +67,22 @@ Required gates are the full ordinary suite, full browser workflow and the
 pinned real-FEMM suite with no skipped numerical tests. Check the PR acceptance
 comment for exact source pins and executed counts; local mock tests alone are
 not FEMM numerical evidence.
+
+
+### Locally refined colours around point charges
+
+Uniform sampling can leave a conspicuously large uncoloured halo around a
+small singularity mask: the conservative interpolator correctly declines to
+fill any *whole coarse cell* touching that mask. A finer, bounded square patch
+is now evaluated around each source mask using **additional potential samples
+from the same analytical/FEMM solver**. Finer subcells are subject to the same
+conductor, source-core and numerical-domain exclusions; no missing value is
+interpolated from a neighbour and no convolution is used. At most about 8,000
+additional scalar queries are requested per state (shared across intersecting
+source masks); these add post-processing cost but do not trigger another FEMM
+solve. Boundary blending is used only when both the coarse and refined
+interpolants are defined. The original coarse V/E grid, contours, conductor
+charges and field lines are left unchanged. The remaining small white circle
+represents the actual excluded ideal singularity or finite numerical core.
+Near-zero potential can also look white by design and is not missing data.
+Older HTML exports must be regenerated to receive the finer samples.

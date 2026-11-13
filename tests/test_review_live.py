@@ -97,3 +97,12 @@ def test_real_femm_progressive_line_pool_and_masked_potential_render_data(pair):
     # Finite source cores remain genuine excluded regions, not fake V=0.
     assert len(frame['source_masks'])==2
     assert all(m['kind']=='numerical-core' for m in frame['source_masks'])
+    # The finer samples are from this actual FEMM solution, outside source
+    # spheres only. They do not invent field data within numerical cores.
+    assert len(frame['potential_refinements']) == 2
+    for patch in frame['potential_refinements']:
+        fine=patch['grid']
+        assert any(r=='vacuum' for row in fine['region'] for r in row)
+        assert any(r=='source-mask' for row in fine['region'] for r in row)
+        assert all(v is None for region_row, voltage_row in zip(fine['region'],fine['potential_v'])
+                   for r,v in zip(region_row,voltage_row) if r in ('source-mask','outside-domain'))

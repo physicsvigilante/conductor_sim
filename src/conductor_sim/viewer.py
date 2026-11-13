@@ -54,19 +54,23 @@ function colourComponents(value){
 }
 function colour(value){return `rgb(${colourComponents(value).join(',')})`}
 const interpolationCache=new WeakMap();
-function interpolationFor(f){
- let index=interpolationCache.get(f);if(index)return index;
- const spec=f.potential_interpolation, nx=f.grid.x_m.length;
+function stencilIndex(spec,nx){
  const boundary=new Map();
  for(const item of spec.boundary)boundary.set(item.cell[1]*(nx-1)+item.cell[0],item.triangles);
- index={cells:spec.cells,boundary};interpolationCache.set(f,index);return index;
+ return {cells:spec.cells,boundary};
 }
-function potentialSample(f,x,y){
- const g=f.grid,nx=g.x_m.length,ny=g.y_m.length;
+function interpolationFor(f){
+ let index=interpolationCache.get(f);if(index)return index;
+ index=stencilIndex(f.potential_interpolation,f.grid.x_m.length);
+ index.patches=(f.potential_refinements||[]).map(p=>({grid:p.grid,
+  stencil:stencilIndex(p.potential_interpolation,p.grid.x_m.length)}));
+ interpolationCache.set(f,index);return index;
+}
+function gridSample(g,index,x,y){
+ const nx=g.x_m.length,ny=g.y_m.length;
  const fx=(x-g.x_m[0])/(g.x_m[1]-g.x_m[0]),fy=(y-g.y_m[0])/(g.y_m[1]-g.y_m[0]);
  if(fx<0||fy<0||fx>nx-1||fy>ny-1)return null;
  const i=Math.min(nx-2,Math.floor(fx)),j=Math.min(ny-2,Math.floor(fy)),tx=fx-i,ty=fy-j;
- const index=interpolationFor(f);
  if(index.cells[j][i]){
   const a=g.potential_v[j][i],b=g.potential_v[j][i+1],c=g.potential_v[j+1][i],d=g.potential_v[j+1][i+1];
   return (1-ty)*((1-tx)*a+tx*b)+ty*((1-tx)*c+tx*d);
@@ -79,6 +83,24 @@ function potentialSample(f,x,y){
   if(u>=-1e-12&&v>=-1e-12&&u+v<=1+1e-12)return a[2]*(1-u-v)+b[2]*u+c[2]*v;
  }
  return null;
+}
+function potentialSample(f,x,y){
+ const index=interpolationFor(f),coarse=gridSample(f.grid,index,x,y);
+ for(const patch of index.patches){
+  const g=patch.grid;
+  if(x<g.x_m[0]||x>g.x_m[g.x_m.length-1]||y<g.y_m[0]||y>g.y_m[g.y_m.length-1])continue;
+  const fine=gridSample(g,patch.stencil,x,y);
+  if(fine===null)continue;
+  if(coarse===null)return fine;
+  // Blend to the original coarse interpolant near the patch perimeter.
+  // This only blends two valid vacuum estimates; masked regions remain null.
+  const margin=Math.min(x-g.x_m[0],g.x_m[g.x_m.length-1]-x,
+                        y-g.y_m[0],g.y_m[g.y_m.length-1]-y);
+  const d=Math.max(f.grid.x_m[1]-f.grid.x_m[0],f.grid.y_m[1]-f.grid.y_m[0]);
+  const t=Math.max(0,Math.min(1,margin/d));
+  return coarse*(1-t)+fine*t;
+ }
+ return coarse;
 }
 let heatCache=null,heatmapBuilds=0;
 function drawHeatmap(W,H,p,ox,oy,scale){

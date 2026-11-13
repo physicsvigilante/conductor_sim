@@ -436,8 +436,11 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             'field_line_pool':{'kind':'progressive-families' if automatic else 'authored',
                                'available':len(lines),'seed_budget':96},
             'domain_center_m':context.domain_center_m}
-    from .potential_display import potential_interpolation
+    from .potential_display import potential_interpolation, potential_refinements
     frame['potential_interpolation'] = potential_interpolation(frame)
+    frame['potential_refinements'] = potential_refinements(context, plane, grid, context.masks)
+    for patch in frame['potential_refinements']:
+        patch['potential_interpolation'] = potential_interpolation(dict(frame, grid=patch['grid']))
     return frame
 
 

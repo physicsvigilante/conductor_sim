@@ -3,9 +3,10 @@
 Ordinary vacuum cells use bilinear interpolation. Cells cut by a conducting
 plane use clipped triangles anchored to the stored conductor voltage. Missing
 samples, source masks and spherical metal interfaces are never bridged. This
-small display mesh is derived from existing samples; it adds no field queries.
+coarse display mesh uses stored samples; optional local source refinements
+query the same solver for additional vacuum-side potential values.
 """
-from math import hypot, sqrt
+from math import ceil, hypot, sqrt
 
 
 def _project(point, plane):
@@ -118,6 +119,64 @@ def potential_interpolation(frame):
     return {'method': 'masked-bilinear-with-plane-boundaries', 'cells': flags, 'boundary': boundary}
 
 
+def potential_refinements(context, plane, grid, masks, *, target_subdivisions=5, max_samples=8000):
+    """Sample small, bounded high-resolution patches beside excluded source cores.
+
+    This queries the *same* solver for additional vacuum-side potentials.
+    A nearby coarse grid cell may be blank because it touches a small mask;
+    it need not remain blank when its subcells can be sampled safely. The
+    actual mask is never sampled or bridged. No new physical model is used.
+    """
+    from .visualization import _finite
+    xs, ys = grid['x_m'], grid['y_m']
+    dx, dy = xs[1]-xs[0], ys[1]-ys[0]
+    base_step = min(dx, dy)
+    patches = []
+    for mask in masks:
+        x, y, h = plane.project(mask.center_m)
+        if abs(h) >= mask.radius_m:
+            continue
+        radius = sqrt(max(0., mask.radius_m**2-h*h))
+        halfwidth = radius + 1.5*max(dx,dy)
+        xlo, xhi = max(xs[0], x-halfwidth), min(xs[-1], x+halfwidth)
+        ylo, yhi = max(ys[0], y-halfwidth), min(ys[-1], y+halfwidth)
+        if xlo >= xhi or ylo >= yhi:
+            continue
+        patches.append((xlo,xhi,ylo,yhi))
+    if not patches:
+        return []
+    counts = [(max(3,ceil((b-a)/base_step*target_subdivisions)+1),
+               max(3,ceil((d-c)/base_step*target_subdivisions)+1))
+              for a,b,c,d in patches]
+    estimated = sum(nx*ny for nx,ny in counts)
+    if estimated > max_samples:
+        # Bound numerical queries for heavily populated authored scenes.
+        shrink = sqrt(max_samples/estimated)
+        counts = [(max(3, int((nx-1)*shrink)+1),
+                   max(3, int((ny-1)*shrink)+1)) for nx,ny in counts]
+    result = []
+    for (xlo,xhi,ylo,yhi),(nx,ny) in zip(patches,counts):
+        xx = [xlo+(xhi-xlo)*i/(nx-1) for i in range(nx)]
+        yy = [ylo+(yhi-ylo)*j/(ny-1) for j in range(ny)]
+        fine = {'x_m':xx,'y_m':yy,'potential_v':[],'region':[]}
+        for y in yy:
+            row, regions = [], []
+            for x in xx:
+                point = plane.world((x,y))
+                kind = context.region(point)
+                regions.append(kind)
+                if kind in ('source-mask','outside-domain'):
+                    row.append(None)
+                else:
+                    row.append(_finite(context.solution.potential_at(point), 'refined potential'))
+            fine['region'].append(regions)
+            fine['potential_v'].append(row)
+        # The caller computes conservative subcell stencils using the same
+        # original conductor and source-mask geometry as the coarse grid.
+        result.append({'grid':fine})
+    return result
+
+
 def potential_colour_scale(frames):
     """One sign-preserving, unclipped asinh colour range for the whole sweep."""
     maximum = 0.
@@ -127,6 +186,12 @@ def potential_colour_scale(frames):
             for value, region in zip(row, regions):
                 if value is not None and region in ('vacuum', 'surface'):
                     maximum = max(maximum, abs(value))
+        for patch in frame.get('potential_refinements', ()):
+            fine = patch['grid']
+            for row, regions in zip(fine['potential_v'], fine['region']):
+                for value, region in zip(row, regions):
+                    if value is not None and region in ('vacuum', 'surface'):
+                        maximum = max(maximum, abs(value))
         for conductor in frame['conductor_results']:
             maximum = max(maximum, abs(conductor['potential_v']))
     maximum = maximum or 1.
