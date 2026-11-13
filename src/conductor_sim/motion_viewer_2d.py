@@ -65,6 +65,8 @@ def motion_slice_2d(spec: Motion2DSpec, trajectory: Motion2DResult, *, resolutio
     """
     if not isinstance(spec, Motion2DSpec) or not isinstance(trajectory, Motion2DResult):
         raise TypeError('expected Motion2DSpec and Motion2DResult')
+    if spec.stationary_charges:
+        raise UnsupportedProblem('M18a exports multi-charge numerical motion only; M18b viewer not yet supported')
     if trajectory.spec != spec or len(trajectory.samples) < 2:
         raise ValueError('motion slice requires the matching nonempty M17a trajectory')
     conductors = spec.problem.conductors
@@ -129,6 +131,8 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
     """
     if not isinstance(spec, Motion2DSpec):
         raise TypeError('expected Motion2DSpec')
+    if spec.stationary_charges:
+        raise UnsupportedProblem('M18a exports multi-charge numerical motion only; M18b viewer not yet supported')
     if result is None:
         result = integrate_motion_2d(spec, backend)
     if not isinstance(result, Motion2DResult) or result.spec != spec:

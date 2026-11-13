@@ -23,6 +23,9 @@ jobs:
       - run: python examples/particle_motion_2d.py --case plates --output output/m17a-plates.json
       - run: python examples/particle_motion_2d.py --case sphere --output output/m17a-sphere.json
       - run: python examples/particle_motion_2d.py --case cavity --output output/m17a-cavity.json
+      - run: python examples/particle_motion_fixed_charges.py --case plane --output output/m18a-plane.json
+      - run: python examples/particle_motion_fixed_charges.py --case sphere --output output/m18a-sphere.json
+      - run: python examples/particle_motion_fixed_charges.py --case guard --output output/m18a-guard.json
       - run: python examples/particle_motion_2d_viewer.py --case plates --visual-frames 5 --resolution 9 --line-steps 10 --output output/m17b-plates.html
       - run: python examples/particle_motion_2d_viewer.py --case sphere --visual-frames 5 --resolution 9 --line-steps 10 --output output/m17b-sphere.html
       - run: python examples/particle_motion_1d.py --case plates --charge-c=-1.602176634e-19 --mass-kg 9.1093837139e-31 --duration-s 5e-8 --sample-interval-s 5e-9 --output output/m16a-electron.json

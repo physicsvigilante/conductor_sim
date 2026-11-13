@@ -113,9 +113,9 @@ def test_guard_stops_before_metal_without_claiming_impact():
 
 def test_rejects_bad_geometry_speed_and_charge_inventory():
     spec=plane_spec()
-    with pytest.raises(UnsupportedProblem,match='one nonzero'):
+    with pytest.raises(UnsupportedProblem,match='share the physically invariant plane'):
         replace(spec,problem=replace(spec.problem,charges=(
-            spec.problem.charges[0], PointCharge(1e-9,(.1,0,.1)))))
+            spec.problem.charges[0], PointCharge(1e-9,(.1,.1,.1)))))
     with pytest.raises(UnsupportedProblem,match='vacuum side'):
         replace(spec,problem=replace(spec.problem,charges=(PointCharge(1e-9,(0,0,-.001)),)))
     upper=ConductingPlane((0,0,.2),(0,1,0),Grounded(),'oblique')
