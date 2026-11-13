@@ -16,7 +16,7 @@ import os
 import tempfile
 
 from .model import ConductingPlane, ElectrostaticProblem, Vector3, _position
-from .geometry import SphereBoundary, contains_metal, physical_boundaries, slice_geometry
+from .geometry import SphereBoundary, CylinderSideBoundary, contains_metal, physical_boundaries, slice_geometry
 from .solver import FieldSolution, SingularField
 
 Vec2 = tuple[float, float]
@@ -118,6 +118,29 @@ class SourceMask:
             raise ValueError('source mask radius must be finite and positive')
 
 
+@dataclass(frozen=True)
+class CylindricalDomain:
+    """Finite axisymmetric FEMM domain, not a physical conductor."""
+    origin_m: Vector3
+    axis: Vector3
+    radius_m: float
+    min_height_m: float
+    max_height_m: float
+
+    def __post_init__(self):
+        object.__setattr__(self,'origin_m',_position(self.origin_m,'cylinder origin'))
+        object.__setattr__(self,'axis',unit(_position(self.axis,'cylinder axis')))
+        if (not isfinite(self.radius_m) or self.radius_m<=0 or
+                not isfinite(self.min_height_m) or not isfinite(self.max_height_m)
+                or self.min_height_m>=self.max_height_m):
+            raise ValueError('invalid numerical cylinder domain')
+
+    def radial_distance_m(self,point):
+        delta=sub(point,self.origin_m)
+        axial=dot(delta,self.axis)
+        return hypot(*(delta[i]-axial*self.axis[i] for i in range(3)))
+
+
 @dataclass
 class SamplingContext:
     """Visual adapter contract. A caller can supply any solver implementing V/E."""
@@ -131,9 +154,13 @@ class SamplingContext:
     density_method: str = 'unavailable'
     notes: tuple[str, ...] = ()
     conductor_results_method: str = 'Supplied solver conductor properties; provenance not specified.'
+    domain_cylinder: CylindricalDomain | None = None
 
     def region(self, point):
         if self.domain_radius_m is not None and hypot(*sub(point, self.domain_center_m)) >= self.domain_radius_m:
+            return 'outside-domain'
+        if self.domain_cylinder is not None and (
+                self.domain_cylinder.radial_distance_m(point) >= self.domain_cylinder.radius_m):
             return 'outside-domain'
         if any(hypot(*sub(point, m.center_m)) <= m.radius_m for m in self.masks):
             return 'source-mask'
@@ -148,6 +175,10 @@ class SamplingContext:
             yield SphereBoundary(mask.center_m,mask.radius_m,'source-mask')
         if self.domain_radius_m is not None:
             yield SphereBoundary(self.domain_center_m,self.domain_radius_m,'outside-domain')
+        if self.domain_cylinder is not None:
+            c=self.domain_cylinder
+            yield CylinderSideBoundary(c.origin_m,c.axis,c.radius_m,
+                                       c.min_height_m,c.max_height_m)
 
     def first_hit(self, a: Vector3, b: Vector3):
         """Find first exact physical boundary crossing on a traced 3D segment."""
@@ -379,7 +410,9 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             'profiles':profiles,'geometry':geometry,'charges':charges,
             'conductor_results':[asdict(c) for c in context.solution.conductor_results],
             'source_masks':[asdict(m) for m in context.masks],
-            'domain_radius_m':context.domain_radius_m,'display_clip_v':clip,
+            'domain_radius_m':context.domain_radius_m,
+            'domain_cylinder':(asdict(context.domain_cylinder) if context.domain_cylinder else None),
+            'display_clip_v':clip,
             'notes':list(context.notes),'density_method':context.density_method,
             'conductor_results_method':context.conductor_results_method}
 

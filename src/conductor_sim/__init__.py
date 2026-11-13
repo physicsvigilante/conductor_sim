@@ -12,6 +12,7 @@ from .external_multi import ExternalMultiSphereBackend, ExternalMultiSphereSolut
 from .femm5_external import Femm5ExternalSphereBackend, Femm5ExternalSphereSolution
 from .grounded_plane import GroundedPlaneBackend, GroundedPlaneSolution
 from .parallel_plates import ParallelPlateBackend, ParallelPlateSolution
+from .femm5_parallel import Femm5ParallelPlateBackend, Femm5ParallelPlateSolution
 from .femm5_plane import Femm5PlaneBackend, Femm5PlaneSolution
 from .model import (
     EPSILON_0,
@@ -46,6 +47,8 @@ __all__ = [
     "FixedPotential",
     "ParallelPlateBackend",
     "ParallelPlateSolution",
+    "Femm5ParallelPlateBackend",
+    "Femm5ParallelPlateSolution",
     "Grounded",
     "ConductingPlane",
     "GroundedPlaneBackend",

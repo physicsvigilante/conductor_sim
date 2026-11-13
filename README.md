@@ -278,3 +278,21 @@ python examples/parallel_plates.py --output output/parallel_plates.html
 This is **not** a parallel-plate FEMM implementation yet. M12b is reserved
 for real FEMM source/electrode measurements and finite-radius sensitivity
 checks. See [M12a scope](docs/m12a.md).
+
+
+## M12b — finite-cylinder FEMM 5 parallel-plate candidate
+
+The same M12a authored capacitor can be solved numerically with
+`Femm5ParallelPlateBackend()` for **zero or up to 16 axial active charge
+sites**, preserving the independent analytical backend. FEMM computes finite
+electrode-disk potentials/charges and the separate charged source-core
+properties. The outer cylindrical side has **zero radial electric flux**, not
+an infinite-plate boundary. Numerical local V/E/sigma require convergence
+checks, and non-axisymmetric sources are refused before opening FEMM.
+
+```bash
+python examples/parallel_plates.py --backend femm --resolution 21 --output output/m12-femm.html
+```
+
+This is a **candidate until its dedicated real-FEMM tests and Chromium
+acceptance pass**. See [M12b design and separate finite-disk charge identity](docs/m12b.md).

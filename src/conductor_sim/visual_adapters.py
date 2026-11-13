@@ -10,10 +10,11 @@ from .multi_image import MultiImageShellSolution
 from .nested_shells import NestedShellSolution
 from .femm5 import Femm5Solution
 from .femm5_external import Femm5ExternalSphereSolution
+from .femm5_parallel import Femm5ParallelPlateSolution
 from .external_sphere import ExternalGroundedSphereSolution
 from .external_isolated import ExternalIsolatedSphereSolution
 from .external_multi import ExternalMultiSphereSolution
-from .visualization import SamplingContext, SourceMask, dot, sub
+from .visualization import SamplingContext, SourceMask, CylindricalDomain, dot, sub
 
 
 def context_for_solution(problem, solution):
@@ -25,6 +26,7 @@ def context_for_solution(problem, solution):
     density = None
     method = 'unavailable'
     radius = None
+    cylinder = None
     conductor = problem.conductors[0] if problem.conductors else None
     center = (conductor.point_m if isinstance(conductor,ConductingPlane) else
               conductor.center_m if conductor is not None else (0.,0.,0.))
@@ -34,8 +36,15 @@ def context_for_solution(problem, solution):
     masks = []
     conductor_method = 'Supplied solver conductor properties; provenance not specified.'
     from .femm5_plane import Femm5PlaneSolution
-    if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution,Femm5PlaneSolution)):
-        if isinstance(solution,Femm5PlaneSolution):
+    if isinstance(solution, (Femm5Solution,Femm5ExternalSphereSolution,
+                             Femm5PlaneSolution,Femm5ParallelPlateSolution)):
+        if isinstance(solution,Femm5ParallelPlateSolution):
+            conductor_method = ('FEMM measured electrode Q/V on two finite disks, '
+                                'with an insulated outer cylindrical side; not infinite-plate totals.')
+            center = solution._origin_m
+            cylinder = CylindricalDomain(solution._origin_m,solution.symmetry_axis,
+                                         solution.outer_radius_m,0.,solution.gap_m)
+        elif isinstance(solution,Femm5PlaneSolution):
             conductor_method = ('FEMM fixed-voltage finite plane boundary; total charge '
                                 'measured on its truncated conductor segment, not exact infinite-plane Q.')
             # FEMM's finite upper-hemisphere is centered on the common
@@ -47,9 +56,9 @@ def context_for_solution(problem, solution):
                                 'FEMM net charge and voltage; inner/outer totals inferred using Gauss’s law.')
             center = (solution.sphere.center_m if isinstance(solution,Femm5ExternalSphereSolution)
                       else solution.shell.center_m)
-        radius = solution.outer_radius_m
+        radius = None if isinstance(solution,Femm5ParallelPlateSolution) else solution.outer_radius_m
         masks = [SourceMask(s.position_m,s.radius_m,'numerical-core') for s in solution.numerical_sources]
-        if isinstance(solution,Femm5PlaneSolution):
+        if isinstance(solution,(Femm5PlaneSolution,Femm5ParallelPlateSolution)):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point,
                                                                                   conductor_name=name)
         else:
@@ -59,7 +68,11 @@ def context_for_solution(problem, solution):
                 return solution.surface_charge_density(face,acos(max(-1.,min(1.,cosine))),conductor_name=name)
         method = 'FEMM one-sided near-surface E estimate (mesh/offset dependent)'
         notes += ['FEMM finite charged source spheres approximate ideal points; their interiors are excluded.']
-        if isinstance(solution,Femm5PlaneSolution):
+        if isinstance(solution,Femm5ParallelPlateSolution):
+            notes.append('FEMM plates are finite disks with an artificial zero-radial-flux cylindrical side.')
+            notes.append('Measured finite electrode charges include the capacitor background and source induction.')
+            notes.append('Local FEMM E/sigma are mesh sensitive, not substituted analytical reference fields.')
+        elif isinstance(solution,Femm5PlaneSolution):
             notes.append('Numerical plane is a finite truncated boundary with an approximate outer Robin condition.')
             notes.append('Plane charge is measured on the finite modeled disk; the ideal infinite plane has additional charge beyond the computational boundary.')
         elif isinstance(solution,Femm5ExternalSphereSolution):
@@ -127,4 +140,5 @@ def context_for_solution(problem, solution):
                 return q/(4*pi*r*r)
             method = 'uniform analytical density from conductor surface total'
     return SamplingContext(problem,solution,type(solution).__name__,tuple(masks),center,radius,density,method,tuple(notes),
-                           conductor_results_method=conductor_method)
+                           conductor_results_method=conductor_method,
+                           domain_cylinder=cylinder)
