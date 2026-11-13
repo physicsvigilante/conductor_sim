@@ -14,6 +14,7 @@ from math import ceil, fsum, hypot, isfinite
 from typing import Literal
 
 from ._resources import cleanup_resources
+from ._motion_rk4 import rk4_step
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .observables import force_energy
 from .solver import UnsupportedProblem
@@ -280,12 +281,9 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         return observe(s)[0]/spec.mass_kg
 
     def rk4(s,v,h):
-        # Fail closed on any stage crossing metal/surface guard.
-        k1s,k1v=v,a(s)
-        k2s,k2v=v+.5*h*k1v,a(s+.5*h*k1s)
-        k3s,k3v=v+.5*h*k2v,a(s+.5*h*k2s)
-        k4s,k4v=v+h*k3v,a(s+h*k3s)
-        return s+h*(k1s+2*k2s+2*k3s+k4s)/6, v+h*(k1v+2*k2v+2*k3v+k4v)/6
+        # Reuse the same dimension-independent stepper as M17a, keeping
+        # M16a's existing controller, surface guard and event handling.
+        return rk4_step((s, v), h, lambda state: (state[1], a(state[0])))
 
     s,v,t=0.,float(spec.initial_velocity_m_s),0.
     _,reference_energy=observe(s)

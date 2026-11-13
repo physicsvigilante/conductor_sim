@@ -95,3 +95,8 @@ __all__ += ["Motion1DSpec", "MotionSample", "MotionEvent", "Motion1DResult",
 
 from .motion_viewer import sample_motion_1d, motion_slice
 __all__ += ['sample_motion_1d', 'motion_slice']
+
+from .motion_2d import (Motion2DSpec, Motion2DSample, Motion2DEvent,
+                        Motion2DResult, integrate_motion_2d)
+__all__ += ["Motion2DSpec", "Motion2DSample", "Motion2DEvent",
+            "Motion2DResult", "integrate_motion_2d"]

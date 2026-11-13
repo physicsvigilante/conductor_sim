@@ -165,3 +165,16 @@ samples, while a bounded selection of true time snapshots each has a matching
 solved electrostatic field; no browser ODE, time-proxy position sweep or FEMM
 force substitution. See [M16b](m16b.md). Full Python 3.10/3.12,
 Chromium and retained real-FEMM validation required before acceptance.
+
+M17a — **Planar vector electrostatic dynamics candidate:** reusable
+`Motion2DSpec` and `integrate_motion_2d` over existing analytical
+`force_energy` providers; true 3-vector positions/velocities confined to a
+physically invariant plane by symmetry, not by a fabricated constraint.
+Supports oblique launches between infinite conducting plates, central-force
+exterior-sphere and spherical cavity motion, conservation diagnostics and
+vacuum-side approach guards. M16a retains its original API and controller
+but shares the dimension-independent RK4 stepping kernel with M17a.
+No new FEMM force, numerical fallback, multi-moving-charge or browser
+curved-path viewer. See [M17a](m17a.md); exact-head Python 3.10/3.12,
+retained Chromium/authorability and all real-FEMM regressions required before
+merge. M17b will add curved-trajectory visualization.

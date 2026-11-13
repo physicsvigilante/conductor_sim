@@ -459,3 +459,21 @@ Other `--case` choices include `plane`, `plates`, `sphere-exterior` and
 `turning`. For an elementary electron between biased plates, supply its
 charge, mass, duration and sample interval explicitly. See
 [M16b implementation and scope](docs/m16b.md).
+
+## M17a — True planar curved trajectories
+
+`Motion2DSpec` and `integrate_motion_2d` extend M16 dynamics to
+three-component velocities and positions, while proving a physically
+invariant plane for fixed parallel conductors or spherical symmetry.
+Angled launches now produce genuine curved time trajectories. The existing
+analytical `force_energy` provides forces and mechanical interaction
+energies; an adaptive RK4 stepper is shared with M16a. No browser-side
+integration or FEMM force substitution is introduced.
+
+```powershell
+python examples/particle_motion_2d.py --case plates --output output/m17a-plates.json
+python examples/particle_motion_2d.py --case sphere --output output/m17a-sphere.json
+```
+
+The first milestone exports numerical trajectories as JSON; the reusable
+curved-path viewer is a later M17b task. See [M17a scope](docs/m17a.md).
