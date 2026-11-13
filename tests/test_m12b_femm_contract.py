@@ -133,7 +133,7 @@ def test_grouped_cancellation_and_rotated_translated_normal_line():
     with Femm5ParallelPlateBackend(session_factory=lambda:FakeSession(fake)).solve(p) as sol:
         assert sol._origin_m==pytest.approx(foot)
         assert sol.electric_field_at((2.+.08,-.96+.03,.47+.04))==pytest.approx((6.,2.4,3.2))
-    assert [s[2] for s in calls(fake,'ei_addconductorprop')]==[0,0,-.2e-9]
+    assert [s[2] for s in calls(fake,'ei_addconductorprop')]==pytest.approx([0,0,-.2e-9],abs=1e-24)
 
 
 def test_refuse_off_axis_before_open_and_keep_analytic_three_dimensional():

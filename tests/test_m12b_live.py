@@ -4,6 +4,7 @@ This file is only run by the dedicated REAL FEMM 5 GitHub Actions workflow.
 No analytical solution is substituted for actual finite-disk measurements.
 """
 from math import pi
+from os import environ
 
 import pytest
 
@@ -15,7 +16,9 @@ from conductor_sim.model import EPSILON_0
 from conductor_sim.femm5_parallel import _layout
 from conductor_sim.solver import UnsupportedProblem
 
-pytestmark = pytest.mark.femm5
+pytestmark = [pytest.mark.femm5,
+              pytest.mark.skipif(not environ.get('FEMM5_BINDING'),
+                                 reason='real FEMM 5 binding unavailable')]
 
 Q=1e-9
 D=.2
