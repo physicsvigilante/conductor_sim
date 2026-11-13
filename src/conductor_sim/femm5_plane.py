@@ -22,7 +22,7 @@ from .femm5 import (Femm5ExecutionError, Femm5Session, Femm5Settings,
                     _perpendicular)
 from .grounded_plane import GroundedPlaneBackend, _sites
 from .model import EPSILON_0, ConductingPlane, ElectrostaticProblem, Vector3, _position
-from .solver import ConductorResult, SingularField, UnsupportedProblem
+from .solver import ConductorResult, OutsideDomain, SingularField, UnsupportedProblem
 
 _SOURCE_NAME = "__conductor_sim_plane_source"
 
@@ -174,7 +174,7 @@ class Femm5PlaneSolution:
         perp = tuple(delta[i]-z*self.symmetry_axis[i] for i in range(3))
         r = hypot(*perp)
         if hypot(r,z) >= self.outer_radius_m:
-            raise UnsupportedProblem("sample lies outside finite FEMM plane domain")
+            raise OutsideDomain("sample lies outside finite FEMM plane domain")
         for core in self.numerical_sources:
             if hypot(r,z-core.axial_offset_m)<=core.radius_m:
                 raise UnsupportedProblem("sample lies inside/on the finite source core")

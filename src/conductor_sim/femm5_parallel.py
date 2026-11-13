@@ -28,7 +28,7 @@ from .femm5 import (
 )
 from .model import EPSILON_0, ConductingPlane, ElectrostaticProblem, Vector3, _position
 from .parallel_plates import _layout as _analytic_layout, _voltage
-from .solver import ConductorResult, SingularField, UnsupportedProblem
+from .solver import ConductorResult, OutsideDomain, SingularField, UnsupportedProblem
 
 _SOURCE_PREFIX = "__conductor_sim_plate_pair_source"
 _MAX_ACTIVE_SITES = 16
@@ -172,7 +172,7 @@ class Femm5ParallelPlateSolution:
         perp=tuple(delta[i]-z*self.symmetry_axis[i] for i in range(3))
         r=hypot(*perp)
         if r>=self.outer_radius_m:
-            raise UnsupportedProblem("sample lies outside finite FEMM cylindrical radius")
+            raise OutsideDomain("sample lies outside finite FEMM cylindrical radius")
         if 0 < z < self.gap_m:
             for core in self.numerical_sources:
                 if hypot(r,z-core.axial_offset_m) <= core.radius_m:

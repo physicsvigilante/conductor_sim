@@ -48,7 +48,10 @@ function drawScene(){
  if($('contours').checked){ctx.strokeStyle='#49677988';ctx.lineWidth=1;for(const c of frame.contours){ctx.beginPath();for(const seg of c.segments_m){ctx.moveTo(X(seg[0][0]),Y(seg[0][1]));ctx.lineTo(X(seg[1][0]),Y(seg[1][1]))}ctx.stroke()}}
  if($('lines').checked){ctx.strokeStyle='#183d56';ctx.fillStyle='#183d56';ctx.lineWidth=1.25;for(const l of frame.field_lines){const q=l.points_m;if(q.length<2)continue;ctx.beginPath();q.forEach((v,i)=>i?ctx.lineTo(X(v[0]),Y(v[1])):ctx.moveTo(X(v[0]),Y(v[1])));ctx.stroke();const k=Math.floor((q.length-1)*.58),a=q[k],b=q[Math.min(k+1,q.length-1)];const angle=Math.atan2(Y(b[1])-Y(a[1]),X(b[0])-X(a[0]));ctx.save();ctx.translate(X(a[0]),Y(a[1]));ctx.rotate(angle);ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(-3,-2.8);ctx.lineTo(-3,2.8);ctx.closePath();ctx.fill();ctx.restore()}}
  for(const s of frame.geometry){
-  if(!s.visible)continue;
+  if(!s.visible){
+   if(s.kind==='plane'&&s.fills_metal){ctx.fillStyle='#afbdc9';ctx.fillRect(ox,oy,W-2*ox,H-2*oy)}
+   continue;
+  }
   if(s.kind==='plane'){
    // Clip the physical conducting half-space to the current view rectangle.
    const [px,py]=s.point_m,[nx,ny]=s.normal_xy;
@@ -89,8 +92,10 @@ function drawProfile(){
  if(!series){$('method').textContent='Surface density unavailable for this state.';c.textAlign='left';c.fillStyle='#536a7e';c.font='12px system-ui';c.fillText('Surface-density API not available.',25,50);return}
  const isPlane=Array.isArray(series.coordinate_m);
  const xs=isPlane?series.coordinate_m:series.theta_rad;
- const left=xs[0],right=xs[xs.length-1],ys=series.sigma_c_per_m2.map(x=>x*1e9);
- let lo=Math.min(0,...ys),hi=Math.max(0,...ys),span=hi-lo||1;lo-=.08*span;hi+=.08*span;
+ const left=xs[0],right=xs[xs.length-1],ys=series.sigma_c_per_m2.map(x=>x===null?null:x*1e9);
+ const available=ys.filter(x=>x!==null);
+ if(!available.length){$('method').textContent=series.method+' · no samples inside the numerical domain';c.textAlign='left';c.fillStyle='#536a7e';c.font='12px system-ui';c.fillText('No density samples in this view.',25,50);return}
+ let lo=Math.min(0,...available),hi=Math.max(0,...available),span=hi-lo||1;lo-=.08*span;hi+=.08*span;
  const X=t=>64+(t-left)/(right-left)*(W-84),Y=v=>H-40-(v-lo)/(hi-lo)*(H-67);
  c.strokeStyle='#c5d1dc';c.beginPath();c.moveTo(64,20);c.lineTo(64,H-40);c.lineTo(W-20,H-40);c.stroke();
  c.font='11px system-ui';c.fillStyle='#536a7e';c.textAlign='right';
@@ -99,8 +104,9 @@ function drawProfile(){
  c.fillText(isPlane?x.toPrecision(2):Math.round(x*180/Math.PI)+'°',X(x),H-22)}
  c.textAlign='left';c.fillText('σ  [nC/m²]',65,15);
  c.strokeStyle='#165884';c.lineWidth=2;c.beginPath();
- xs.forEach((x,i)=>i?c.lineTo(X(x),Y(ys[i])):c.moveTo(X(x),Y(ys[i])));c.stroke();
- $('method').textContent=series.method+(isPlane?' · horizontal axis: signed distance (m)':'');
+ let connected=false;
+ xs.forEach((x,i)=>{if(ys[i]===null){connected=false;return}if(connected)c.lineTo(X(x),Y(ys[i]));else c.moveTo(X(x),Y(ys[i]));connected=true});c.stroke();
+ $('method').textContent=series.method+(isPlane?' · horizontal axis: signed distance (m)':'')+(available.length<ys.length?' · gaps: excluded samples':'');
 }
 function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile()}
 $('frame').addEventListener('input',selectFrame);$('density').addEventListener('change',drawProfile);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
