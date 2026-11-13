@@ -55,6 +55,35 @@ def validate_planar_motion(motion, *, frames=None):
     normal, origin = motion['plane_normal'], motion['plane_origin_m']
     if not isclose(hypot(*normal), 1., rel_tol=1e-10, abs_tol=1e-12):
         raise ValueError('motion plane normal must be a unit vector')
+    # M18a extends the *numerical* planar result with externally held sites.
+    # The existing M17b field-frame renderer remains one-charge-only until
+    # M18b can display every authored charge without silently discarding any.
+    stationary = motion.get('stationary_charges')
+    if stationary is None:
+        if any(key in motion for key in ('moving_charge_index', 'charge_guard_m')):
+            raise ValueError('incomplete stationary-source motion metadata')
+    else:
+        moving_index = motion.get('moving_charge_index')
+        charge_guard = motion.get('charge_guard_m')
+        if (motion.get('schema') != 'conductor_sim.motion_2d.v1' or
+                not isinstance(stationary, list) or not 1 <= len(stationary) <= 31 or
+                type(moving_index) is not int or not 0 <= moving_index <= len(stationary) or
+                not _number(charge_guard) or charge_guard <= 0):
+            raise ValueError('invalid M18a stationary-charge identity or guard metadata')
+        indices = []
+        positions = [motion['initial_position_m']]
+        for fixed in stationary:
+            if (not isinstance(fixed, dict) or type(fixed.get('charge_index')) is not int or
+                    not _number(fixed.get('charge_c')) or fixed['charge_c'] == 0 or
+                    not _vector(fixed.get('position_m'))):
+                raise ValueError('held point charges must have finite original identities and SI data')
+            indices.append(fixed['charge_index'])
+            positions.append(fixed['position_m'])
+        if (set(indices) != set(range(len(stationary)+1))-{moving_index} or
+                len({tuple(p) for p in positions}) != len(positions)):
+            raise ValueError('held point-charge indices and locations must be distinct and stable')
+        if frames is not None:
+            raise ValueError('M18a multi-charge motion has no M17b field-frame viewer')
     rows = motion.get('samples')
     if not isinstance(rows, list) or not 2 <= len(rows) <= 2001:
         raise ValueError('motion requires 2 to 2001 finite numerical samples')
@@ -72,8 +101,18 @@ def validate_planar_motion(motion, *, frames=None):
     if (not _position_close(rows[0]['position_m'], p0, scale) or
             any(not _close(x,y) for x,y in zip(rows[0]['velocity_m_s'],v0))):
         raise ValueError('motion initial state must match its metadata')
+    if stationary is not None:
+        for fixed in stationary:
+            point = fixed['position_m']
+            transverse = _dot(_sub(point,origin),normal)
+            if abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
+                raise ValueError('fixed charge lies outside the proven physical plane')
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
+        if stationary is not None and any(
+                hypot(*_sub(position, fixed['position_m'])) <= charge_guard
+                for fixed in stationary):
+            raise ValueError('moving charge sample crossed the held point-charge guard')
         if not _position_close(row['displacement_m'], _sub(position,p0), scale):
             raise ValueError('motion displacement disagrees with actual numerical position')
         projected = tuple(position[i]-_dot(_sub(position,origin),normal)*normal[i] for i in range(3))
@@ -96,16 +135,23 @@ def validate_planar_motion(motion, *, frames=None):
     # intentionally computes it from separate direct/induced/background terms.
     events = motion.get('events')
     termination = motion.get('termination')
-    if not isinstance(events,list) or termination not in ('duration','surface-guard'):
+    if not isinstance(events,list) or termination not in ('duration','surface-guard','charge-guard'):
         raise ValueError('invalid planar motion event/termination metadata')
-    if len(events) != (1 if termination == 'surface-guard' else 0):
-        raise ValueError('surface-guard termination requires its recorded approach event')
+    if termination == 'charge-guard' and stationary is None:
+        raise ValueError('charge-guard termination requires held sources')
+    if len(events) != (1 if termination != 'duration' else 0):
+        raise ValueError('guard termination requires its recorded approach event')
     for event in events:
-        if (not isinstance(event,dict) or event.get('kind') != 'surface-guard' or
+        if (not isinstance(event,dict) or event.get('kind') != termination or
                 not _number(event.get('time_s')) or not 0 <= event['time_s'] <= last or
                 not _vector(event.get('position_m')) or not _close(event['time_s'],last) or
                 not _position_close(event['position_m'],rows[-1]['position_m'],scale)):
             raise ValueError('motion approach event must match the terminal numerical state')
+    if termination == 'charge-guard':
+        terminal = rows[-1]['position_m']
+        near = min(hypot(*_sub(terminal, fixed['position_m'])) for fixed in stationary)
+        if near > charge_guard + max(.04*charge_guard,1e-8*scale):
+            raise ValueError('charge-guard event is not near a held point charge')
     if frames is None:
         return
     indices = motion.get('frame_sample_indices')

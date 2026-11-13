@@ -200,3 +200,17 @@ and closed-form references do not import the production engine. Existing
 M17a physics, M17b renderer and public model components are reused; no new
 geometry/force solver or browser ODE. See [M17c](m17c.md) for scope, evidence,
 limitations and exact-head Python/browser/97-real-FEMM acceptance gates.
+
+M18a — **One moving charge plus externally held fixed charges (candidate):**
+reuse the original immutable authoring components, M17 vector RK4 and
+self-field-free `force_energy`, identify the moving component by its original
+authored index independently of sorted grouped sites, and preserve all held
+charge locations across every solver call. Admit only a proved reflection-
+symmetry plane through the motion and *all* held sources. Record mechanical
+energy drift and terminate at a guarded conductor or fixed point-charge
+approach, without claiming impact. M18a exports genuine numerical motion as
+JSON only; the M17b viewer refuses these new multi-source trajectories until
+M18b can show and validate the complete inventory. New independent mirror/
+Kelvin, finite-difference and refusal tests. See [M18a](m18a.md); exact-head
+Python 3.10/3.12, all retained browser/authoring gates and 97 real-FEMM
+non-regression tests with zero skips required before acceptance.

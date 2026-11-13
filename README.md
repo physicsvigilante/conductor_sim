@@ -513,3 +513,25 @@ Start-Process .\output\m17c-electron.html
 ```
 
 See [M17c references, repairs and verification](docs/m17c.md).
+
+## M18a — One moving point charge with other charges held fixed
+
+The original `Motion2DSpec` and `integrate_motion_2d` now accept an authored
+inventory with **one selected moving source and additional externally held
+stationary sources**. The only new public choice is the selected authored
+charge index and optional `charge_guard_m`: the electrostatic models,
+`force_energy` providers and adaptive RK4 kernel are reused. Held sources
+produce real direct and conductor-induced forces; their positions are never
+integrated, and energy differences still use the mechanical interaction
+potential. All sources and conductors must preserve a physical symmetry
+plane; unsupported layouts or pairwise singular contact fail closed.
+
+```powershell
+python examples/particle_motion_fixed_charges.py --case plane --output output/m18a-plane.json
+python examples/particle_motion_fixed_charges.py --case sphere --output output/m18a-sphere.json
+```
+
+This milestone produces numerical time-series **JSON**. The older M17b
+single-charge HTML viewer explicitly refuses multi-charge motion rather than
+omitting stationary sources; rendering *all* charges is M18b's task.
+See [M18a domain and scientific limitations](docs/m18a.md).

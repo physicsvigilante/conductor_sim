@@ -95,7 +95,7 @@ def test_refusal_is_not_replaced_by_a_wrong_supported_problem():
     assert not evaluate.grade_one('finite-plate-edge',SUBMISSIONS['electron-plates'])['passed']
     assert not evaluate.grade_one('numerical-femm',Submission(None,reason='unsupported'))['passed']
     s=SUBMISSIONS['grounded-sphere'].motion
-    with pytest.raises(UnsupportedProblem,match='one nonzero'):
+    with pytest.raises(UnsupportedProblem,match='share the physically invariant plane'):
         replace(s,problem=replace(s.problem,charges=(*s.problem.charges,PointCharge(1e-9,(.5,0,0)))))
 
 
