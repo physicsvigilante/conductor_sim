@@ -65,6 +65,8 @@ jobs:
         run: python tools/check_post_m12_viewer.py > review-artifacts/post-m12-browser.json
       - name: Smooth potential and progressive density acceptance
         run: python tools/check_visual_quality.py --screenshot review-artifacts/visual-quality.png > review-artifacts/visual-quality-browser.json
+      - name: M13a shared analytical force and energy observations
+        run: python examples/force_energy.py --output review-artifacts/m13-force-energy.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

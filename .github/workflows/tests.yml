@@ -17,3 +17,4 @@ jobs:
       - run: python -m pytest
       - run: python examples/concentric_shell.py
       - run: python -m conductor_sim.pdf_benchmark check
+      - run: python examples/force_energy.py --output output/force_energy.json

@@ -72,3 +72,7 @@ __all__ = [
     "SingularField",
     "UnsupportedProblem",
 ]
+
+from .observables import (ChargeForce, EnergyBreakdown, ForceEnergyResult,
+                          ForceEnergyProvider, force_energy)
+__all__ += ["ChargeForce", "EnergyBreakdown", "ForceEnergyResult", "ForceEnergyProvider", "force_energy"]
