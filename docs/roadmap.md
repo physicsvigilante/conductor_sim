@@ -97,3 +97,16 @@ and mechanical-energy graphs, and external quasistatic work readouts in the
 existing offline viewer. Preserve all other charges, conductor geometry,
 constraints and voltage gauge. Refuse unsupported FEMM force observations.
 See [M13b design](m13b.md).
+
+
+M13c (provisional open authorability trial) — **18 fresh open JEE-style prompts**
+composed using only M13a/M13b public APIs: ten analytical supported sweeps,
+eight explicit and physically justified refusals. Independently check geometry,
+SI forces, interaction-energy components and displacement work, then render
+supported cases through the existing viewer. This is *not* a blind trial.
+The new scanned `02_conductors_half_size.pdf` has since been uploaded to
+`main`: 17 pages visually reviewed, 18 selected source anchors classified,
+**2 independently validated** existing analytical conducting-sphere examples,
+2 static-only and 14 unsupported-force/energy categories. The two PDF-authored
+demonstrations are distinct from 18 original open assistant prompts.
+See [M13c PDF audit and limitations](m13c.md).

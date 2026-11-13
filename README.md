@@ -322,3 +322,32 @@ The calculations remain analytical and explicit: an unsupported FEMM force
 observation is rejected, not substituted with an image result. Existing
 visualization exports without this metadata retain their original interface.
 See [M13b design and limitations](docs/m13b.md).
+
+
+## M13c — open authorability and source-anchored conductor PDF audit
+
+A separate `m13c` evaluation suite authors ten analytical force/energy
+position sweeps from fresh JEE-style prompts and explains eight unsupported
+requests **without editing the electrostatics engine**. Its independent
+image-charge scoring also checks geometry, individual force/energy components
+and work, not just rendered pixels. This is one **open assistant attempt**;
+it is not a blind LLM-generalization measurement.
+
+```bash
+python -m m13c.evaluate grade --output output/m13c.json
+python -m m13c.evaluate render plates-grounded --output output/m13c.html
+```
+
+The new **17-page scanned** `02_conductors_half_size.pdf` is now SHA-pinned
+and visually audited. Of **18 selected PDF questions**, two are independently
+checked conductor demonstrations (grounded sphere p8 Q21; neutral tangent
+sphere p9 Q27), two are static-potential-only, and 14 are outside the current
+force/energy explorer. This is distinct from the 18 original open prompts.
+Both analytical PDF explorers reuse the existing viewer; no new solver code.
+
+```bash
+python -m m13c.pdf_cases grade --output output/m13c-pdf-audit.json
+python -m m13c.pdf_cases render p09-multiple-27 --output output/m13c-neutral-sphere.html
+```
+
+See [M13c source audit and limitations](docs/m13c.md).
