@@ -100,3 +100,6 @@ from .motion_2d import (Motion2DSpec, Motion2DSample, Motion2DEvent,
                         Motion2DResult, integrate_motion_2d)
 __all__ += ["Motion2DSpec", "Motion2DSample", "Motion2DEvent",
             "Motion2DResult", "integrate_motion_2d"]
+
+from .motion_viewer_2d import sample_motion_2d, motion_slice_2d
+__all__ += ['sample_motion_2d', 'motion_slice_2d']
