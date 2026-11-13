@@ -299,3 +299,26 @@ python examples/parallel_plates.py --backend femm --resolution 21 --output outpu
 actual FEMM-generated HTML preview.** See [M12b design and finite-disk
 identity](docs/m12b.md) and [real numerical acceptance](docs/m12b-acceptance.md).
 This is not a uniform numerical-error guarantee or support for non-axial FEMM.
+
+
+## M13b — Reusable analytical position-sweep explorer
+
+The existing viewer can display precomputed **one-charge straight-line position sweeps**
+from the same typed physical model: a selected authored charge moves while all
+other charges, conductors and voltage constraints remain fixed. The same
+`PositionSweepSpec` and `sample_position_sweep` functions work with analytical
+grounded planes, exterior spheres (grounded or fixed Q), and two-plate systems.
+The viewer adds a selected-charge force arrow, a force-component-versus-position
+graph, a mechanical-interaction-energy graph, a breakdown of direct/induced/
+background terms, and the quasistatic work relative to the initial position.
+The position slider is **not time**; all states were solved when generating HTML.
+
+```bash
+python examples/force_energy_explorer.py --case plates-grounded --output output/m13b.html
+python examples/force_energy_explorer.py --case sphere-isolated --output output/m13b-sphere.html
+```
+
+The calculations remain analytical and explicit: an unsupported FEMM force
+observation is rejected, not substituted with an image result. Existing
+visualization exports without this metadata retain their original interface.
+See [M13b design and limitations](docs/m13b.md).

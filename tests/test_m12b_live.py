@@ -183,3 +183,13 @@ def test_real_femm_does_not_silently_supply_analytical_force_energy():
         # Observation refusal must not close or mutate the caller-owned solve.
         assert numerical.potential_at((.05,0.,.10))==before
         assert len(numerical.numerical_sources)==1
+
+
+def test_real_femm_position_sweep_never_supplies_analytical_force_silently():
+    """M13b must refuse unsupported FEMM observations, with no viewer fallback."""
+    from conductor_sim.position_sweep import PositionSweepSpec, sample_position_sweep
+    p = prob(((Q,.06),),v1=20.)
+    spec = PositionSweepSpec(p,0,(0.,0.,.08),steps=3)
+    with pytest.raises(UnsupportedProblem,match='force/energy'):
+        sample_position_sweep(spec,Femm5ParallelPlateBackend(),resolution=9,
+                              seeds=[],line_steps=5,profile_samples=9)

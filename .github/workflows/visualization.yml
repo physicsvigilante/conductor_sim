@@ -67,6 +67,10 @@ jobs:
         run: python tools/check_visual_quality.py --screenshot review-artifacts/visual-quality.png > review-artifacts/visual-quality-browser.json
       - name: M13a shared analytical force and energy observations
         run: python examples/force_energy.py --output review-artifacts/m13-force-energy.json
+      - name: M13b grounded-plate force-energy position-sweep export
+        run: python examples/force_energy_explorer.py --case plates-grounded --steps 9 --resolution 21 --image-order 48 --line-steps 80 --output review-artifacts/m13b-explorer.html
+      - name: M13b Chromium synchronized force-arrow, graphs and work acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m13b-explorer.html --screenshot review-artifacts/m13b-explorer.png > review-artifacts/m13b-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
