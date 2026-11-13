@@ -77,6 +77,16 @@ jobs:
         run: python -m m13c.evaluate render plates-grounded --resolution 19 --output review-artifacts/m13c-explorer.html
       - name: M13c Chromium force-energy, work and metadata viewer acceptance
         run: python tools/check_m13b_viewer.py review-artifacts/m13c-explorer.html --screenshot review-artifacts/m13c-explorer.png > review-artifacts/m13c-browser.json
+      - name: M13c scanned-PDF source classification and independent Kelvin checks
+        run: python -m m13c.pdf_cases grade --output review-artifacts/m13c-pdf-audit.json
+      - name: M13c PDF p8 grounded metal sphere approach explorer
+        run: python -m m13c.pdf_cases render p08-multiple-21 --resolution 19 --output review-artifacts/m13c-pdf-p08.html
+      - name: M13c PDF p8 Chromium force/energy and work acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m13c-pdf-p08.html --screenshot review-artifacts/m13c-pdf-p08.png > review-artifacts/m13c-pdf-p08-browser.json
+      - name: M13c PDF p9 neutral sphere tangent explorer
+        run: python -m m13c.pdf_cases render p09-multiple-27 --resolution 19 --output review-artifacts/m13c-pdf-p09.html
+      - name: M13c PDF p9 Chromium force/energy and work acceptance
+        run: python tools/check_m13b_viewer.py review-artifacts/m13c-pdf-p09.html --screenshot review-artifacts/m13c-pdf-p09.png > review-artifacts/m13c-pdf-p09-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

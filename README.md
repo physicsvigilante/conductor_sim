@@ -324,7 +324,7 @@ visualization exports without this metadata retain their original interface.
 See [M13b design and limitations](docs/m13b.md).
 
 
-## M13c — open JEE authorability trial (requested new PDF pending)
+## M13c — open authorability and source-anchored conductor PDF audit
 
 A separate `m13c` evaluation suite authors ten analytical force/energy
 position sweeps from fresh JEE-style prompts and explains eight unsupported
@@ -338,8 +338,16 @@ python -m m13c.evaluate grade --output output/m13c.json
 python -m m13c.evaluate render plates-grounded --output output/m13c.html
 ```
 
-The newly mentioned `02_conductors_half_size.pdf` was **not found in the
-GitHub `main` tree when this preliminary trial was prepared**. The report
-includes a source-presence audit and scores zero questions from that PDF;
-see [M13c source status and methodology](docs/m13c.md). A PDF-page-anchored
-follow-up requires the actual file on `main`, rather than an invented link.
+The new **17-page scanned** `02_conductors_half_size.pdf` is now SHA-pinned
+and visually audited. Of **18 selected PDF questions**, two are independently
+checked conductor demonstrations (grounded sphere p8 Q21; neutral tangent
+sphere p9 Q27), two are static-potential-only, and 14 are outside the current
+force/energy explorer. This is distinct from the 18 original open prompts.
+Both analytical PDF explorers reuse the existing viewer; no new solver code.
+
+```bash
+python -m m13c.pdf_cases grade --output output/m13c-pdf-audit.json
+python -m m13c.pdf_cases render p09-multiple-27 --output output/m13c-neutral-sphere.html
+```
+
+See [M13c source audit and limitations](docs/m13c.md).
