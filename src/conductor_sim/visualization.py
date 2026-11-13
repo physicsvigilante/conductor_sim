@@ -313,41 +313,8 @@ def _sites(problem):
 
 
 def _default_seeds(context, plane):
-    seeds = []
-    for position, q in _sites(context.problem):
-        x,y,h = plane.project(position)
-        if abs(h) > 1e-10:
-            continue
-        radius = max((m.radius_m for m in context.masks if m.center_m == position), default=.001)
-        for i in range(10):
-            angle = 2*pi*(i+.25)/10
-            seeds.append(((x+radius*1.4*cos(angle),y+radius*1.4*sin(angle)), 1 if q > 0 else -1))
-    shells = sorted((s for s in context.problem.conductors
-                     if not isinstance(s,ConductingPlane)),key=lambda s:s.inner_radius_m)
-    for i,shell in enumerate(shells):
-        x,y,h = plane.project(shell.center_m)
-        if abs(h) > 1e-10:
-            continue
-        r = (shell.outer_radius_m+shells[i+1].inner_radius_m)/2 if i+1 < len(shells) else shell.outer_radius_m*1.25
-        for k in range(8):
-            t = 2*pi*(k+.25)/8
-            for direction in (-1,1):
-                seeds.append(((x+r*cos(t),y+r*sin(t)),direction))
-    if not seeds and len(context.problem.conductors) == 2 and all(
-            isinstance(c,ConductingPlane) for c in context.problem.conductors):
-        geometries = [slice_geometry(c,plane) for c in context.problem.conductors]
-        if all(g['visible'] for g in geometries):
-            first,second = geometries
-            midpoint = tuple((first['point_m'][i]+second['point_m'][i])/2 for i in range(2))
-            nx,ny = first['normal_xy']
-            tangent = (-ny/hypot(nx,ny),nx/hypot(nx,ny))
-            span = min(plane.x_range_m[1]-plane.x_range_m[0],
-                       plane.y_range_m[1]-plane.y_range_m[0])*.3
-            for fraction in (-1.,-.5,0.,.5,1.):
-                xy = tuple(midpoint[i]+fraction*span*tangent[i] for i in range(2))
-                if plane.contains(xy) and context.region(plane.world(xy)) == 'vacuum':
-                    seeds.extend((xy,direction) for direction in (-1,1))
-    return seeds[:96]
+    from .visual_seeds import seed_pool
+    return [(xy, direction) for xy, direction, _ in seed_pool(context, plane)]
 
 
 def _profile_value(context, name, face, point):
@@ -399,14 +366,24 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
     lines = []
     terminations = {}
     step = min(xs[1]-xs[0],ys[1]-ys[0])*.2
-    seed_list = list(islice(iter(_default_seeds(context,plane) if seeds is None else seeds),97))
+    automatic = seeds is None
+    if automatic:
+        from .visual_seeds import seed_pool, distinct_pool
+        pool = seed_pool(context, plane)
+        seed_list = [(xy, direction) for xy, direction, _ in pool]
+    else:
+        seed_list = list(islice(iter(seeds),97))
     if len(seed_list) > 96:
         raise ValueError('at most 96 seed traces per frame')
-    for xy,direction in seed_list:
+    for seed_index, (xy,direction) in enumerate(seed_list):
         line = trace_field_line(context,plane,xy,direction=direction,step_m=step,max_steps=line_steps)
         terminations[line['termination']] = terminations.get(line['termination'],0)+1
         if len(line['points_m']) > 1:
+            if automatic:
+                line['seed_family'] = pool[seed_index][2]
             lines.append(line)
+    if automatic:
+        lines = distinct_pool(lines, plane)
     profiles = []
     if context.density_at is not None:
         for conductor in context.problem.conductors:
@@ -442,7 +419,7 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                                  'sigma_c_per_m2':values,'method':context.density_method})
     geometry = [slice_geometry(c,plane) for c in context.problem.conductors]
     charges = [{'charge_c':q,'position_m':list(p),'slice_position_m':plane.project(p)} for p,q in _sites(context.problem)]
-    return {'label':label,'backend':context.backend,'plane':asdict(plane),'grid':grid,
+    frame = {'label':label,'backend':context.backend,'plane':asdict(plane),'grid':grid,
             'contours':contour_segments(grid,levels,context,plane),'field_lines':lines,
             'line_termination_counts':terminations,
             'profiles':profiles,'geometry':geometry,'charges':charges,
@@ -451,8 +428,17 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             'domain_radius_m':context.domain_radius_m,
             'domain_cylinder':(asdict(context.domain_cylinder) if context.domain_cylinder else None),
             'display_clip_v':clip,
-            'notes':list(context.notes),'density_method':context.density_method,
-            'conductor_results_method':context.conductor_results_method}
+            'notes':[n for n in context.notes if 'display clipping' not in n]+[
+                'Colours interpolate stored potential; asinh scale is shared across states without percentile clipping.',
+                'Density changes reveal a nested precomputed trace pool; their count is not electric flux.'],
+            'density_method':context.density_method,
+            'conductor_results_method':context.conductor_results_method,
+            'field_line_pool':{'kind':'progressive-families' if automatic else 'authored',
+                               'available':len(lines),'seed_budget':96},
+            'domain_center_m':context.domain_center_m}
+    from .potential_display import potential_interpolation
+    frame['potential_interpolation'] = potential_interpolation(frame)
+    return frame
 
 
 def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, plane=None, resolution=61,
@@ -500,6 +486,8 @@ def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, p
     bundle = {'schema':'conductor_sim.visualization.v1','units':{'length':'m','potential':'V','field':'V/m','density':'C/m^2'},
               'playback':'precomputed states; not browser-time numerical solving',
               'color_limit_v':max(f['display_clip_v'] for f in frames),'frames':frames}
+    from .potential_display import potential_colour_scale
+    bundle['potential_colour_scale'] = potential_colour_scale(frames)
     json.dumps(bundle,allow_nan=False)  # fail before any file is written
     return bundle
 

@@ -72,3 +72,28 @@ def test_real_femm_translated_plane_default_view_contains_the_source():
     assert frame['plane']['origin_m'] == pytest.approx((.03,.04,0.))
     assert abs(frame['charges'][0]['slice_position_m'][2]) < 1e-12
     assert frame['field_lines']
+
+
+@pytest.mark.parametrize('pair',[False,True])
+def test_real_femm_progressive_line_pool_and_masked_potential_render_data(pair):
+    from conductor_sim import (ConductingPlane, FixedPotential, Femm5PlaneBackend,
+                               Femm5ParallelPlateBackend)
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+    charges=(PointCharge(1e-9,(0.,0.,.065)),PointCharge(-.5e-9,(0.,0.,.14)))
+    planes=(ConductingPlane(name='lower'),)
+    if pair:
+        planes+=(ConductingPlane((0.,0.,.2),(0.,0.,-1.),FixedPotential(0.),'upper'),)
+    model=ElectrostaticProblem(charges,planes)
+    backend=Femm5ParallelPlateBackend() if pair else Femm5PlaneBackend()
+    frame=sample_sweep([('numerical trace pool',model)],backend,
+                       plane=SliceSpec.meridian(model,extent_m=.29,resolution=17),
+                       line_steps=180)['frames'][0]
+    assert len(frame['field_lines'])>20
+    assert len(frame['field_lines'])<=96
+    assert {'charge:0','charge:1'} <= {l['seed_family'] for l in frame['field_lines'][:12]}
+    assert any(l['seed_family'].startswith('face:') for l in frame['field_lines'][:12])
+    assert frame['potential_interpolation']['method']=='masked-bilinear-with-plane-boundaries'
+    assert any(any(row) for row in frame['potential_interpolation']['cells'])
+    # Finite source cores remain genuine excluded regions, not fake V=0.
+    assert len(frame['source_masks'])==2
+    assert all(m['kind']=='numerical-core' for m in frame['source_masks'])
