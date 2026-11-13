@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import fsum, hypot, isclose, isfinite, pi
 
-from .model import ConductingPlane, ElectrostaticProblem, PointCharge, Vector3, _position
+from .model import ConductingPlane, ElectrostaticProblem, Grounded, PointCharge, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 
@@ -151,7 +151,7 @@ class GroundedPlaneBackend:
         if len(problem.conductors) != 1 or not isinstance(problem.conductors[0], ConductingPlane):
             return False
         plane = problem.conductors[0]
-        return (bool(_sites(problem)) and len(_sites(problem)) <= 32 and
+        return (isinstance(plane.constraint, Grounded) and bool(_sites(problem)) and len(_sites(problem)) <= 32 and
                 all(plane.signed_distance_m(q.position_m) > 0 for q in problem.charges))
 
     def solve(self, problem: ElectrostaticProblem) -> GroundedPlaneSolution:

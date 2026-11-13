@@ -97,7 +97,9 @@ class SliceSpec:
             center = conductor.center_m
         reach = max([hypot(*sub(s.center_m,center))+s.outer_radius_m
                      for s in problem.conductors if not isinstance(s,ConductingPlane)] +
-                    [hypot(*sub(p,center)) for p,_ in _sites(problem)] + [0.01])
+                    [hypot(*sub(p,center)) for p,_ in _sites(problem)] +
+                    [hypot(*sub(c.point_m,center)) for c in problem.conductors
+                     if isinstance(c,ConductingPlane)] + [0.01])
         extent = extent_m if extent_m is not None else 1.55*reach
         if not isfinite(extent) or extent <= 0:
             raise ValueError('meridian extent must be finite and positive')

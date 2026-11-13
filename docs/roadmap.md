@@ -59,3 +59,11 @@ grounded conducting plane. Real FEMM 5 uses up to 16 independent source cores
 sharing one normal-line footpoint, with no false 2D rings or silent fallback.
 Non-collinear charges remain analytically supported. See [M11 design](m11.md)
 and [M11 numerical acceptance](m11-acceptance.md).
+
+
+M12a — **Analytical implementation candidate; CI acceptance pending:** two
+facing infinite conducting half-spaces, with `Grounded`/`FixedPotential`
+boundary values, zero or multiple point sources in the slab, and the existing
+viewer. Exact capacitor background plus finite symmetric image series for
+sources; transparent `None` for undefined infinite-plate total charge.
+**M12b real FEMM 5 finite plate validation remains unimplemented.** See [M12a](m12a.md).
