@@ -143,3 +143,15 @@ including paths starting at the centre. The unchanged offline viewer shows
 force arrows, graphs, work and field/potential/density overlays. No FEMM force,
 physical time motion or new viewer renderer. See [M15](m15.md); exact-head
 Python 3.10/3.12, browser and retained real-FEMM regression acceptance required.
+
+
+M16a — **One-dimensional electrostatic dynamics candidate:** integrate a
+single charge's actual elapsed-time motion through the existing analytical
+force/energy provider on provably symmetric lines, with adaptive RK4,
+turning-point detection, conductor-surface guard, sample-level kinetic and
+interaction energies and independent energy-conservation checks. Includes
+normal plane/capacitor, radial exterior sphere, and spherical cavity domains.
+No phantom constraint forces, numerical FEMM force, physical surface
+collisions, true 3D particle dynamics or HTML time animation. M16b will add
+a distinct time-playback viewer only after the dynamics validation. See
+[M16a](m16a.md); acceptance subject to exact-head GitHub CI.
