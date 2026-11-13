@@ -8,6 +8,7 @@ from .analytical import ConcentricShellSolution
 from .image_charge import ImageChargeShellSolution
 from .multi_image import MultiImageShellSolution
 from .nested_shells import NestedShellSolution
+from .mixed_radial import MixedRadialSolution
 from .femm5 import Femm5Solution
 from .femm5_external import Femm5ExternalSphereSolution
 from .femm5_parallel import Femm5ParallelPlateSolution
@@ -101,7 +102,7 @@ def context_for_solution(problem, solution):
             size = min(a*.015, min(clearances,default=float('inf'))/4,
                        min(neighbours,default=float('inf'))/4)
             masks.append(SourceMask(point,size,'display-exclusion'))
-        known = isinstance(solution,(NestedShellSolution,MultiImageShellSolution,
+        known = isinstance(solution,(NestedShellSolution,MixedRadialSolution,MultiImageShellSolution,
                                     ImageChargeShellSolution,ConcentricShellSolution,
                                     ExternalGroundedSphereSolution, ExternalMultiSphereSolution,
                                     GroundedPlaneSolution,ParallelPlateSolution))
@@ -129,7 +130,7 @@ def context_for_solution(problem, solution):
             method = ('exact Kelvin images plus central compensator surface density'
                       if isinstance(solution, ExternalIsolatedSphereSolution) else
                       'exact Kelvin image-charge surface density')
-        elif isinstance(solution,NestedShellSolution):
+        elif isinstance(solution,(NestedShellSolution,MixedRadialSolution)):
             density = solution.surface_charge_density_at
             method = 'exact analytical surface density'
         elif isinstance(solution,MultiImageShellSolution):
