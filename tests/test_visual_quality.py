@@ -10,7 +10,7 @@ from conductor_sim import (ConductingPlane, ElectrostaticProblem, FixedPotential
 from conductor_sim.potential_display import potential_interpolation, potential_colour_scale
 from conductor_sim.visual_adapters import context_for_solution
 from conductor_sim.visual_seeds import seed_pool, distinct_pool, _progressive
-from conductor_sim.visualization import SliceSpec, SamplingContext, sample_frame, sample_sweep
+from conductor_sim.visualization import SliceSpec, SamplingContext, SourceMask, sample_frame, sample_sweep
 from conductor_sim.viewer import render_html
 
 
@@ -194,3 +194,51 @@ def test_display_metadata_does_not_change_solver_grid_values():
     potential_interpolation(frame);potential_colour_scale([frame])
     assert frame['grid']==before
     json.dumps(frame,allow_nan=False)
+
+
+def test_local_refinement_fills_coarse_mask_halo_with_real_solver_samples():
+    p=slab((PointCharge(1e-9,(0.,0.,.065)),PointCharge(-.5e-9,(0.,0.,.14))),0.)
+    solution=ParallelPlateBackend(image_order=12).solve(p)
+    spec=SliceSpec.meridian(p,extent_m=.29,resolution=61)
+    context=context_for_solution(p,solution)
+    frame=sample_frame(context,spec,seeds=[],line_steps=10)
+    patches=frame['potential_refinements']
+    assert len(patches)==2
+    assert sum(len(k['grid']['x_m'])*len(k['grid']['y_m']) for k in patches)<=8000
+    assert frame['field_line_pool']['available']==0
+    assert any(not all(row) for row in frame['potential_interpolation']['cells'])
+    for patch in patches:
+        grid=patch['grid']
+        assert grid['region'] and len(grid['x_m'])>8
+        assert any(r=='source-mask' for row in grid['region'] for r in row)
+        assert any(r=='vacuum' for row in grid['region'] for r in row)
+        for j,y in enumerate(grid['y_m']):
+            for i,x in enumerate(grid['x_m']):
+                region=grid['region'][j][i]
+                value=grid['potential_v'][j][i]
+                if region in ('source-mask','outside-domain'):
+                    assert value is None
+                else:
+                    assert value==pytest.approx(solution.potential_at(spec.world((x,y))),rel=2e-13,abs=1e-10)
+        assert any(any(row) for row in patch['potential_interpolation']['cells'])
+    from conductor_sim.potential_display import potential_colour_scale
+    maximum=max(abs(v) for patch in patches for row in patch['grid']['potential_v']
+                for v in row if v is not None)
+    assert potential_colour_scale([frame])['max_abs_v']>=maximum
+    json.dumps(frame,allow_nan=False)
+
+
+def test_refinement_does_not_sample_source_mask_on_custom_solver():
+    class Guarded:
+        conductor_results=()
+        def potential_at(self,p):
+            if hypot(p[0]-.02,p[2]-.02)<=.01:
+                raise AssertionError('queried excluded numerical core')
+            return p[0]+p[2]
+        def electric_field_at(self,p):return (-1.,0.,-1.)
+    context=SamplingContext(ElectrostaticProblem(),Guarded(),'guarded',
+                            masks=(SourceMask((.02,0.,.02),.01,'numerical-core'),))
+    frame=sample_frame(context,SliceSpec(x_range_m=(-.1,.1),y_range_m=(-.1,.1),resolution=13),
+                       seeds=[],line_steps=10)
+    assert frame['potential_refinements']
+    assert any(v is None for row in frame['potential_refinements'][0]['grid']['potential_v'] for v in row)

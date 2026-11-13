@@ -48,6 +48,21 @@ def main():
             page.locator('#'+which).evaluate('(e,v)=>{e.value=v;e.dispatchEvent(new Event("input",{bubbles:true}))}',str(value))
         load(bundle)
         slider(1,'frame')
+        # A previously blank coarse-grid halo is filled only by finer
+        # samples from the same solution; the charge core itself stays null.
+        near=page.evaluate("""()=>{
+          const index=interpolationFor(frame), y=.065;
+          const gap=[];
+          for(let k=1;k<=20;k++){
+            const x=.001*k;
+            const coarse=gridSample(frame.grid,index,x,y);
+            const fine=potentialSample(frame,x,y);
+            if(coarse===null && fine!==null)gap.push([x,fine]);
+          }
+          return {gap,core:potentialSample(frame,0,.065), patches:frame.potential_refinements?.length};
+        }""")
+        assert near['patches']==2 and near['gap'],near
+        assert near['core'] is None
         raw=page.evaluate('JSON.stringify(data.frames)')
         builds=page.evaluate('window.conductorViewer.heatmapBuilds')
         prev=[];counts=[];pixels=[]
@@ -127,7 +142,8 @@ def main():
                       'unchanged_data':'passed','keyboard':'passed','state_persistence':'passed',
                       'mask_and_domain':'passed','linear_interpolation':'passed','plate_boundary':'passed',
                       'nonlinear_legend':'passed','mobile_widths':[390,320],
-                      'legacy_bundle':'passed','javascript_errors':errors,'external_requests':requests}))
+                      'legacy_bundle':'passed','near_charge_refinement':'passed',
+                      'javascript_errors':errors,'external_requests':requests}))
 
 
 if __name__=='__main__':main()
