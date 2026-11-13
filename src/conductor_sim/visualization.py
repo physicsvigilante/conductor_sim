@@ -445,7 +445,7 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
 
 
 def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, plane=None, resolution=61,
-                 line_steps=700, seeds=None):
+                 line_steps=700, seeds=None, profile_samples=91):
     """Precompute at most 24 states; close owned numerical sessions, even on error.
 
     A caller-supplied plane is reused. Otherwise one fixed plane and extent
@@ -476,7 +476,8 @@ def sample_sweep(cases: Iterable[tuple[str,ElectrostaticProblem]], backend, *, p
                     axis = max(positions,key=lambda p:hypot(*p),default=(0.,0.,1.))
                     axis = axis if hypot(*axis) else (0.,0.,1.)
                 plane = SliceSpec.meridian(problem,axis,resolution=resolution)
-            frames.append(sample_frame(context,plane,label=label,line_steps=line_steps,seeds=seeds))
+            frames.append(sample_frame(context,plane,label=label,line_steps=line_steps,
+                                       seeds=seeds,profile_samples=profile_samples))
         except BaseException as error:
             close = getattr(solution,'close',None)
             if callable(close):

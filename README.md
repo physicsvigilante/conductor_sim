@@ -351,3 +351,26 @@ python -m m13c.pdf_cases render p09-multiple-27 --output output/m13c-neutral-sph
 ```
 
 See [M13c source audit and limitations](docs/m13c.md).
+
+## M14a — connected concentric conductors, without case-specific solver code
+
+Add named `ElectricalLink` connections to a `ConnectionPlan` containing an
+ordinary `ElectrostaticProblem`. `ConnectedShellBackend` solves the equal-
+potential/charge-conservation constraints once, then reuses the **existing**
+`NestedShellBackend` for the before/after equilibria. It returns each shell's
+charge transfer and the electrostatic field-energy decrease, excluding the
+unchanged inner-cavity field contribution when point sources exist.
+
+This directly models the idealized **page 14, Numerical Q7** of
+`02_conductors_half_size.pdf`: connecting shells of radii R and 2R charged
+q and 2q does **not** change the outer shell potential (`ΔV = 0`).
+
+```bash
+python examples/connected_shells.py --case pdf-p14-q7 --output output/connected_shells.html
+```
+
+The HTML reuses the same two-state viewer and is not a current/time simulation.
+Other composable examples are `--case ground-link`, `--case cavity-charge`, and
+`--case three-shell`. Scope is analytical, for 2–8 strictly concentric
+nonintersecting **shells**, with floating or grounded disjoint wire groups;
+not a 3D finite-wire or standalone FEMM wiring solver. See [M14a](docs/m14a.md).

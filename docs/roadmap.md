@@ -110,3 +110,14 @@ The new scanned `02_conductors_half_size.pdf` has since been uploaded to
 2 static-only and 14 unsupported-force/energy categories. The two PDF-authored
 demonstrations are distinct from 18 original open assistant prompts.
 See [M13c PDF audit and limitations](m13c.md).
+
+M14a — **Connected concentric-shell analytical composition candidate.** A
+reusable `ElectricalLink` + `ConnectionPlan` solves equal-potential and
+linked-group charge conservation/grounding without modifying the existing
+spherical solver or scene viewer. It compiles into familiar `FixedNetCharge`
+and `Grounded` shell conditions and returns two equilibria, per-shell
+charge transfers and radial field-energy release. This newly supports the
+ideal concentric-shell wiring class of `02_conductors_half_size.pdf`, including
+page 14 Numerical Q7 with exact `delta V_outer = 0 V`. No transient current,
+solid inner sphere, separated wired spheres or FEMM wire-geometry accuracy is
+claimed. See [M14a design](m14a.md); acceptance subject to complete CI.

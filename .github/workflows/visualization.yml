@@ -87,6 +87,10 @@ jobs:
         run: python -m m13c.pdf_cases render p09-multiple-27 --resolution 19 --output review-artifacts/m13c-pdf-p09.html
       - name: M13c PDF p9 Chromium force/energy and work acceptance
         run: python tools/check_m13b_viewer.py review-artifacts/m13c-pdf-p09.html --screenshot review-artifacts/m13c-pdf-p09.png > review-artifacts/m13c-pdf-p09-browser.json
+      - name: M14a analytical connected-shells two-state export
+        run: python examples/connected_shells.py --case pdf-p14-q7 --resolution 25 --line-steps 80 --output review-artifacts/m14-connected-shells.html
+      - name: M14a Chromium connected-shell potential and profile acceptance
+        run: python tools/check_viewer.py review-artifacts/m14-connected-shells.html --screenshot review-artifacts/m14-connected-shells.png > review-artifacts/m14-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
