@@ -275,6 +275,27 @@ remains defined. The existing viewer renders both planar metal faces.
 python examples/parallel_plates.py --output output/parallel_plates.html
 ```
 
-This is **not** a parallel-plate FEMM implementation yet. M12b is reserved
-for real FEMM source/electrode measurements and finite-radius sensitivity
-checks. See [M12a scope](docs/m12a.md).
+The M12a backend itself remains **analytical only**. The separately
+validated M12b FEMM numerical backend appears below; it reuses the same
+authored models. See [M12a scope](docs/m12a.md).
+
+
+## M12b — finite-cylinder FEMM 5 parallel-plate numerical acceptance
+
+The same M12a authored capacitor can be solved numerically with
+`Femm5ParallelPlateBackend()` for **zero or up to 16 axial active charge
+sites**, preserving the independent analytical backend. FEMM computes finite
+electrode-disk potentials/charges and the separate charged source-core
+properties. The outer cylindrical side has **zero radial electric flux**, not
+an infinite-plate boundary. Numerical local V/E/sigma require convergence
+checks, and non-axisymmetric sources are refused before opening FEMM.
+
+```bash
+python examples/parallel_plates.py --backend femm --resolution 21 --output output/m12-femm.html
+```
+
+**M12b numerical acceptance passed: 90 actual FEMM 5 tests, zero skipped;
+303 ordinary Python tests on each supported version, and Chromium on an
+actual FEMM-generated HTML preview.** See [M12b design and finite-disk
+identity](docs/m12b.md) and [real numerical acceptance](docs/m12b-acceptance.md).
+This is not a uniform numerical-error guarantee or support for non-axial FEMM.

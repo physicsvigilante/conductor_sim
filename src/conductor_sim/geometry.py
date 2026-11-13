@@ -55,6 +55,43 @@ class PlaneBoundary:
         return t if 1e-10 < t <= 1 else None
 
 
+@dataclass(frozen=True)
+class CylinderSideBoundary:
+    """Finite numerical cylinder side: radial boundary, not a conductor.
+
+    Used to stop field lines before leaving the FEMM parallel-plate mesh.
+    The physical plate barriers independently stop traces at z=0 and z=d.
+    """
+    origin_m: Vector3
+    axis: Vector3
+    radius_m: float
+    min_height_m: float
+    max_height_m: float
+    kind: str = "outside-domain"
+
+    def first_hit(self,a:Vector3,b:Vector3):
+        delta=_sub(b,a)
+        offset=_sub(a,self.origin_m)
+        h0=_dot(offset,self.axis)
+        dh=_dot(delta,self.axis)
+        radial=tuple(offset[i]-h0*self.axis[i] for i in range(3))
+        dr=tuple(delta[i]-dh*self.axis[i] for i in range(3))
+        aa=_dot(dr,dr)
+        if aa==0:
+            return None
+        bb=2*_dot(radial,dr)
+        cc=_dot(radial,radial)-self.radius_m**2
+        disc=bb*bb-4*aa*cc
+        if disc<0:
+            return None
+        square=sqrt(disc)
+        hits=[]
+        for t in ((-bb-square)/(2*aa),(-bb+square)/(2*aa)):
+            if 1e-10<t<=1 and self.min_height_m<=h0+t*dh<=self.max_height_m:
+                hits.append(t)
+        return min(hits) if hits else None
+
+
 def contains_metal(shape, point: Vector3) -> bool:
     if isinstance(shape, ConductingPlane):
         return _dot(_sub(point,shape.point_m),shape.normal) <= 0
