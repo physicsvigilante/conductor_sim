@@ -1,0 +1,35 @@
+name: M21a original JEE problem source review
+on:
+  pull_request:
+    paths:
+      - 'docs/m21a*'
+      - 'tools/m21a_*'
+      - 'tests/test_m21a*'
+      - '.github/workflows/m21a-source-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-pdf-page-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned PDF rendering package
+        run: python -m pip install 'PyMuPDF==1.26.7'
+      - name: Verify pinned source hashes, pages and render actual question figures
+        run: |
+          git rev-parse HEAD > review-commit.txt
+          git rev-parse HEAD^{tree} > review-tree.txt
+          python tools/m21a_extract_sources.py --out review-artifacts/m21a-source
+          cp review-commit.txt review-tree.txt review-artifacts/m21a-source/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m21a-original-pdf-figures-and-text
+          path: review-artifacts/m21a-source/
+          retention-days: 5
+          if-no-files-found: error
