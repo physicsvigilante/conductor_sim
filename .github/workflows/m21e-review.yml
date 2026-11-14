@@ -1,0 +1,42 @@
+name: M21e composed electric and gravity review
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/electric_gravity_motion.py', 'tools/check_m21e_viewer.py', 'docs/m21e*', '.github/workflows/m21e-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/electric_gravity_motion.py', 'tools/check_m21e_viewer.py', '.github/workflows/m21e-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  conservative-composition-and-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" 'playwright==1.57.0'
+      - run: python -m playwright install chromium
+      - name: Composable force physics and retained source, revision and symmetry tests
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m21e_composed_forces.py tests/test_m19a_prescribed_fields.py tests/test_m19b_prescribed_viewer.py tests/test_m19e_source_orientation.py tests/test_m20b_scenarios.py tests/test_m20a_scenario_comparison.py tests/test_m21c_source_symmetry.py -q --junitxml=review-artifacts/m21e-tests.xml
+      - name: Seven actual offline Chromium source and composition exports
+        run: |
+          set -euo pipefail
+          for case in jee2012-proton oblique-launch electric-support gravity-only point-plus-gravity ring-plus-gravity mass-revision; do
+            python examples/electric_gravity_motion.py --case "$case" --output "review-artifacts/m21e-$case.html"
+            python tools/check_m21e_viewer.py "review-artifacts/m21e-$case.html" --case "$case" \
+              --screenshot "review-artifacts/m21e-$case.png" > "review-artifacts/m21e-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m21e-composed-force-evidence
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

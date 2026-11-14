@@ -27,6 +27,7 @@ from .prescribed_motion import (
 )
 from .solver import SingularField, UnsupportedProblem
 from .visualization import SliceSpec
+from .conservative_forces import (validate_composed_sample, scalar_matches, CONTRIBUTION_KEYS)
 
 
 def _cross(a, b):
@@ -110,6 +111,12 @@ def _validate_trajectory(spec, result):
         if (any(not _close(a,b,absolute=1e-15) for a,b in zip(row.electric_field_v_m,electric)) or
                 not _close(row.potential_v,potential,absolute=1e-15)):
             raise ValueError('saved electric field/potential disagrees with fixed sources')
+        if spec.gravity is not None:
+            validate_composed_sample(spec, row.as_dict())
+            max_drift=max(max_drift,abs(row.energy_drift_j))
+            continue
+        if any(getattr(row, k) is not None for k in CONTRIBUTION_KEYS):
+            raise ValueError('electric-only trajectory has undeclared gravity contributions')
         force=_mul(electric,charge)
         acceleration=_mul(force,1/mass)
         if (any(not _close(a,b,absolute=1e-27) for a,b in zip(force,row.force_n)) or
@@ -125,7 +132,8 @@ def _validate_trajectory(spec, result):
                 not _close(row.energy_drift_j,drift,absolute=2e-24)):
             raise ValueError('saved test-charge energy violates K+qV or numerical drift convention')
         max_drift=max(max_drift,abs(row.energy_drift_j))
-    if not _close(result.max_abs_energy_drift_j,max_drift,absolute=1e-27):
+    if not (scalar_matches(result.max_abs_energy_drift_j,max_drift) if spec.gravity is not None
+            else _close(result.max_abs_energy_drift_j,max_drift,absolute=1e-27)):
         raise ValueError('saved test-charge energy-drift maximum disagrees with rows')
 
 
@@ -159,7 +167,8 @@ def test_charge_slice(spec, result, *, resolution=17, extent_m=None,
         origin=spec.particle.position_m
         # A field direction sets a useful local vertical even when a charged
         # particle starts from rest. Otherwise the launch direction defines it.
-        candidates=[s.field_v_m for s in spec.field.sources if isinstance(s,UniformElectricField)]
+        candidates=([_mul(spec.gravity.acceleration_m_s2,-1.)] if spec.gravity is not None else [])
+        candidates += [s.field_v_m for s in spec.field.sources if isinstance(s,UniformElectricField)]
         candidates += [spec.initial_velocity_m_s]
         candidates += [_sub(r.position_m,origin) for r in result.samples]
         candidates += [_sub((s.position_m if isinstance(s,FixedPointField) else s.center_m),origin)
@@ -288,6 +297,8 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
         raise TypeError('expected TestChargeMotionSpec')
     # Validate presentation binding independently of the numerical integration.
     annotations=_source_annotations(spec,source_annotations)
+    if spec.gravity is not None and annotations and any(a['id']=='gravity' for a in annotations):
+        raise ValueError('gravity is reserved for the active mechanical component')
     if result is None:
         result=integrate_test_charge(spec)
     _validate_trajectory(spec,result)
@@ -301,9 +312,10 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
     physics=json.loads(json.dumps(result.as_dict(),allow_nan=False))
     for row in physics['samples']:
         # Compatibility adapter for the shared K/U/K+U graph. Both values are
-        # full qV; render_html checks they agree exactly, not inferred work.
+        # complete potential energy (qV, or qV+Ug in v2); never inferred work.
         row['interaction_energy_j']=row['potential_energy_j']
-    physics.update(schema='conductor_sim.test_charge_viewer.v1',
+    physics.update(schema=('conductor_sim.test_charge_viewer.v2' if spec.gravity is not None else
+                           'conductor_sim.test_charge_viewer.v1'),
                    frame_sample_indices=list(indices),graph_sample_count=len(result.samples),
                    field_frame_count=len(indices),trajectory_break_indices=breaks,
                    profile_mode='axis' if spec.axis is not None else 'elapsed-time',
@@ -331,6 +343,11 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
                         'its full physical field is included. No in-plane replacement source.')
                 for frame in frames:
                     frame['notes'].append(note)
+    if spec.gravity is not None:
+        for frame in frames:
+            frame['notes'].append('Uniform gravity [gravity]: g='+str(spec.gravity.acceleration_m_s2)+
+                ' m/s^2; Ug=0 at '+str(spec.gravity.reference_position_m)+
+                ' m. Full resultant qE+mg is integrated; no equivalent electric field or guide.')
     from .potential_display import potential_colour_scale
     bundle=dict(schema='conductor_sim.visualization.v1',
                 units=dict(length='m',potential='V',field='V/m',density='not applicable',

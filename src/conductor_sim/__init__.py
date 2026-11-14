@@ -122,3 +122,6 @@ from .scenario_comparison import (prepare_scenario_comparison,
     render_scenario_comparison, write_scenario_comparison)
 __all__ += ['prepare_scenario_comparison','render_scenario_comparison',
             'write_scenario_comparison']
+
+from .conservative_forces import UniformGravity, PrescribedElectricForce, ConservativeForceSystem
+__all__ += ['UniformGravity', 'PrescribedElectricForce', 'ConservativeForceSystem']

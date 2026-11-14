@@ -19,6 +19,8 @@ from .prescribed_fields import (
     _dot, _sub, _mul, _number, _vector, _unit, _on_line,
 )
 from .solver import UnsupportedProblem
+from .conservative_forces import (UniformGravity, PrescribedElectricForce,
+    ConservativeForceSystem, COMPOSED_ENERGY, CONTRIBUTION_KEYS)
 
 
 def _parallel(a, b):
@@ -46,6 +48,12 @@ def _certify(spec):
     if paired_points:
         from .source_symmetry import certify_point_reflection
         certify_point_reflection(points, origin_m=origin, normal=normal)
+    if spec.gravity is not None:
+        g = spec.gravity.acceleration_m_s2
+        valid = (_parallel(g, spec.axis) if spec.axis is not None else
+                 abs(_dot(g, normal)) <= 1e-11*hypot(*g))
+        if not valid:
+            raise UnsupportedProblem('uniform gravity does not preserve the physical axis/plane')
     for source in spec.field.sources:
         if paired_points and type(source) is FixedPointField:
             continue  # Already qualified jointly; unchanged full E is integrated.
@@ -86,10 +94,13 @@ class TestChargeMotionSpec:
     length_scale_m: float = 1.
     source_guard_m: float = 1e-6
     max_internal_steps: int = 100000
+    gravity: UniformGravity | None = None
 
     def __post_init__(self):
         if not isinstance(self.field, PrescribedField) or not isinstance(self.particle, PointCharge):
             raise TypeError('expected PrescribedField and a separate test-particle PointCharge')
+        if self.gravity is not None and type(self.gravity) is not UniformGravity:
+            raise TypeError('gravity must be built-in UniformGravity or None')
         _number(self.particle.charge_c, 'test charge', nonzero=True)
         for name in ('mass_kg','duration_s','sample_interval_s','relative_tolerance',
                      'length_scale_m','source_guard_m'):
@@ -116,6 +127,13 @@ class TestChargeMotionSpec:
         # Establish the actual observation domain before integration starts.
         self.field.electric_field_at(self.particle.position_m)
         self.field.potential_at(self.particle.position_m)
+        if self.gravity is not None:
+            self.forces.observe(self.particle.position_m, charge_c=self.particle.charge_c,
+                                mass_kg=self.mass_kg)
+
+    @property
+    def forces(self):
+        return ConservativeForceSystem(PrescribedElectricForce(self.field), self.gravity)
 
     @property
     def axis(self):
@@ -141,6 +159,17 @@ class TestChargeSample:
     potential_energy_j: float
     total_energy_j: float
     energy_drift_j: float
+    electric_force_n: Vector3 | None = None
+    gravitational_force_n: Vector3 | None = None
+    electric_potential_energy_j: float | None = None
+    gravitational_potential_energy_j: float | None = None
+
+    def as_dict(self):
+        record = asdict(self)
+        if self.electric_force_n is None:
+            for key in CONTRIBUTION_KEYS:
+                record.pop(key)
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +189,7 @@ class TestChargeMotionResult:
     max_abs_energy_drift_j: float
 
     def as_dict(self):
-        return dict(schema='conductor_sim.test_charge_motion.v1',
+        record = dict(schema='conductor_sim.test_charge_motion.v1',
                     mode='test charge in prescribed static fields; no back-reaction',
                     energy_convention='U=q*V; source self/mutual energies excluded; no induced-energy half factor',
                     units=dict(time='s',position='m',velocity='m/s',acceleration='m/s^2',
@@ -172,7 +201,12 @@ class TestChargeMotionResult:
                     source_guard_m=self.spec.source_guard_m,length_scale_m=self.spec.length_scale_m,
                     method='Shared M17/M18 adaptive RK4 controller; F=qE from fixed sources',
                     termination=self.termination,max_abs_energy_drift_j=self.max_abs_energy_drift_j,
-                    samples=[asdict(s) for s in self.samples],events=[asdict(e) for e in self.events])
+                    samples=[s.as_dict() for s in self.samples],events=[asdict(e) for e in self.events])
+        if self.spec.gravity is not None:
+            record.update(schema='conductor_sim.test_charge_motion.v2',
+                          gravity=self.spec.gravity.as_dict(), energy_convention=COMPOSED_ENERGY,
+                          method='Shared M17/M18 adaptive RK4 controller; full F=qE+mg')
+        return record
 
 
 def _point_segment_distance(point, start, end):
@@ -238,6 +272,7 @@ def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
         raise TypeError('spec must be TestChargeMotionSpec')
     domain = _FixedDomain(spec)
     charge = spec.particle.charge_c
+    forces = spec.forces if spec.gravity is not None else None
 
     def observe(p):
         if domain.clearance(p) <= 0:
@@ -247,19 +282,30 @@ def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
         field = spec.field.electric_field_at(p)
         potential = spec.field.potential_at(p)
         force,energy = _mul(field,charge),charge*potential
+        contribution = None
+        if spec.gravity is not None:
+            contribution = forces.observe(p, charge_c=charge, mass_kg=spec.mass_kg)
+            force, energy = contribution.force_n, contribution.potential_energy_j
         if not all(isfinite(x) for x in (*force,energy,*(x/spec.mass_kg for x in force))):
             raise MotionIntegrationError('test-charge force/energy/acceleration became nonfinite')
-        if abs(_dot(force,domain.normal)) > 5e-9*hypot(*force):
+        force_scale = hypot(*force) if contribution is None else max(
+            hypot(*contribution.electric_force_n), hypot(*contribution.gravitational_force_n))
+        if abs(_dot(force,domain.normal)) > 5e-9*force_scale:
             raise UnsupportedProblem('transverse force violates the certified motion plane')
-        return force,EnergyBreakdown(0.,0.,energy,'Prescribed source: full qV, no induced half factor')
+        return force,(contribution.energy if contribution is not None else
+                      EnergyBreakdown(0.,0.,energy,'Prescribed source: full qV, no induced half factor'))
 
     rows,events,termination,drift = _integrate_vector_motion(
         spec,domain,observe,surface_description=
         'Stopped before a fixed-source singularity or field jump; not an exact collision')
+    def components(p):
+        return (asdict(forces.observe(p, charge_c=charge, mass_kg=spec.mass_kg))
+                if spec.gravity is not None else {})
     samples = tuple(TestChargeSample(
         s.time_s,s.displacement_m,s.position_m,s.velocity_m_s,s.acceleration_m_s2,
         spec.field.electric_field_at(s.position_m),spec.field.potential_at(s.position_m),
-        s.force_n,s.kinetic_energy_j,s.interaction_energy_j,s.total_energy_j,s.energy_drift_j)
+        s.force_n,s.kinetic_energy_j,s.interaction_energy_j,s.total_energy_j,s.energy_drift_j,
+        **components(s.position_m))
         for s in rows)
     return TestChargeMotionResult(spec,samples,tuple(TestChargeEvent(
         'source-guard',e.time_s,e.position_m,e.description) for e in events),

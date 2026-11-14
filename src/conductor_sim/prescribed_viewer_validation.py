@@ -13,6 +13,8 @@ from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .prescribed_fields import (PrescribedField, SOURCE_TYPES, _dot, _sub)
 from .solver import SingularField
 from .visualization import SliceSpec
+from .conservative_forces import (restore_gravity, ELECTRIC_ENERGY, COMPOSED_ENERGY,
+    validate_composed_sample, scalar_matches, CONTRIBUTION_KEYS)
 
 
 def _number(x):
@@ -77,10 +79,15 @@ def validate_prescribed_viewer(bundle):
     if any(key in bundle for key in ('motion_1d','motion_2d','position_sweep')):
         raise ValueError('prescribed test-charge playback cannot also be conductor motion or a position sweep')
     m=bundle.get('prescribed_motion');frames=bundle.get('frames')
-    if not isinstance(m,dict) or m.get('schema')!='conductor_sim.test_charge_viewer.v1':
+    if not isinstance(m,dict) or m.get('schema') not in (
+            'conductor_sim.test_charge_viewer.v1','conductor_sim.test_charge_viewer.v2'):
         raise ValueError('expected M19b fixed-source motion metadata')
     if not isinstance(frames,list) or not 2<=len(frames)<=24:
         raise ValueError('M19b requires 2 to 24 real-time display frames')
+    composed = m['schema']=='conductor_sim.test_charge_viewer.v2'
+    if not composed and 'gravity' in m:
+        raise ValueError('legacy electric-only metadata cannot carry undeclared gravity')
+    gravity=restore_gravity(m.get('gravity')) if composed else None
     field=_restore_field(m.get('field'))
     particle=m.get('particle')
     if (not isinstance(particle,dict) or not _number(particle.get('charge_c')) or
@@ -95,8 +102,9 @@ def validate_prescribed_viewer(bundle):
         raise ValueError('prescribed motion plane normal must be unit length')
     if not _number(m.get('max_abs_energy_drift_j')) or m['max_abs_energy_drift_j']<0:
         raise ValueError('invalid maximum saved drift')
-    if m.get('energy_convention') != 'U=q*V; source self/mutual energies excluded; no induced-energy half factor':
-        raise ValueError('fixed test-charge energy convention must be full qV')
+    if m.get('energy_convention') != (COMPOSED_ENERGY if composed else ELECTRIC_ENERGY):
+        raise ValueError('composed energy convention must include qV+Ug' if composed else
+                         'fixed test-charge energy convention must be full qV')
     expected_axis=next((s.axis for s in field.sources if hasattr(s,'_coordinate')),None)
     if ((expected_axis is None and m.get('axis') is not None) or
             (expected_axis is not None and (not _vector(m.get('axis')) or
@@ -126,10 +134,12 @@ def validate_prescribed_viewer(bundle):
             ids.append(item['id']);labels.append(item['label'])
         if len(set(ids))!=len(ids) or len(set(labels))!=len(labels):
             raise ValueError('source annotations contain duplicate physical identities or labels')
+    if composed and ann and any(a['id']=='gravity' for a in ann):
+        raise ValueError('gravity identity conflicts with an electric source')
     spec=TestChargeMotionSpec(field,PointCharge(particle['charge_c'],particle['position_m']),
         m['mass_kg'],m['initial_velocity_m_s'],m['duration_s'],m['sample_interval_s'],
         plane_normal=m['plane_normal'],length_scale_m=m['length_scale_m'],
-        source_guard_m=m['source_guard_m'])
+        source_guard_m=m['source_guard_m'],gravity=gravity)
     domain=_FixedDomain(spec)
     rows=m.get('samples')
     if not isinstance(rows,list) or not 2<=len(rows)<=2001:
@@ -156,6 +166,11 @@ def validate_prescribed_viewer(bundle):
     initial_energy=charge*field.potential_at(initial)
     initial_k=.5*mass*hypot(*m['initial_velocity_m_s'])**2
     last=-1.
+    if composed and (not isinstance(rows[0],dict) or
+            not _vector(rows[0].get('position_m')) or not _vector(rows[0].get('velocity_m_s')) or
+            not _position_same(rows[0]['position_m'],initial,m['length_scale_m']) or
+            not _position_same(rows[0]['velocity_m_s'],m['initial_velocity_m_s'],m['length_scale_m'])):
+        raise ValueError('composed trajectory initial state differs from the authored launch')
     for i,r in enumerate(rows):
         if (not isinstance(r,dict) or
                 any(not _vector(r.get(k)) for k in ('position_m','displacement_m',
@@ -176,24 +191,30 @@ def validate_prescribed_viewer(bundle):
         if (any(not _same(x,y,absolute=1e-14) for x,y in zip(E,r['electric_field_v_m'])) or
                 not _same(V,r['potential_v'],absolute=1e-14)):
             raise ValueError('saved field/potential is not from the authored fixed sources')
-        if (any(not _same(a,charge*b,absolute=1e-27) for a,b in zip(r['force_n'],E)) or
-                any(not _same(a,charge*b/mass,absolute=1e-15) for a,b in zip(r['acceleration_m_s2'],E))):
-            raise ValueError('saved test-charge force/acceleration is not F=qE')
-        K=.5*mass*hypot(*v)**2
-        U=charge*V
-        drift=fsum((K-initial_k,U-initial_energy))
-        if (not _same(r['kinetic_energy_j'],K) or
-                not _same(r['potential_energy_j'],U) or
-                r['interaction_energy_j'] != r['potential_energy_j'] or
-                not _same(r['total_energy_j'],fsum((K,U))) or
-                not _same(r['energy_drift_j'],drift)):
-            raise ValueError('fixed-source energy must be K+qV, with saved drift')
+        if composed:
+            validate_composed_sample(spec, r)
+        else:
+            if any(k in r for k in CONTRIBUTION_KEYS):
+                raise ValueError('undeclared gravity contributions in electric-only rows')
+            if (any(not _same(a,charge*b,absolute=1e-27) for a,b in zip(r['force_n'],E)) or
+                    any(not _same(a,charge*b/mass,absolute=1e-15) for a,b in zip(r['acceleration_m_s2'],E))):
+                raise ValueError('saved test-charge force/acceleration is not F=qE')
+            K=.5*mass*hypot(*v)**2
+            U=charge*V
+            drift=fsum((K-initial_k,U-initial_energy))
+            if (not _same(r['kinetic_energy_j'],K) or
+                    not _same(r['potential_energy_j'],U) or
+                    r['interaction_energy_j'] != r['potential_energy_j'] or
+                    not _same(r['total_energy_j'],fsum((K,U))) or
+                    not _same(r['energy_drift_j'],drift)):
+                raise ValueError('fixed-source energy must be K+qV, with saved drift')
         max_drift=max(max_drift,abs(r['energy_drift_j']))
         if i and domain.charge_segment_clearance(rows[i-1]['position_m'],p)<=0:
             expected_breaks.append(i)
     if sorted(set(m['trajectory_break_indices']))!=expected_breaks:
         raise ValueError('fixed-source displayed path skips a required guard break')
-    if not _same(max_drift,m['max_abs_energy_drift_j']):
+    if not (scalar_matches(m['max_abs_energy_drift_j'],max_drift) if composed
+            else _same(max_drift,m['max_abs_energy_drift_j'])):
         raise ValueError('max absolute energy drift does not match samples')
     if m.get('termination') not in ('duration','source-guard') or not isinstance(m.get('events'),list):
         raise ValueError('bad fixed-source motion termination')
