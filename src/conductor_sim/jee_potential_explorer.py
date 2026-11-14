@@ -114,6 +114,9 @@ def sample_fixed_potential_map(field: PrescribedField, plane: SliceSpec, *,
     frame = sample_frame(
         context, plane, label="One static physical field state",
         line_steps=line_steps, profile_samples=9)
+    # M5's default density explanation is not applicable: no conductors exist.
+    frame["notes"] = [note for note in frame["notes"]
+                      if not note.startswith("Density changes reveal")]
     highlighted = contour_segments(frame["grid"], [float(highlight_potential_v)],
                                    context, plane)[0]
     highlighted["highlight"] = True
@@ -185,9 +188,24 @@ def validate_fixed_potential_map(bundle):
                 if (not isclose(v,expected_v,rel_tol=5e-10,abs_tol=1e-9) or
                     any(not isclose(a,b,rel_tol=5e-10,abs_tol=1e-9) for a,b in zip(e,expected_e))):
                     raise ValueError("saved static V/E disagrees with authored sources")
+    expected_points = [s.position_m for s in field.sources if type(s) is FixedPointField]
+    for recorded, site in zip(frame["source_masks"], expected_points):
+        if (recorded != _json_native(asdict(SourceMask(
+                site, meta["source_exclusion_radius_m"], "display-exclusion")))):
+            raise ValueError("saved source exclusion geometry changed")
     highlights = [c for c in frame["contours"] if c.get("highlight") is True]
     if len(highlights) != 1 or highlights[0]["level_v"] != meta["highlight_potential_v"]:
         raise ValueError("highlighted equipotential contour changed")
+    check_context=SamplingContext(
+        problem=ElectrostaticProblem(), solution=_StaticFixedSolution(field),
+        backend="M21b verification",
+        masks=tuple(SourceMask(p, meta["source_exclusion_radius_m"],
+                               "display-exclusion") for p in expected_points))
+    verified=contour_segments(grid, [meta["highlight_potential_v"]],
+                              check_context, plane)[0]["segments_m"]
+    if (highlights[0]["segments_m"] != verified or
+        len(verified) != meta.get("highlighted_segment_count")):
+        raise ValueError("saved highlighted contour is not the physical sampled potential")
     for line in frame.get("field_lines", ()):
         for p in line["points_m"]:
             if any(not isfinite(v) for v in p):

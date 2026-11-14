@@ -114,6 +114,10 @@ def test_grid_tampering_fails_closed(circle):
     altered["frames"][0]["contours"][-1]["level_v"]=17.
     with pytest.raises(ValueError,match="highlighted"):
         validate_fixed_potential_map(altered)
+    altered=deepcopy(circle)
+    altered["frames"][0]["contours"][-1]["segments_m"][0][0][0]+=0.25
+    with pytest.raises(ValueError,match="highlighted contour"):
+        validate_fixed_potential_map(altered)
 
 
 def test_real_2012_shell_radial_jump_and_analytic_limits(shell):

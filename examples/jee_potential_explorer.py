@@ -100,10 +100,8 @@ def _ring_schematic():
       <text x="511" y="213" font-size="15">x=0.40 m (B)</text>
       <line x1="382" y1="116" x2="382" y2="50" stroke="#118b69" stroke-width="4"/>
       <path d="M374,64 L382,47 L390,64" stroke="#118b69" stroke-width="3" fill="none"/>
-      <text x="397" y="65" fill="#117251" font-size="17">E = 10⁵ N/C upward (+y)</text>
-      <text x="322" y="158" font-size="15" fill="#425970">A → B: endpoint displacement only</text>
-      <text x="319" y="185" font-size="14" fill="#6b4a35">No physical guide or axial free path asserted</text>
-      </svg>'''
+      </svg>
+      <p class="muted">E = 10⁵ N/C vertically upward (+y); A → B is endpoint displacement only. No physical guide or axial free path asserted.</p>'''
 
 
 def make_ring():
