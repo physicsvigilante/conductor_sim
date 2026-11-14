@@ -119,7 +119,11 @@ def run(path,screenshot=None):
           try{drawScene()}finally{ctx.fillText=orig}return labels;
         }''')
         assert any('test' in name for name in labels)
-        assert any('S1' in name or 'fixed rod' in name for name in labels) or any(
+        # M19e keeps this legacy check for unannotated S1/S2 sources, but
+        # annotated geometries deliberately paint the author's source label.
+        # The M19e checker additionally verifies every bound ID and pixel.
+        expected=(motion.get('source_annotations') or [{}])[0].get('label','S1')
+        assert any(expected in name or 'fixed rod' in name for name in labels) or any(
             s['kind']=='UniformElectricField' for s in motion['field']['sources'])
 
         scene=page.locator('#scene')

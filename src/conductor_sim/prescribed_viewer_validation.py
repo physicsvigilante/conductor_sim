@@ -6,6 +6,7 @@ frame are consistent. It does not authenticate an integration history.
 from __future__ import annotations
 
 import json
+import re
 from math import fsum, hypot, isclose, isfinite
 
 from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
@@ -43,9 +44,24 @@ def _restore_field(record):
         source=dict(item)
         kind=source.pop('kind')
         try:
-            sources.append(types[kind](**source))
+            restored=types[kind](**source)
         except (TypeError,ValueError) as exc:
             raise ValueError('invalid saved fixed-source geometry') from exc
+        if kind in ('UniformRingAxisField','UniformDiskAxisField'):
+            # A normalized tilted axis can have norm 1 - 1 ulp. Running the
+            # source constructor *again* renormalizes it and changes the last
+            # float bit of E/V, including the tiny saved energy drift. Only
+            # the verifier's private reconstructed copy is adjusted, after
+            # proving the serialized axis is unit and agrees with the freshly
+            # validated constructor to roundoff precision. Production fields
+            # and the frozen authored source object are never changed.
+            axis=source.get('axis')
+            if (not _vector(axis) or
+                    abs(hypot(*axis)-1.)>2e-15 or
+                    any(abs(a-b)>2e-15 for a,b in zip(axis,restored.axis))):
+                raise ValueError('saved fixed-source axis is not a valid normalized orientation')
+            object.__setattr__(restored,'axis',tuple(axis))
+        sources.append(restored)
     field=PrescribedField(tuple(sources),record['permittivity_f_m'])
     if json.loads(json.dumps(field.as_dict(),allow_nan=False)) != record:
         raise ValueError('saved fixed-source inventory has altered or extraneous fields')
@@ -86,6 +102,30 @@ def validate_prescribed_viewer(bundle):
             (expected_axis is not None and (not _vector(m.get('axis')) or
             not all(_same(x,y) for x,y in zip(expected_axis,m['axis']))))):
         raise ValueError('saved fixed-source axis is not supported by the actual sources')
+    orientation=m.get('axis_display','vertical')
+    if (orientation not in ('vertical','horizontal') or
+            (orientation=='horizontal' and expected_axis is None)):
+        raise ValueError('unsupported display axis orientation for fixed source field')
+    ann=m.get('source_annotations')
+    if ann is not None:
+        if not isinstance(ann,list) or len(ann)!=len(field.sources):
+            raise ValueError('source annotations must match the original source inventory')
+        ids,labels=[],[]
+        for index,(source,item) in enumerate(zip(field.sources,ann)):
+            if (not isinstance(item,dict) or
+                    set(item)!={'source_index','id','label','kind'} or
+                    type(item['source_index']) is not int or item['source_index']!=index or
+                    item['kind']!=type(source).__name__ or
+                    type(item['id']) is not str or
+                    re.fullmatch(r'[A-Za-z][A-Za-z0-9:_-]{0,63}',item['id']) is None or
+                    type(item['label']) is not str or
+                    not 1<=len(item['label'])<=48 or
+                    item['label']!=item['label'].strip() or
+                    not item['label'].isprintable()):
+                raise ValueError('source annotation ID, kind or label does not match the source order')
+            ids.append(item['id']);labels.append(item['label'])
+        if len(set(ids))!=len(ids) or len(set(labels))!=len(labels):
+            raise ValueError('source annotations contain duplicate physical identities or labels')
     spec=TestChargeMotionSpec(field,PointCharge(particle['charge_c'],particle['position_m']),
         m['mass_kg'],m['initial_velocity_m_s'],m['duration_s'],m['sample_interval_s'],
         plane_normal=m['plane_normal'],length_scale_m=m['length_scale_m'],
@@ -183,6 +223,10 @@ def validate_prescribed_viewer(bundle):
     except (TypeError,ValueError) as err: raise ValueError('invalid fixed-source display plane') from err
     if abs(_dot(plane.normal,normal))<1-1e-8:
         raise ValueError('fixed-source display axes must span certified physical plane')
+    if expected_axis is not None:
+        display_axis=plane.u if orientation=='horizontal' else plane.v
+        if any(not _same(a,b,absolute=1e-11) for a,b in zip(display_axis,expected_axis)):
+            raise ValueError('saved display axis orientation contradicts physical ring/disc symmetry axis')
     for frame,i in zip(frames,indices):
         row=rows[i]
         if (frame.get('plane')!=first_plane or frame.get('motion_sample_index')!=i or

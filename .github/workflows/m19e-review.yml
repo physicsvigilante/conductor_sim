@@ -1,0 +1,61 @@
+name: M19e source identity and world-oriented ring viewer
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/ring_source_orientation.py', 'tools/check_m19e_viewer.py', '.github/workflows/m19e-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/ring_source_orientation.py', 'tools/check_m19e_viewer.py', '.github/workflows/m19e-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  world-oriented-prescribed-viewer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: New identity/orientation and original fixed-field/motion regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m19e_source_orientation.py tests/test_m19b_prescribed_viewer.py tests/test_m19a_prescribed_fields.py tests/test_m17b_motion_viewer.py tests/test_m18b_motion_viewer.py -q --junitxml=review-artifacts/m19e-tests.xml
+      - name: Independent actual Chromium scene geometry and retained M19b playback
+        run: |
+          set -euo pipefail
+          for case in field-off axial-field; do
+            python examples/ring_source_orientation.py --case "$case" --output "review-artifacts/m19e-$case.html"
+            python tools/check_m19e_viewer.py "review-artifacts/m19e-$case.html" --screenshot "review-artifacts/m19e-$case.png" > "review-artifacts/m19e-$case-browser.json"
+            python tools/check_m19b_viewer.py "review-artifacts/m19e-$case.html" > "review-artifacts/m19b-$case-browser.json"
+          done
+          # A rotated ideal disc is tested independently of the ring example;
+          # the geometry must be drawn transverse to its real x-axis, while
+          # E_x at the ideal surface remains a null discontinuity.
+          python - <<'PY'
+          from conductor_sim import (PointCharge, PrescribedField, TestChargeMotionSpec,
+              UniformDiskAxisField, sample_test_charge_viewer)
+          from conductor_sim.visualization import write_visualization
+          spec=TestChargeMotionSpec(PrescribedField((UniformDiskAxisField(+1e-9,.10,axis=(1.,0.,0.)),)),
+              PointCharge(-1e-9,(.20,0.,0.)),1e-6,(-.5,0.,0.),.10,.01,
+              length_scale_m=.1,source_guard_m=1e-5)
+          bundle=sample_test_charge_viewer(spec,axis_orientation='horizontal',
+              source_annotations=(('disc:D','Disc D'),),profile_samples=101)
+          write_visualization(bundle,'review-artifacts/m19e-horizontal-disc.html')
+          PY
+          python tools/check_m19e_viewer.py --disc review-artifacts/m19e-horizontal-disc.html \
+            --screenshot review-artifacts/m19e-horizontal-disc.png > review-artifacts/m19e-disc-browser.json
+          python tools/check_m19b_viewer.py review-artifacts/m19e-horizontal-disc.html > review-artifacts/m19b-disc-browser.json
+          python examples/test_charge_viewer.py --case ring-turning --visual-frames 7 --profile-samples 101 --resolution 13 --output review-artifacts/m19b-default.html
+          python tools/check_m19b_viewer.py review-artifacts/m19b-default.html > review-artifacts/m19b-default-browser.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m19e-world-axis-and-source-identity-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

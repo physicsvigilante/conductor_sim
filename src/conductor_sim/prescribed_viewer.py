@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 from math import fsum, hypot, isclose, isfinite, ulp
+import re
 
 from .model import PointCharge
 from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
@@ -128,16 +129,32 @@ def _validate_trajectory(spec, result):
         raise ValueError('saved test-charge energy-drift maximum disagrees with rows')
 
 
-def test_charge_slice(spec, result, *, resolution=17, extent_m=None):
-    """One static physical plane containing the complete stored trajectory."""
+def test_charge_slice(spec, result, *, resolution=17, extent_m=None,
+                      axis_orientation='vertical'):
+    """Physical plane; axial world direction may be shown up or right.
+
+    The orientation is a *presentation* choice, never a constraint on motion.
+    Historical exports show the axial direction vertically by default.
+    """
+    if type(axis_orientation) is not str or axis_orientation not in ('vertical', 'horizontal'):
+        raise ValueError('axis_orientation must be vertical or horizontal')
+    if axis_orientation == 'horizontal' and spec.axis is None:
+        raise UnsupportedProblem('horizontal axis orientation requires an actual ring/disc symmetry axis')
     if result.spec != spec:
         raise ValueError('display plane requires a matching motion result')
     axis=spec.axis
     normal=spec.plane_normal
     if axis is not None:
-        v=axis
         origin=next(s.center_m for s in spec.field.sources if isinstance(s,(
             UniformRingAxisField,UniformDiskAxisField)))
+        if axis_orientation == 'horizontal':
+            # A right-handed slice with the true signed world symmetry axis on
+            # screen +u. Never rotate the physical field or stored trajectory.
+            u=axis
+            v=_unit(_cross(normal,u),'slice vertical')
+        else:
+            v=axis
+            u=_unit(_cross(v,normal),'slice horizontal')
     else:
         origin=spec.particle.position_m
         # A field direction sets a useful local vertical even when a charged
@@ -156,7 +173,7 @@ def test_charge_slice(spec, result, *, resolution=17, extent_m=None):
         if _norm(direction)<=1e-12*spec.length_scale_m:
             raise UnsupportedProblem('cannot construct a physical planar slice for the fixed sources')
         v=_unit(direction,'slice vertical')
-    u=_unit(_cross(v,normal),'slice horizontal')
+        u=_unit(_cross(v,normal),'slice horizontal')
     def position(p):
         delta=_sub(p,origin)
         return _dot(delta,u),_dot(delta,v),_dot(delta,normal)
@@ -229,8 +246,38 @@ def _frame_placeholder(plane, row, sample_index, spec):
         domain_center_m=plane.origin_m,motion_sample_index=sample_index)
 
 
+def _source_annotations(spec, annotations):
+    """Explicit authored ID/label binding, not a source-provenance inference.
+
+    The ID follows a *physical source* across teacher hypotheticals even when
+    its numerical parameters change. The author supplies that lineage; this
+    viewer merely binds and checks the IDs against the current source order.
+    """
+    if annotations is None:
+        return None
+    if (type(annotations) not in (tuple,list) or
+            len(annotations)!=len(spec.field.sources)):
+        raise ValueError('source_annotations must have one ID/label pair per fixed source')
+    result=[]
+    for index,(source,entry) in enumerate(zip(spec.field.sources,annotations)):
+        if type(entry) not in (tuple,list) or len(entry)!=2:
+            raise ValueError('source_annotations entries must be (stable_id, display_label) pairs')
+        identity,label=entry
+        if (type(identity) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9:_-]{0,63}',identity)):
+            raise ValueError('source identity must be a bounded stable ASCII identifier')
+        if (type(label) is not str or not 1<=len(label)<=48 or
+                label!=label.strip() or not label.isprintable()):
+            raise ValueError('source display label must be nonempty, printable and at most 48 characters')
+        result.append(dict(source_index=index, id=identity, label=label,
+                           kind=type(source).__name__))
+    if len({r['id'] for r in result})!=len(result) or len({r['label'] for r in result})!=len(result):
+        raise ValueError('source identities and displayed labels must be unique')
+    return result
+
+
 def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_frames=16,
-                              resolution=17, profile_samples=201, extent_m=None):
+                              resolution=17, profile_samples=201, extent_m=None,
+                              axis_orientation='vertical', source_annotations=None):
     """Export original numerical time histories and certified-source profiles.
 
     Only the shared M19a integrator can produce the trajectory. No additional
@@ -239,11 +286,14 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
     """
     if not isinstance(spec,TestChargeMotionSpec):
         raise TypeError('expected TestChargeMotionSpec')
+    # Validate presentation binding independently of the numerical integration.
+    annotations=_source_annotations(spec,source_annotations)
     if result is None:
         result=integrate_test_charge(spec)
     _validate_trajectory(spec,result)
     indices=_choose_indices(result,visual_frames)
-    plane=test_charge_slice(spec,result,resolution=resolution,extent_m=extent_m)
+    plane=test_charge_slice(spec,result,resolution=resolution,extent_m=extent_m,
+                            axis_orientation=axis_orientation)
     profile=_axial_profile(spec,plane,count=profile_samples)
     domain=_FixedDomain(spec)
     breaks=[i for i,(a,b) in enumerate(zip(result.samples,result.samples[1:]),start=1)
@@ -260,6 +310,12 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
                    profile_samples=profile,
                    display_note='Fixed sources do not respond to the test charge; '
                     'the geometry scene is a schematic slice, not a sampled field map.')
+    # Leave v1 M19b default bundles byte-identical. Only opt-in presentation
+    # metadata is serialized, never altered source, E/V, force or motion values.
+    if axis_orientation=='horizontal':
+        physics['axis_display']='horizontal'
+    if annotations is not None:
+        physics['source_annotations']=annotations
     frames=[_frame_placeholder(plane,result.samples[i],i,spec) for i in indices]
     from .potential_display import potential_colour_scale
     bundle=dict(schema='conductor_sim.visualization.v1',
