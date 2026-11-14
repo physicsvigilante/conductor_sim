@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from math import hypot, isclose
 from pathlib import Path
 import shutil
@@ -99,8 +100,15 @@ def check(path: Path, *, case: str, screenshot: Path | None = None):
                          manifest["velocity_m_s"][idx][1][j] for j in range(3)))
             actual_delta = page.locator("#compare-delta").inner_text()
             assert "|r(variation)" in actual_delta
-            assert f"{dp:.5g}" in actual_delta or isclose(dp, 0., abs_tol=1e-12)
-            assert f"{dv:.5g}" in actual_delta or isclose(dv, 0., abs_tol=1e-12)
+            # JavaScript toPrecision(5) can choose decimal while Python .5g
+            # chooses exponent notation. Parse numerical values, never text format.
+            shown = re.findall(
+                r"=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*m(?:/s)?",
+                actual_delta,
+            )
+            assert len(shown) == 2, actual_delta
+            assert isclose(float(shown[0]), dp, rel_tol=5e-5, abs_tol=1e-12)
+            assert isclose(float(shown[1]), dv, rel_tol=5e-5, abs_tol=1e-12)
         if case == "S1":
             assert all(x == y for x, y in manifest["position_m"])
             assert all(x == y for x, y in manifest["velocity_m_s"])
