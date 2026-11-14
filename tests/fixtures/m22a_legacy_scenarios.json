@@ -1,0 +1,302 @@
+[
+  {
+    "baseline": {
+      "schema": "conductor_sim.prescribed_scenario.v1",
+      "scenario_id": "legacy-electric",
+      "origin": "teacher-hypothetical",
+      "provenance": "M22a pre-change characterization.",
+      "spec": {
+        "field": {
+          "schema": "conductor_sim.prescribed_field.v1",
+          "model": "fixed nonresponding sources; no conductor induction",
+          "permittivity_f_m": 8.8541878128e-12,
+          "sources": [
+            {
+              "kind": "UniformElectricField",
+              "field_v_m": [
+                3.0,
+                0.0,
+                0.0
+              ],
+              "reference_point_m": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "reference_potential_v": 0.0
+            }
+          ]
+        },
+        "particle": {
+          "charge_c": 1e-06,
+          "position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mass_kg": 2e-06,
+        "initial_velocity_m_s": [
+          0.1,
+          0.2,
+          0.0
+        ],
+        "duration_s": 0.1,
+        "sample_interval_s": 0.01,
+        "plane_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "relative_tolerance": 2e-07,
+        "length_scale_m": 0.2,
+        "source_guard_m": 1e-06,
+        "max_internal_steps": 100000
+      },
+      "source_annotations": [
+        [
+          "field:applied",
+          "Applied E"
+        ]
+      ],
+      "parent_revision_id": null,
+      "changes": [],
+      "required_action": "validate-and-integrate",
+      "revision_id": "db72562433db37b69de5ad4e49b7314d94a750baaacd2cc7b0c8a49498fffe83"
+    },
+    "revision": {
+      "schema": "conductor_sim.prescribed_scenario.v1",
+      "scenario_id": "legacy-electric-heavy",
+      "origin": "teacher-hypothetical",
+      "provenance": "Double only mass.",
+      "spec": {
+        "field": {
+          "schema": "conductor_sim.prescribed_field.v1",
+          "model": "fixed nonresponding sources; no conductor induction",
+          "permittivity_f_m": 8.8541878128e-12,
+          "sources": [
+            {
+              "kind": "UniformElectricField",
+              "field_v_m": [
+                3.0,
+                0.0,
+                0.0
+              ],
+              "reference_point_m": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "reference_potential_v": 0.0
+            }
+          ]
+        },
+        "particle": {
+          "charge_c": 1e-06,
+          "position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mass_kg": 4e-06,
+        "initial_velocity_m_s": [
+          0.1,
+          0.2,
+          0.0
+        ],
+        "duration_s": 0.1,
+        "sample_interval_s": 0.01,
+        "plane_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "relative_tolerance": 2e-07,
+        "length_scale_m": 0.2,
+        "source_guard_m": 1e-06,
+        "max_internal_steps": 100000
+      },
+      "source_annotations": [
+        [
+          "field:applied",
+          "Applied E"
+        ]
+      ],
+      "parent_revision_id": "db72562433db37b69de5ad4e49b7314d94a750baaacd2cc7b0c8a49498fffe83",
+      "changes": [
+        {
+          "component_id": "test-particle",
+          "property": "mass_kg",
+          "baseline": 2e-06,
+          "variation": 4e-06
+        }
+      ],
+      "required_action": "reintegrate-motion",
+      "revision_id": "7b99000e16e931aad2f6eaa08c718683c6bd8c34baeb277ab0ec95f59abb5d8c"
+    }
+  },
+  {
+    "baseline": {
+      "schema": "conductor_sim.prescribed_scenario.v1",
+      "scenario_id": "legacy-gravity",
+      "origin": "teacher-hypothetical",
+      "provenance": "M22a pre-change characterization.",
+      "spec": {
+        "field": {
+          "schema": "conductor_sim.prescribed_field.v1",
+          "model": "fixed nonresponding sources; no conductor induction",
+          "permittivity_f_m": 8.8541878128e-12,
+          "sources": [
+            {
+              "kind": "UniformElectricField",
+              "field_v_m": [
+                3.0,
+                0.0,
+                0.0
+              ],
+              "reference_point_m": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "reference_potential_v": 0.0
+            }
+          ]
+        },
+        "particle": {
+          "charge_c": 1e-06,
+          "position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mass_kg": 2e-06,
+        "initial_velocity_m_s": [
+          0.1,
+          0.2,
+          0.0
+        ],
+        "duration_s": 0.1,
+        "sample_interval_s": 0.01,
+        "plane_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "relative_tolerance": 2e-07,
+        "length_scale_m": 0.2,
+        "source_guard_m": 1e-06,
+        "max_internal_steps": 100000,
+        "gravity": {
+          "kind": "UniformGravity",
+          "acceleration_m_s2": [
+            0.0,
+            -10.0,
+            0.0
+          ],
+          "reference_position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_annotations": [
+        [
+          "field:applied",
+          "Applied E"
+        ]
+      ],
+      "parent_revision_id": null,
+      "changes": [],
+      "required_action": "validate-and-integrate",
+      "revision_id": "37ed96b01b8a73a7f45d6af73b7999f2e082bfb376647ca4b0b2e91b0cb1b86e"
+    },
+    "revision": {
+      "schema": "conductor_sim.prescribed_scenario.v1",
+      "scenario_id": "legacy-gravity-heavy",
+      "origin": "teacher-hypothetical",
+      "provenance": "Double only mass.",
+      "spec": {
+        "field": {
+          "schema": "conductor_sim.prescribed_field.v1",
+          "model": "fixed nonresponding sources; no conductor induction",
+          "permittivity_f_m": 8.8541878128e-12,
+          "sources": [
+            {
+              "kind": "UniformElectricField",
+              "field_v_m": [
+                3.0,
+                0.0,
+                0.0
+              ],
+              "reference_point_m": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "reference_potential_v": 0.0
+            }
+          ]
+        },
+        "particle": {
+          "charge_c": 1e-06,
+          "position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "mass_kg": 4e-06,
+        "initial_velocity_m_s": [
+          0.1,
+          0.2,
+          0.0
+        ],
+        "duration_s": 0.1,
+        "sample_interval_s": 0.01,
+        "plane_normal": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "relative_tolerance": 2e-07,
+        "length_scale_m": 0.2,
+        "source_guard_m": 1e-06,
+        "max_internal_steps": 100000,
+        "gravity": {
+          "kind": "UniformGravity",
+          "acceleration_m_s2": [
+            0.0,
+            -10.0,
+            0.0
+          ],
+          "reference_position_m": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "source_annotations": [
+        [
+          "field:applied",
+          "Applied E"
+        ]
+      ],
+      "parent_revision_id": "37ed96b01b8a73a7f45d6af73b7999f2e082bfb376647ca4b0b2e91b0cb1b86e",
+      "changes": [
+        {
+          "component_id": "test-particle",
+          "property": "mass_kg",
+          "baseline": 2e-06,
+          "variation": 4e-06
+        }
+      ],
+      "required_action": "reintegrate-motion",
+      "revision_id": "d191cc85e66c9cd7464df6897c6375711cf06c9e68d00e8aa1646c55440c73bf"
+    }
+  }
+]

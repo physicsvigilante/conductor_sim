@@ -1,26 +1,44 @@
 name: M22a structural composability review
 on:
   pull_request:
-    paths: ['docs/m22a*', '.github/workflows/m22a-review.yml']
+    paths: ['src/**', 'tests/**', 'examples/structural_scenarios.py', 'tools/check_m22a_viewer.py', 'docs/m22a*', 'docs/composability_contract.md', '.github/workflows/m22a-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/structural_scenarios.py', 'tools/check_m22a_viewer.py', 'docs/m22a*', 'docs/composability_contract.md', '.github/workflows/m22a-review.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  source-snapshot:
+  qualified-structural-reassembly:
     runs-on: ubuntu-24.04
-    timeout-minutes: 3
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Capture exact pre-implementation source
-        run: |
-          mkdir -p snapshot
-          git rev-parse HEAD > snapshot/commit.txt
-          git rev-parse HEAD^{tree} > snapshot/tree.txt
-          git archive --format=tar.gz HEAD > snapshot/source.tar.gz
-          sha256sum snapshot/source.tar.gz > snapshot/source.sha256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: m22a-exact-source
-          path: snapshot/
-          retention-days: 2
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: New authoring and retained parameter, comparison, symmetry and gravity contracts
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m22a_structural_scenarios.py tests/test_m20b_scenarios.py tests/test_m20b_scenario_types.py tests/test_m20a_scenario_comparison.py tests/test_m21c_source_symmetry.py tests/test_m21e_composed_forces.py -q --junitxml=review-artifacts/m22a-tests.xml
+      - name: All preselected authoring cards with distinct evaluation stages
+        run: python examples/structural_scenarios.py --grade --output review-artifacts/m22a-grade.json
+      - name: Four actual standalone Chromium transfer views
+        run: |
+          set -euo pipefail
+          for case in U1 U2 U3 A1; do
+            python examples/structural_scenarios.py --case "$case" --output "review-artifacts/m22a-$case.html"
+            python tools/check_m22a_viewer.py "review-artifacts/m22a-$case.html" --case "$case" \
+              --screenshot "review-artifacts/m22a-$case.png" > "review-artifacts/m22a-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m22a-structural-composability-evidence
+          path: review-artifacts/
+          retention-days: 14
           if-no-files-found: error
