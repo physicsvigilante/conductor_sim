@@ -140,6 +140,25 @@ def validate_prescribed_viewer(bundle):
         m['mass_kg'],m['initial_velocity_m_s'],m['duration_s'],m['sample_interval_s'],
         plane_normal=m['plane_normal'],length_scale_m=m['length_scale_m'],
         source_guard_m=m['source_guard_m'],gravity=gravity)
+    # New opt-in presentation omission must correspond EXACTLY to real rod
+    # geometry and the existing global reflection certificate. Prevent a
+    # forged saved record from hiding or inventing physical source geometry.
+    from .prescribed_motion import _rod_individual_plane_preserving
+    from .prescribed_fields import UniformRodField
+    mirror_rods=(spec.axis is None and any(
+        type(s) is UniformRodField and not _rod_individual_plane_preserving(
+            s,spec.particle.position_m,spec.plane_normal,spec.length_scale_m)
+        for s in spec.field.sources))
+    expected_omissions=[]
+    if mirror_rods:
+        for i,s in enumerate(spec.field.sources):
+            if type(s) is UniformRodField:
+                if any(abs(_dot(_sub(p,spec.particle.position_m),spec.plane_normal))>1e-9
+                       for p in (s.start_m,s.end_m)):
+                    expected_omissions.append(i)
+    if (m.get('mirrored_rod_source_indices') != expected_omissions
+            if expected_omissions else 'mirrored_rod_source_indices' in m):
+        raise ValueError('saved off-plane rod omission is not the physical source geometry')
     domain=_FixedDomain(spec)
     rows=m.get('samples')
     if not isinstance(rows,list) or not 2<=len(rows)<=2001:

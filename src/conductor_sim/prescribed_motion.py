@@ -33,6 +33,15 @@ def _in_plane(p, origin, normal, scale):
     return abs(_dot(delta, normal)) <= 1e-11*max(scale, hypot(*delta))
 
 
+def _rod_individual_plane_preserving(rod, origin, normal, scale):
+    """Retained M19a rule. A new global certificate is required otherwise."""
+    direction=_sub(rod.end_m,rod.start_m)
+    centre=tuple((x+y)/2 for x,y in zip(rod.start_m,rod.end_m))
+    return ((_in_plane(rod.start_m,origin,normal,scale) and
+             _in_plane(rod.end_m,origin,normal,scale)) or
+            (_in_plane(centre,origin,normal,scale) and _parallel(direction,normal)))
+
+
 def _certify(spec):
     origin, normal, scale = spec.particle.position_m, spec.plane_normal, spec.length_scale_m
     if spec.axis is not None and not _parallel(spec.initial_velocity_m_s, spec.axis):
@@ -48,6 +57,15 @@ def _certify(spec):
     if paired_points:
         from .source_symmetry import certify_point_reflection
         certify_point_reflection(points, origin_m=origin, normal=normal)
+    # Independently prove whole-segment closure for any off-plane rod that
+    # fails the retained per-source plane rule. This does not qualify an
+    # axis-only ring/disc field off axis, nor skip any other source check.
+    rods=tuple(s for s in spec.field.sources if type(s) is UniformRodField)
+    paired_rods=(spec.axis is None and any(
+        not _rod_individual_plane_preserving(s,origin,normal,scale) for s in rods))
+    if paired_rods:
+        from .source_symmetry import certify_rod_reflection
+        certify_rod_reflection(rods, origin_m=origin, normal=normal)
     if spec.gravity is not None:
         g = spec.gravity.acceleration_m_s2
         valid = (_parallel(g, spec.axis) if spec.axis is not None else
@@ -61,6 +79,8 @@ def _certify(spec):
             valid = (_parallel(source.field_v_m, spec.axis) if spec.axis is not None else
                      abs(_dot(source.field_v_m, normal)) <= 1e-11*hypot(*source.field_v_m))
         elif isinstance(source, UniformRodField):
+            if paired_rods:
+                continue  # Full original force is retained; whole rod inventory is certified.
             direction = _sub(source.end_m, source.start_m)
             centre = tuple((x+y)/2 for x,y in zip(source.start_m,source.end_m))
             if spec.axis is not None:
@@ -68,9 +88,7 @@ def _certify(spec):
                          (_parallel(direction, spec.axis) or
                           abs(_dot(direction, spec.axis)) <= 1e-11*hypot(*direction)))
             else:
-                valid = ((_in_plane(source.start_m,origin,normal,scale) and
-                          _in_plane(source.end_m,origin,normal,scale)) or
-                         (_in_plane(centre,origin,normal,scale) and _parallel(direction,normal)))
+                valid = _rod_individual_plane_preserving(source,origin,normal,scale)
         else:
             centre = source.position_m if isinstance(source, FixedPointField) else source.center_m
             valid = (_on_line(centre, origin, spec.axis, scale) if spec.axis is not None else

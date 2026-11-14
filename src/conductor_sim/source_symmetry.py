@@ -96,3 +96,95 @@ def certify_point_reflection(sources, *, origin_m, normal):
     pairs = tuple(sorted((min(i, j), max(i, j)) for j, i in matched.items()))
     maximum = max((residual[i, j] for j, i in matched.items()), default=0.)
     return PointReflectionCertificate(origin, n, on_plane, pairs, tolerance, maximum)
+
+
+@dataclass(frozen=True, slots=True)
+class RodReflectionCertificate:
+    """Reflection closure of whole, unoriented finite uniform-charge rods.
+
+    ``pairs`` references the input's unchanged ordered inventory. ``invariant_indices``
+    have *whole segments* invariant under reflection (not merely their centres).
+    Equal signed total charge and equal reflected end points imply equal
+    line-density measure. Only floating-point representation is tolerated.
+    """
+    origin_m: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    invariant_indices: tuple[int, ...]
+    pairs: tuple[tuple[int, int], ...]
+    tolerance_m: float
+    max_pair_residual_m: float
+
+
+def certify_rod_reflection(sources, *, origin_m, normal):
+    """Certify reflection closure of 1..64 *whole* fixed line-charge segments.
+
+    Endpoint order is not physical. Each off-plane non-invariant rod must
+    have exactly one partner with equal *signed* total charge and reflected
+    complete segment, preserving multiplicity. Unlike a pointwise force test,
+    this proves physical-plane invariance throughout the qualified domain.
+    A bounded deterministic search handles crossing rods whose midpoints are
+    on the plane but whose individually tilted geometries are not invariant.
+    """
+    from .prescribed_fields import UniformRodField
+    if type(sources) not in (list, tuple) or not 1 <= len(sources) <= 64:
+        raise ValueError('rod reflection requires 1 to 64 explicit sources')
+    sources = tuple(sources)
+    if any(type(s) is not UniformRodField for s in sources):
+        raise TypeError('rod reflection requires built-in UniformRodField only')
+    origin = _vector(origin_m, 'rod reflection origin')
+    n = _unit(normal, 'rod reflection normal')
+    ends = tuple((_sub(s.start_m, origin), _sub(s.end_m, origin)) for s in sources)
+    span = max(hypot(*p) for pair in ends for p in pair)
+    span = max(span, *(hypot(*_sub(pair[1],pair[0])) for pair in ends))
+    if not isfinite(span) or not span:
+        raise UnsupportedProblem('rod reflection geometry has no finite local span')
+    tolerance = 64*max(ulp(span), *(ulp(v) for v in origin),
+                       *(ulp(v) for rod in sources for p in (rod.start_m,rod.end_m) for v in p))
+    if tolerance > 1e-11*span:
+        raise UnsupportedProblem('rod reflection geometry is poorly resolved; translate/scale the authored coordinates')
+    def reflect(p):
+        return _sub(p, _mul(n, 2*_dot(p, n)))
+    mirrored = tuple((reflect(a), reflect(b)) for a,b in ends)
+    def distance(one, two):
+        a,b=one; c,d=two
+        return min(max(hypot(*_sub(a,c)),hypot(*_sub(b,d))),
+                   max(hypot(*_sub(a,d)),hypot(*_sub(b,c))))
+    def residual(i,j):
+        return max(distance(mirrored[i], ends[j]),distance(mirrored[j],ends[i]))
+    invariant = tuple(i for i in range(len(sources)) if residual(i,i) <= tolerance)
+    unmatched = set(range(len(sources)))-set(invariant)
+    adjacency = {i: tuple(j for j in sorted(unmatched) if j!=i and
+                           sources[i].charge_c == sources[j].charge_c and
+                           residual(i,j) <= tolerance) for i in unmatched}
+    def fail():
+        raise UnsupportedProblem('rod inventory is not reflection symmetric: every full segment requires a distinct equal-signed-charge reflected partner')
+    if len(unmatched)%2 or any(not adjacency[i] for i in unmatched):
+        fail()
+    pairs=[]
+    visited=0
+    def match():
+        nonlocal visited
+        if not unmatched:
+            return True
+        visited+=1
+        # Explicit guard: approximate near-coincident geometry must not turn
+        # physical qualification into an unbounded combinatorial search.
+        if visited>50000:
+            raise UnsupportedProblem('rod reflection matching is ambiguous/poorly resolved')
+        i=min(unmatched, key=lambda k:(sum(j in unmatched for j in adjacency[k]),
+                                      sources[k].charge_c,sources[k].start_m,
+                                      sources[k].end_m,k))
+        choices=[j for j in adjacency[i] if j in unmatched]
+        unmatched.remove(i)
+        for j in choices:
+            unmatched.remove(j)
+            pairs.append((min(i,j),max(i,j)))
+            if match():return True
+            pairs.pop();unmatched.add(j)
+        unmatched.add(i)
+        return False
+    if not match():
+        fail()
+    maximum=max((residual(i,j) for i,j in pairs),default=0.)
+    return RodReflectionCertificate(origin,n,invariant,tuple(sorted(pairs)),
+                                    tolerance,maximum)

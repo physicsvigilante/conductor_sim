@@ -329,6 +329,33 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
     if annotations is not None:
         physics['source_annotations']=annotations
     frames=[_frame_placeholder(plane,result.samples[i],i,spec) for i in indices]
+    # Newly certified mirror-rod arrangements may contain entire finite rods
+    # outside the physical slice. Projecting them onto it would invent geometry.
+    # This opt-in presentation key leaves ALL existing admitted rod scenes and
+    # old serialized motion contracts untouched.
+    from .prescribed_motion import _rod_individual_plane_preserving
+    mirror_rod_mode=(spec.axis is None and any(
+        type(s) is UniformRodField and not _rod_individual_plane_preserving(
+            s,spec.particle.position_m,spec.plane_normal,spec.length_scale_m)
+        for s in spec.field.sources))
+    if mirror_rod_mode:
+        omitted=[]
+        for j,source in enumerate(spec.field.sources):
+            if type(source) is not UniformRodField:
+                continue
+            height=(plane.project(source.start_m)[2],plane.project(source.end_m)[2])
+            if max(abs(h) for h in height)>1e-9:
+                omitted.append(j)
+                name=(f"{annotations[j]['label']} [{annotations[j]['id']}]" if annotations
+                      else f"Source {j+1}")
+                note=(f"{name} from {source.start_m} to {source.end_m} m is outside "
+                      f"this physical slice (signed endpoint normal offsets "
+                      f"{height[0]:.6g}, {height[1]:.6g} m). Not drawn here: "
+                      "its full physical 3D field is included, not projected or replaced.")
+                for frame in frames:
+                    frame['notes'].append(note)
+        if omitted:
+            physics['mirrored_rod_source_indices']=omitted
     # Composite symmetry can admit sources outside the displayed motion slice.
     # The existing renderer correctly omits their point markers; name every
     # omitted source explicitly rather than implying in-plane substitutes.
