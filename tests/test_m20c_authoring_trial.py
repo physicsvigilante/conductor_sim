@@ -147,7 +147,7 @@ def test_four_refusals_are_real_validation_errors_not_fabricated_results(case):
 @pytest.mark.parametrize("case", NEGATIVE[4:])
 def test_admissible_does_not_imply_comparable_complete_histories(case):
     record = _grade_incomparable(case)
-    assert record["status"] == "admitted-not-comparable"
+    assert record["status"] == "admitted-not-comparable", record
     assert len(record["terminations"]) == 2
     assert record["physical_revision"]
     assert record["parent_unchanged"] is True

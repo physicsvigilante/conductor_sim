@@ -310,8 +310,8 @@ def _grade_incomparable(card):
             variation_id=derived.scenario_id,
         )
     except ValueError as exc:
-        expected = "slice" if card == "N5" else "complete duration"
-        if expected not in str(exc):
+        expected = ("slice",) if card == "N5" else ("time grids", "complete duration", "frame times")
+        if not any(token in str(exc) for token in expected):
             return dict(card=card, status="unexpected-exception",
                         exception=type(exc).__name__, reason=str(exc))
         return dict(card=card, status="admitted-not-comparable",
