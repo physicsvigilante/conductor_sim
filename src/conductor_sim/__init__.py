@@ -114,3 +114,6 @@ __all__ += ['ElectricFieldProvider', 'PrescribedField', 'UniformElectricField',
     'UniformRodField', 'UniformSphereField', 'UniformShellField',
     'TestChargeMotionSpec', 'TestChargeSample', 'TestChargeEvent',
     'TestChargeMotionResult', 'integrate_test_charge']
+
+from .prescribed_viewer import sample_test_charge_viewer, test_charge_slice
+__all__ += ['sample_test_charge_viewer','test_charge_slice']

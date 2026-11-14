@@ -61,6 +61,9 @@ def render_html(bundle, *, title='Conductor simulation'):
         # Older saved M17b exports get the same honest sparse-path treatment.
         display['motion_2d'] = dict(planar_motion,
             trajectory_break_indices=planar_path_breaks(planar_motion, frames[0]))
+    if display.get('prescribed_motion') is not None:
+        from .prescribed_viewer_validation import validate_prescribed_viewer
+        validate_prescribed_viewer(display)
     display.setdefault('potential_colour_scale', potential_colour_scale(frames))
     data = json.dumps(display,allow_nan=False,separators=(',',':'))
     # JSON lives inside a script element: HTML escaping alone is insufficient.
@@ -76,9 +79,9 @@ TEMPLATE = r'''<!doctype html>
 :root{color-scheme:light;--ink:#142334;--muted:#526579;--line:#d9e2eb;--blue:#165884}*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:var(--ink);font:15px/1.5 system-ui,-apple-system,sans-serif}header{background:#122b40;color:white;padding:24px max(20px,calc((100vw - 1260px)/2));border-bottom:4px solid #3ca5b0}h1{font-size:26px;margin:4px 0}h2{font-size:17px;margin:0 0 14px}p{margin:8px 0}.kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.75}.sub{color:#cbd9e4;max-width:850px;font-size:13px}main{max-width:1300px;margin:auto;padding:22px;display:grid;grid-template-columns:minmax(440px,1.6fr) minmax(310px,1fr);gap:20px}.card{background:white;border:1px solid var(--line);border-radius:10px;padding:20px;box-shadow:0 4px 16px #14233406}.wide{grid-column:1/-1}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.chip{font:12px ui-monospace,monospace;background:#e7f3f6;color:#17556a;padding:5px 9px;border-radius:5px}canvas{display:block;width:100%;height:auto}#scene{background:#f9fbfd;border:1px solid var(--line);border-radius:5px}#profile{border:1px solid var(--line);margin-top:12px}label{font-size:13px;cursor:pointer}select,button{padding:7px;border:1px solid #bbcbd7;border-radius:4px;background:white;color:var(--ink)}input[type=range]{flex:1;min-width:160px}input[type=checkbox]{accent-color:#176488}#case{font-weight:650;font-size:18px}#probe{font:12px/1.6 ui-monospace,monospace;min-height:42px;margin-top:9px;color:#344d65}table{border-collapse:collapse;width:100%;font-size:12px}td,th{padding:7px 5px;text-align:right;border-bottom:1px solid #e6ebf0}th:first-child,td:first-child{text-align:left}.small{font-size:12px;color:var(--muted)}#scale{height:12px;background:linear-gradient(90deg,#3476ae,#f8f9fb,#d95b43);border:1px solid var(--line);margin-top:10px}.ticks{display:flex;justify-content:space-between;font:11px ui-monospace,monospace;color:var(--muted)}.line-density-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 12px}.motion-playback{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 5px}.motion-playback select{font-size:13px}.motion-playback button{cursor:pointer;min-width:72px}.motion-playback button:focus-visible{outline:3px solid #14809a;outline-offset:2px}.motion-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.line-density-control input{min-width:100px;flex:1 1 120px}.line-density-control output{font-size:12px;min-width:96px}.controls{margin:14px 0 12px;display:flex;gap:18px;flex-wrap:wrap}#notes p{padding-left:12px;border-left:2px solid #d9e6ef;font-size:12px;color:var(--muted)}aside .card{margin-bottom:20px}.error{color:#b52222}[hidden]{display:none!important}.force-plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.force-plots canvas{border:1px solid var(--line);border-radius:5px;background:#fbfcfe}.force-plots h3{font-size:14px;margin:4px 0 8px}@media(max-width:850px){main{grid-template-columns:1fr}.wide{grid-column:auto}header{padding:18px}h1{font-size:22px}.card{padding:15px}.force-plots{grid-template-columns:1fr}}
 </style></head><body>
 <header><div class="kicker">CONDUCTOR_SIM / M5 VISUALIZATION</div><h1>__TITLE__</h1><p class="sub">Potential, field geometry and induced surface charge from one reusable sampling pipeline. No server or solver is needed to inspect this exported file.</p></header>
-<main><section class="card wide"><div class="row"><span id="case"></span><span id="backend" class="chip"></span></div><div class="row" style="margin-top:14px"><label for="frame" id="position-label">Stored state</label><input id="frame" type="range" min="0" step="1" value="0"><span id="counter" class="small"></span></div><p id="static-playback-note" class="small">The slider selects precomputed solutions. It does not recompute FEMM or simulate charge motion in the browser.</p><div id="motion-controls" hidden><div class="motion-playback"><button id="motion-play" type="button" aria-pressed="false">Play</button><button id="motion-reset" type="button">Restart</button><label for="motion-speed">Playback speed</label><select id="motion-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><output id="motion-clock" role="status" aria-live="off"></output></div><p class="small">Actual numerical elapsed-time trajectory. Playback selects only saved physical-time field snapshots; seconds on screen are compressed for viewing. There is no browser integrator or interpolated electrostatic field.</p></div></section>
-<section class="card"><div class="row"><h2>Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label><label id="velocity-toggle" hidden><input type="checkbox" id="velocity-arrow" checked> Velocity arrow</label><label id="trajectory-toggle" hidden><input type="checkbox" id="trajectory" checked> Trajectory</label></div><div class="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
-<aside><section class="card"><h2>Conductor results</h2><div style="overflow:auto"><table><thead><tr><th>Name</th><th>V</th><th>Net nC</th><th>Inner nC</th><th>Outer nC</th></tr></thead><tbody id="conductors"></tbody></table></div><p class="small" id="totals-note"></p></section><section class="card"><h2>Induced surface-charge profile</h2><div class="row"><label for="density">Conductor / face</label><select id="density"></select></div><canvas id="profile" width="450" height="260" aria-label="Induced charge density along a great circle"></canvas><p id="method" class="small"></p><p class="small">For spherical conductors the horizontal axis is polar angle; for planes it is signed distance (m) along the cross-section. These lines are not area integrals.</p></section><section class="card"><h2>Source and sampling details</h2><div id="sources" class="small"></div><div id="notes"></div></section></aside>
+<main><section class="card wide"><div class="row"><span id="case"></span><span id="backend" class="chip"></span></div><div class="row" style="margin-top:14px"><label for="frame" id="position-label">Stored state</label><input id="frame" type="range" min="0" step="1" value="0"><span id="counter" class="small"></span></div><p id="static-playback-note" class="small">The slider selects precomputed solutions. It does not recompute FEMM or simulate charge motion in the browser.</p><div id="motion-controls" hidden><div class="motion-playback"><button id="motion-play" type="button" aria-pressed="false">Play</button><button id="motion-reset" type="button">Restart</button><label for="motion-speed">Playback speed</label><select id="motion-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><output id="motion-clock" role="status" aria-live="off"></output></div><p class="small" id="motion-playback-scope">Actual numerical elapsed-time trajectory. Playback selects only saved physical-time field snapshots; seconds on screen are compressed for viewing. There is no browser integrator or interpolated electrostatic field.</p></div></section>
+<section class="card" id="scene-panel"><div class="row"><h2 id="scene-heading">Planar cross-section</h2><span class="small">metres · V · V/m</span></div><div class="controls" id="scene-controls"><label><input type="checkbox" id="heat" checked> Potential</label><label><input type="checkbox" id="contours" checked> Equipotentials</label><label><input type="checkbox" id="lines" checked> Field lines</label><label id="force-toggle" hidden><input type="checkbox" id="force-arrow" checked> Selected-charge force arrow</label><label id="velocity-toggle" hidden><input type="checkbox" id="velocity-arrow" checked> Velocity arrow</label><label id="trajectory-toggle" hidden><input type="checkbox" id="trajectory" checked> Trajectory</label></div><div class="line-density-control" id="line-density-control"><label for="line-density">Field-line density</label><input id="line-density" type="range" min="1" max="5" step="1" value="3" aria-describedby="line-density-value"><output id="line-density-value" for="line-density" aria-live="polite"></output></div><canvas id="scene" width="720" height="720" aria-label="Potential map and electric field lines"></canvas><div id="potential-key"><div id="scale"></div><div class="ticks"><span id="lo"></span><span id="lo-mid"></span><span>0 V</span><span id="hi-mid"></span><span id="hi"></span></div></div><p id="potential-method" class="small">Smooth sampled potential · asinh colour scale, shared across states. No blur. Blank cells are excluded or unresolved.</p><div id="probe">Move the pointer over the cross-section to inspect the nearest stored sample.</div><p class="small" id="scene-scope">Grey regions: conducting metal. Dashed source discs: excluded regions. Arrows follow E; line count does not represent flux. Contours are sampled interpolations, not exact curves.</p></section>
+<aside><section class="card" id="conductor-panel"><h2>Conductor results</h2><div style="overflow:auto"><table><thead><tr><th>Name</th><th>V</th><th>Net nC</th><th>Inner nC</th><th>Outer nC</th></tr></thead><tbody id="conductors"></tbody></table></div><p class="small" id="totals-note"></p></section><section class="card" id="density-panel"><h2>Induced surface-charge profile</h2><div class="row"><label for="density">Conductor / face</label><select id="density"></select></div><canvas id="profile" width="450" height="260" aria-label="Induced charge density along a great circle"></canvas><p id="method" class="small"></p><p class="small">For spherical conductors the horizontal axis is polar angle; for planes it is signed distance (m) along the cross-section. These lines are not area integrals.</p></section><section class="card"><h2>Source and sampling details</h2><div id="sources" class="small"></div><div id="notes"></div></section></aside>
 <section class="card wide" id="force-panel" hidden><h2>Force and mechanical interaction energy</h2>
 <p class="small" id="force-summary" aria-live="polite"></p>
 <div class="force-plots"><section><h3>Force along displacement (µN)</h3><canvas id="force-chart" width="560" height="270" aria-label="Force component versus charge position"></canvas></section>
@@ -86,6 +89,11 @@ TEMPLATE = r'''<!doctype html>
 <p class="small" id="work-summary" aria-live="polite"></p>
 <details><summary>Direct, induced and background contributions</summary><p class="small" id="force-components"></p></details>
 <p class="small" id="force-method"></p><p class="small">The position slider selects precomputed static equilibria, not elapsed time or simulated motion. Force arrows show the in-slice component and their lengths are display-normalized; graphs carry the physical scales. Work assumes all other charges, electrode constraints and voltage references are unchanged.</p></section>
+<section class="card wide" id="prescribed-panel" hidden><h2 id="prescribed-title">Electric field and potential of fixed sources</h2>
+<p class="small" id="prescribed-description">Field and potential are computed from fixed sources, not from a charge-induced conductor equilibrium.</p>
+<div class="force-plots"><section><h3 id="fixed-field-heading">Axial electric field (V/m)</h3><canvas id="fixed-field-chart" width="560" height="270" aria-label="Electric field along certified symmetry axis"></canvas></section>
+<section><h3 id="fixed-potential-heading">Electric potential (V)</h3><canvas id="fixed-potential-chart" width="560" height="270" aria-label="Electric potential along certified symmetry axis"></canvas></section></div>
+<p class="small" id="prescribed-profile-note">The field graph has explicit gaps where an ideal source is singular or its field is discontinuous.</p></section>
 <section class="card wide" id="motion-panel" hidden><h2>Elapsed-time charged-particle dynamics</h2><p class="small" id="motion-summary" aria-live="polite"></p><p class="small" id="motion-event"></p>
 <div class="force-plots"><section><h3>Displacement versus time</h3><canvas id="motion-position-chart" width="560" height="270" aria-label="Particle displacement versus elapsed time"></canvas></section><section><h3>Signed velocity versus time</h3><canvas id="motion-velocity-chart" width="560" height="270" aria-label="Particle signed velocity versus elapsed time"></canvas></section></div>
 <h3 id="motion-energy-heading" style="font-size:14px;margin-top:15px">Kinetic and mechanical interaction energy versus time</h3><canvas id="motion-energy-chart" width="1120" height="290" aria-label="Kinetic, electrostatic interaction and total mechanical energy versus elapsed time" style="border:1px solid var(--line);border-radius:5px"></canvas>
@@ -194,9 +202,10 @@ function updateLineDensityLabel(){
 }
 const sweep=data.position_sweep||null;
 const motion1=data.motion_1d||null, motion2=data.motion_2d||null;
-const motion=motion1||motion2, motionIsVector=!!motion2;
+const prescribed=data.prescribed_motion||null;
+const motion=motion1||motion2||prescribed, motionIsVector=!!(motion2||prescribed);
 const motionFrames=motion?motion.frame_sample_indices.map(i=>motion.samples[i]):null;
-const heldMotion=motionIsVector&&Array.isArray(motion.stationary_charges);
+const heldMotion=!!motion2&&Array.isArray(motion.stationary_charges);
 function timeUnit(seconds){if(seconds<1e-7)return [1e9,'ns'];if(seconds<1e-4)return [1e6,'µs'];if(seconds<.1)return [1e3,'ms'];return [1,'s']}
 const [timeFactor,timeLabel]=motion?timeUnit(motionFrames[motionFrames.length-1].time_s):[1,'s'];
 if(sweep){
@@ -225,6 +234,35 @@ if(motion){
    document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M18 HELD-SOURCE MOTION';
    $('motion-panel').querySelector('h2').textContent='One moving charge with externally held sources';
    $('motion-scope-note').textContent+=' Labels qN use original zero-based authored indices: circles mark the moving charge; squares mark externally held charges. Only the circle moves. K is its kinetic energy; U is the full configuration interaction energy, including constant held-source terms. Fixed supports have zero displacement; this is not a freely moving isolated many-particle system. Charge guard is a pre-contact cutoff, not a collision or a physical source radius.';
+  }
+ }
+ if(prescribed){
+  document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M19 PRESCRIBED FIELD';
+  document.querySelector('header .sub').textContent='Static, externally prescribed charge distributions. The moving test particle never changes the field; ring and disc observations remain strictly axial. All playback data is computed in Python and works offline.';
+  $('motion-panel').querySelector('h2').textContent='Test-charge motion in a fixed electric field';
+  $('motion-energy-heading').textContent='Kinetic K, full potential qV and total energy ('+motionEnergyLabel+') versus time';
+  $('motion-panel').querySelector('.motion-legend').children[1].textContent='● Full potential qV';
+  $('motion-scope-note').textContent='One independent test particle, F=qE and U=qV. Fixed sources never respond to the particle. The geometry view is a schematic slice, not a simulated off-axis field map. Path lines connect saved samples only; gaps mark chords near a source guard. No browser ODE, conductor induction, collisions or finite-plate fringe field.';
+  $('motion-playback-scope').textContent='Actual M19a elapsed-time trajectory. The field is immutable; playback selects precomputed particle positions and exact saved E/V, force, velocity and energy values. The display speed is a viewing control, not the physical clock rate.';
+  $('scene-heading').textContent='Source geometry and test-particle path (schematic slice)';
+  $('scene').setAttribute('aria-label','Fixed electrostatic source geometry and real test-charge path, not a potential heatmap');
+  $('scene-controls').querySelectorAll('label').forEach(label=>{
+   if(!label.contains($('force-arrow'))&&!label.contains($('velocity-arrow'))&&!label.contains($('trajectory')))label.hidden=true;
+  });
+  $('line-density-control').hidden=true;$('potential-key').hidden=true;
+  $('potential-method').hidden=true;$('probe').hidden=true;
+  $('scene-scope').textContent='Fixed source geometry is projected into the certified motion plane. The colored point is a test particle, not a contributor to the field. The purple/green arrows display saved F=qE and velocity, with length normalized for readability. No off-axis ring/disc fields are evaluated or painted.';
+  $('conductor-panel').hidden=true;$('density-panel').hidden=true;
+  $('prescribed-panel').hidden=false;
+  $('prescribed-description').textContent=prescribed.profile_mode==='axis'?'Both spatial curves are sampled strictly on the shared certified symmetry axis; no off-axis field is invented. The vertical cursor marks the particle’s current axial coordinate.':'E components and potential are plotted against real elapsed time, sampled only at actual trajectory positions; no off-trajectory spatial field map is claimed.';
+  $('prescribed-title').textContent=prescribed.profile_mode==='axis'?'Electric field and potential along the certified axis':'Electric field and potential at the moving test particle';
+  $('fixed-field-heading').textContent=prescribed.profile_mode==='axis'?'Axial E (V/m) versus axial coordinate':'E components in physical plane (V/m) versus time';
+  $('fixed-potential-heading').textContent=prescribed.profile_mode==='axis'?'Potential V (volts) versus axial coordinate':'Potential V (volts) versus time';
+  $('prescribed-profile-note').textContent=prescribed.profile_mode==='axis'?'Field gaps mark actual ideal-source singularities or surface discontinuities; null is never treated as zero. Source locations and signed axial coordinates are metres.':'Only valid trajectory positions are sampled. The graphs never imply a two-dimensional potential map, source back-reaction or field variations caused by the test particle.';
+  if(prescribed.profile_mode==='axis'){
+   $('motion-vector-legend').hidden=true;
+   $('motion-position-chart').parentElement.querySelector('h3').textContent='Axial displacement (m) versus time';
+   $('motion-velocity-chart').parentElement.querySelector('h3').textContent='Signed axial velocity (m/s) versus time';
   }
  }
 }
@@ -299,13 +337,14 @@ function drawMotionObservations(){
  $('motion-clock').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel;
  const vec=x=>'['+x.map(fmt).join(', ')+']';
  $('motion-summary').textContent=motionIsVector?'t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+vec(row.displacement_m)+' m  ·  v = '+vec(row.velocity_m_s)+' m/s  ·  a = '+vec(row.acceleration_m_s2)+' m/s²  ·  F = '+vec(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J':'t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  displacement = '+fmt(row.displacement_m)+' m  ·  v = '+fmt(row.velocity_m_s)+' m/s  ·  a = '+fmt(row.acceleration_m_s2)+' m/s²  ·  F = '+fmt(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U = '+fmt(row.interaction_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J';
+ if(prescribed)$('motion-summary').textContent='t = '+fmt(row.time_s*timeFactor)+' '+timeLabel+'  ·  r = '+vec(row.position_m)+' m  ·  v = '+vec(row.velocity_m_s)+' m/s  ·  E = '+vec(row.electric_field_v_m)+' V/m  ·  V = '+fmt(row.potential_v)+' V  ·  F=qE = '+vec(row.force_n)+' N  ·  K = '+fmt(row.kinetic_energy_j)+' J  ·  U=qV = '+fmt(row.potential_energy_j)+' J  ·  energy drift = '+fmt(row.energy_drift_j)+' J';
  const found=motion.events.filter(e=>e.time_s<=row.time_s+1e-14*Math.max(1,row.time_s));
  $('motion-event').textContent='Termination: '+motion.termination+(found.length?'  ·  Events: '+found.map(e=>e.kind+' at '+fmt(e.time_s*timeFactor)+' '+timeLabel).join('; '):'  ·  No events yet');
  const energyScale=motionEnergyScale;
  if(motionIsVector){
   const p=frame.plane,along=(a,b)=>a.reduce((sum,value,i)=>sum+value*b[i],0);
-  drawMotionGraph('motion-position-chart',[{value:r=>along(r.displacement_m,p.u),color:'#1766a2'},{value:r=>along(r.displacement_m,p.v),color:'#d07834'}]);
-  drawMotionGraph('motion-velocity-chart',[{value:r=>along(r.velocity_m_s,p.u),color:'#1766a2'},{value:r=>along(r.velocity_m_s,p.v),color:'#d07834'}]);
+  drawMotionGraph('motion-position-chart',prescribed&&prescribed.profile_mode==='axis'?[{value:r=>along(r.displacement_m,p.v),color:'#1766a2'}]:[{value:r=>along(r.displacement_m,p.u),color:'#1766a2'},{value:r=>along(r.displacement_m,p.v),color:'#d07834'}]);
+  drawMotionGraph('motion-velocity-chart',prescribed&&prescribed.profile_mode==='axis'?[{value:r=>along(r.velocity_m_s,p.v),color:'#1766a2'}]:[{value:r=>along(r.velocity_m_s,p.u),color:'#1766a2'},{value:r=>along(r.velocity_m_s,p.v),color:'#d07834'}]);
  }else{
   drawMotionGraph('motion-position-chart',[{value:r=>r.displacement_m,color:'#1766a2'}]);
   drawMotionGraph('motion-velocity-chart',[{value:r=>r.velocity_m_s,color:'#1766a2'}]);
@@ -314,6 +353,7 @@ function drawMotionObservations(){
   {value:r=>r.total_energy_j*energyScale,color:'#168875'},
   {value:r=>r.interaction_energy_j*energyScale,color:'#ca6a35'},
   {value:r=>r.kinetic_energy_j*energyScale,color:'#1965a5'}]);
+ if(prescribed)drawPrescribedProfiles();
 }
 function drawSweepPlot(canvasId,key,scale,color){
  if(!sweep)return;
@@ -371,17 +411,121 @@ function drawTrajectory(p,X,Y,project){
  if(breaks.size){ctx.fillStyle='#1965a5';for(const q of points){ctx.beginPath();ctx.arc(X(q[0]),Y(q[1]),2.5,0,2*Math.PI);ctx.fill()}}
  ctx.restore();
 }
+
+function drawPrescribedSources(p,X,Y,project){
+ if(!prescribed)return;
+ const c=ctx,origin=p.origin_m,u=p.u,v=p.v;
+ const place=x=>project(x),dot=(a,b)=>a.reduce((s,z,i)=>s+z*b[i],0);
+ const sign=q=>q>=0?'+':'−';
+ const marker=(x,y,q,label)=>{
+  c.beginPath();c.arc(X(x),Y(y),5,0,2*Math.PI);
+  c.fillStyle=q>0?'#b83121':'#165ba3';c.fill();
+  c.fillStyle='#243d52';c.font='bold 12px system-ui';c.fillText(sign(q)+' '+label,X(x)+8,Y(y)-7);
+ };
+ c.save();c.lineWidth=2;
+ prescribed.field.sources.forEach((src,index)=>{
+  const kind=src.kind,q=src.charge_c||0,tag='S'+(index+1);
+  if(kind==='UniformElectricField'){
+   const E=src.field_v_m,ex=dot(E,u),ey=dot(E,v),n=Math.hypot(ex,ey);
+   if(n===0)return;
+   const a=p.x_range_m,b=p.y_range_m;
+   for(let i=1;i<=3;i++)for(let j=1;j<=3;j++){
+    const x=a[0]+i*(a[1]-a[0])/4,y=b[0]+j*(b[1]-b[0])/4;
+    const dx=16*ex/n,dy=-16*ey/n;
+    c.strokeStyle='#557ac2';c.fillStyle='#557ac2';c.lineWidth=1.6;
+    c.beginPath();c.moveTo(X(x),Y(y));c.lineTo(X(x)+dx,Y(y)+dy);c.stroke();
+    c.beginPath();c.moveTo(X(x)+dx,Y(y)+dy);c.lineTo(X(x)+dx-5*Math.cos(Math.atan2(dy,dx)-.55),Y(y)+dy-5*Math.sin(Math.atan2(dy,dx)-.55));c.lineTo(X(x)+dx-5*Math.cos(Math.atan2(dy,dx)+.55),Y(y)+dy-5*Math.sin(Math.atan2(dy,dx)+.55));c.closePath();c.fill();
+   }
+   return;
+  }
+  if(kind==='FixedPointField'){
+   const point=place(src.position_m);if(Math.abs(point[2])<=1e-9)marker(point[0],point[1],q,tag);return;
+  }
+  if(kind==='UniformRodField'){
+   const a=place(src.start_m),b=place(src.end_m);
+   c.strokeStyle=q>0?'#ba5743':'#326bad';c.lineWidth=5;c.beginPath();
+   c.moveTo(X(a[0]),Y(a[1]));c.lineTo(X(b[0]),Y(b[1]));c.stroke();
+   c.fillStyle='#283b4e';c.font='12px system-ui';c.fillText(tag+' fixed rod',X((a[0]+b[0])/2)+7,Y((a[1]+b[1])/2)-7);return;
+  }
+  const center=place(src.center_m);
+  if(kind==='UniformRingAxisField'||kind==='UniformDiskAxisField'){
+   // A meridian intersects an axis-normal ring at two points and a disc
+   // along one diameter. Off-axis E/V are NOT sampled for this drawing.
+   const a=src.radius_m,y=center[1],x=center[0];
+   if(kind==='UniformRingAxisField'){
+    marker(x-a,y,q,tag);marker(x+a,y,q,tag);
+   }else{
+    c.strokeStyle=q>0?'#b44e39':'#356dab';c.lineWidth=4;
+    c.beginPath();c.moveTo(X(x-a),Y(y));c.lineTo(X(x+a),Y(y));c.stroke();
+    c.fillStyle='#263a50';c.font='12px system-ui';c.fillText(tag+' disc',X(x)+7,Y(y)-8);
+   }return;
+  }
+  if(kind==='UniformSphereField'||kind==='UniformShellField'){
+   const radius=src.radius_m*Math.abs(X(1)-X(0));
+   c.beginPath();c.arc(X(center[0]),Y(center[1]),radius,0,2*Math.PI);
+   c.strokeStyle=q>0?'#bb6347':'#416da6';c.lineWidth=2.4;
+   if(kind==='UniformSphereField'){c.fillStyle=q>0?'#de998535':'#7eacd035';c.fill()}
+   c.stroke();c.fillStyle='#263a50';c.font='12px system-ui';c.fillText(tag,X(center[0])+radius+5,Y(center[1]));
+  }
+ });c.restore();
+}
+function drawAxialChart(id,key,color){
+ const canvas=$(id),c=canvas.getContext('2d'),W=canvas.width,H=canvas.height;
+ const points=prescribed.profile_samples,valid=points.filter(x=>x[key]!==null);
+ if(!valid.length)return;
+ const values=valid.map(x=>x[key]).concat([0]);
+ let lo=Math.min(...values),hi=Math.max(...values),pad=Math.max((hi-lo)*.1,Math.max(Math.abs(hi),Math.abs(lo))*1e-6,1e-20);
+ lo-=pad;hi+=pad;
+ const left=76,right=W-20,top=18,bottom=H-45;
+ const x0=points[0].coordinate_m,x1=points[points.length-1].coordinate_m;
+ const X=x=>left+(right-left)*(x-x0)/(x1-x0),Y=y=>bottom-(bottom-top)*(y-lo)/(hi-lo);
+ c.clearRect(0,0,W,H);c.fillStyle='#fbfcfe';c.fillRect(0,0,W,H);
+ c.strokeStyle='#d9e2eb';c.fillStyle='#51677b';c.lineWidth=1;c.font='12px system-ui';
+ for(let i=0;i<=4;i++){
+  const yy=lo+(hi-lo)*i/4,z=x0+(x1-x0)*i/4;
+  c.beginPath();c.moveTo(left,Y(yy));c.lineTo(right,Y(yy));c.stroke();
+  c.textAlign='right';c.fillText(Number(yy.toPrecision(3)).toString(),left-7,Y(yy)+4);
+  c.textAlign='center';c.fillText(Number(z.toPrecision(3)).toString(),X(z),H-25);
+ }
+ c.textAlign='center';c.fillText('Signed axial coordinate (m)',W/2,H-6);
+ c.strokeStyle=color;c.lineWidth=2.5;c.beginPath();let connected=false;
+ for(const row of points){
+  if(row[key]===null){connected=false;continue}
+  if(!connected)c.moveTo(X(row.coordinate_m),Y(row[key]));
+  else c.lineTo(X(row.coordinate_m),Y(row[key]));connected=true;
+ }c.stroke();
+ const row=motionFrames[Number($('frame').value)],p=frame.plane;
+ const z=row.position_m.reduce((s,a,i)=>s+(a-p.origin_m[i])*prescribed.axis[i],0);
+ c.save();c.strokeStyle='#273e57';c.setLineDash([3,4]);
+ c.beginPath();c.moveTo(X(z),top);c.lineTo(X(z),bottom);c.stroke();c.setLineDash([]);
+ const value=key==='potential_v'?row.potential_v:row.electric_field_v_m.reduce((s,a,i)=>s+a*prescribed.axis[i],0);
+ if(value!==null){c.fillStyle=color;c.beginPath();c.arc(X(z),Y(value),4.5,0,2*Math.PI);c.fill()}c.restore();
+}
+function drawPrescribedProfiles(){
+ if(!prescribed)return;
+ if(prescribed.profile_mode==='axis'){
+  drawAxialChart('fixed-field-chart','field_parallel_v_m','#7a329a');
+  drawAxialChart('fixed-potential-chart','potential_v','#13858a');
+ }else{
+  const p=frame.plane,along=(a,b)=>a.reduce((sum,value,i)=>sum+value*b[i],0);
+  drawMotionGraph('fixed-field-chart',[
+   {value:r=>along(r.electric_field_v_m,p.u),color:'#1766a2'},
+   {value:r=>along(r.electric_field_v_m,p.v),color:'#d07834'}]);
+  drawMotionGraph('fixed-potential-chart',[{value:r=>r.potential_v,color:'#13858a'}]);
+ }
+}
+
 function drawScene(){
  const p=frame.plane,g=frame.grid,W=canvas.width,H=canvas.height,pad=46;
  const scale=Math.min((W-2*pad)/(p.x_range_m[1]-p.x_range_m[0]),(H-2*pad)/(p.y_range_m[1]-p.y_range_m[0]));
  const ox=(W-scale*(p.x_range_m[1]-p.x_range_m[0]))/2,oy=(H-scale*(p.y_range_m[1]-p.y_range_m[0]))/2;
  const X=x=>ox+(x-p.x_range_m[0])*scale,Y=y=>H-oy-(y-p.y_range_m[0])*scale;map={X,Y,scale,ox,oy};
  ctx.clearRect(0,0,W,H);ctx.fillStyle='#f9fbfd';ctx.fillRect(0,0,W,H);
- if($('heat').checked)drawHeatmap(W,H,p,ox,oy,scale);
+ if(!prescribed&&$('heat').checked)drawHeatmap(W,H,p,ox,oy,scale);
  updateLineDensityLabel();
  ctx.strokeStyle='#d0dae4';ctx.lineWidth=1;ctx.setLineDash([3,5]);for(const z of [0]){ctx.beginPath();ctx.moveTo(X(z),oy);ctx.lineTo(X(z),H-oy);ctx.moveTo(ox,Y(z));ctx.lineTo(W-ox,Y(z));ctx.stroke()}ctx.setLineDash([]);
- if($('contours').checked){ctx.strokeStyle='#49677988';ctx.lineWidth=1;for(const c of frame.contours){ctx.beginPath();for(const seg of c.segments_m){ctx.moveTo(X(seg[0][0]),Y(seg[0][1]));ctx.lineTo(X(seg[1][0]),Y(seg[1][1]))}ctx.stroke()}}
- if($('lines').checked){ctx.strokeStyle='#183d56';ctx.fillStyle='#183d56';ctx.lineWidth=1.25;for(const l of shownFieldLines()){const q=l.points_m;if(q.length<2)continue;ctx.beginPath();q.forEach((v,i)=>i?ctx.lineTo(X(v[0]),Y(v[1])):ctx.moveTo(X(v[0]),Y(v[1])));ctx.stroke();const k=Math.floor((q.length-1)*.58),a=q[k],b=q[Math.min(k+1,q.length-1)];const angle=Math.atan2(Y(b[1])-Y(a[1]),X(b[0])-X(a[0]));ctx.save();ctx.translate(X(a[0]),Y(a[1]));ctx.rotate(angle);ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(-3,-2.8);ctx.lineTo(-3,2.8);ctx.closePath();ctx.fill();ctx.restore()}}
+ if(!prescribed&&$('contours').checked){ctx.strokeStyle='#49677988';ctx.lineWidth=1;for(const c of frame.contours){ctx.beginPath();for(const seg of c.segments_m){ctx.moveTo(X(seg[0][0]),Y(seg[0][1]));ctx.lineTo(X(seg[1][0]),Y(seg[1][1]))}ctx.stroke()}}
+ if(!prescribed&&$('lines').checked){ctx.strokeStyle='#183d56';ctx.fillStyle='#183d56';ctx.lineWidth=1.25;for(const l of shownFieldLines()){const q=l.points_m;if(q.length<2)continue;ctx.beginPath();q.forEach((v,i)=>i?ctx.lineTo(X(v[0]),Y(v[1])):ctx.moveTo(X(v[0]),Y(v[1])));ctx.stroke();const k=Math.floor((q.length-1)*.58),a=q[k],b=q[Math.min(k+1,q.length-1)];const angle=Math.atan2(Y(b[1])-Y(a[1]),X(b[0])-X(a[0]));ctx.save();ctx.translate(X(a[0]),Y(a[1]));ctx.rotate(angle);ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(-3,-2.8);ctx.lineTo(-3,2.8);ctx.closePath();ctx.fill();ctx.restore()}}
  for(const s of frame.geometry){
   if(!s.visible){
    if(s.kind==='plane'&&s.fills_metal){ctx.fillStyle='#afbdc9';ctx.fillRect(ox,oy,W-2*ox,H-2*oy)}
@@ -415,6 +559,7 @@ function drawScene(){
  }
  function project(v){const d=v.map((x,i)=>x-p.origin_m[i]);const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);const n=[p.u[1]*p.v[2]-p.u[2]*p.v[1],p.u[2]*p.v[0]-p.u[0]*p.v[2],p.u[0]*p.v[1]-p.u[1]*p.v[0]];return[dot(d,p.u),dot(d,p.v),dot(d,n)]}
  for(const m of frame.source_masks){const [x,y,h]=project(m.center_m);if(Math.abs(h)>=m.radius_m)continue;ctx.beginPath();ctx.arc(X(x),Y(y),Math.sqrt(m.radius_m*m.radius_m-h*h)*scale,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.setLineDash([3,2]);ctx.strokeStyle='#7d8d9c';ctx.stroke();ctx.setLineDash([])}
+ if(prescribed)drawPrescribedSources(p,X,Y,project);
  drawTrajectory(p,X,Y,project);
  for(const q of frame.charges){
   const [x,y,h]=q.slice_position_m;if(Math.abs(h)>1e-10)continue;
@@ -424,7 +569,7 @@ function drawScene(){
   ctx.fillStyle=q.charge_c>0?'#b83121':'#175ba3';ctx.fill();
   ctx.fillStyle='#10273a';ctx.font='bold 12px system-ui';
   const sign=q.charge_c>0?'+':'−';
-  ctx.fillText(heldMotion?sign+' q'+q.charge_index+' ('+q.motion_role+')':sign,X(x)+7,Y(y)-7);
+  ctx.fillText(prescribed?sign+' test':heldMotion?sign+' q'+q.charge_index+' ('+q.motion_role+')':sign,X(x)+7,Y(y)-7);
  }
  forceArrow(p,X,Y,project);velocityArrow(p,X,Y,project);
  ctx.fillStyle='#f9fbfd';ctx.fillRect(0,0,W,oy-1);ctx.fillRect(0,H-oy+1,W,oy);ctx.fillRect(0,0,ox-1,H);ctx.fillRect(W-ox+1,0,ox,H);
@@ -454,7 +599,7 @@ function drawProfile(){
  xs.forEach((x,i)=>{if(ys[i]===null){connected=false;return}if(connected)c.lineTo(X(x),Y(ys[i]));else c.moveTo(X(x),Y(ys[i]));connected=true});c.stroke();
  $('method').textContent=series.method+(isPlane?' · horizontal axis: signed distance (m)':'')+(available.length<ys.length?' · gaps: excluded samples':'');
 }
-function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),(heldMotion?'q'+q.charge_index+' · '+q.motion_role+' · ':'')+fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));drawScene();drawProfile();drawSweepObservations();drawMotionObservations()}
+function selectFrame(){frame=data.frames[Number($('frame').value)];resetProbe();$('case').textContent=frame.label;$('counter').textContent=(Number($('frame').value)+1)+' / '+data.frames.length;$('backend').textContent=frame.backend;$('conductors').replaceChildren();for(const q of frame.conductor_results){const tr=document.createElement('tr');for(const v of [q.name,fmt(q.potential_v),q.net_charge_c===null?'n/a':fmt(q.net_charge_c*1e9),q.inner_surface_charge_c===null?'n/a':fmt(q.inner_surface_charge_c*1e9),q.outer_surface_charge_c===null?'n/a':fmt(q.outer_surface_charge_c*1e9)])escText(tr,v,'td');$('conductors').appendChild(tr)}$('totals-note').textContent=frame.conductor_results_method||'Supplied solver conductor properties; provenance not specified.';$('density').replaceChildren();frame.profiles.forEach((s,i)=>{const o=document.createElement('option');o.value=i;o.textContent=s.conductor+' / '+s.surface;$('density').appendChild(o)});$('notes').replaceChildren();frame.notes.forEach(n=>escText($('notes'),n));if(!prescribed)escText($('notes'),'Trace terminations: '+Object.entries(frame.line_termination_counts||{}).map(([k,v])=>k+' '+v).join('; '));$('sources').replaceChildren();frame.charges.forEach(q=>escText($('sources'),(heldMotion?'q'+q.charge_index+' · '+q.motion_role+' · ':'')+fmt(q.charge_c*1e9)+' nC at ['+q.position_m.map(fmt).join(', ')+'] m'+(Math.abs(q.slice_position_m[2])>1e-10?' (outside this slice)':'')));frame.source_masks.forEach(m=>escText($('sources'),m.kind+': radius '+fmt(m.radius_m)+' m'));if(prescribed){prescribed.field.sources.forEach((s,i)=>escText($('sources'),'Fixed source '+(i+1)+': '+s.kind+' · charge '+(s.charge_c===undefined?'prescribed E':fmt(s.charge_c*1e9)+' nC')));escText($('sources'),'No conductor: the colored test particle is not included in any source field.')}drawScene();if(!prescribed)drawProfile();drawSweepObservations();drawMotionObservations()}
 let motionPlaying=false,rafRequest=null,playClock=null,playStart=0;
 function stopMotionPlayback(){
  motionPlaying=false;if(rafRequest!==null)cancelAnimationFrame(rafRequest);rafRequest=null;playClock=null;
@@ -483,7 +628,7 @@ $('motion-reset').addEventListener('click',()=>{stopMotionPlayback();$('frame').
 $('motion-speed').addEventListener('change',()=>{if(motionPlaying){stopMotionPlayback();startMotionPlayback()}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMotionPlayback()});
 $('frame').addEventListener('input',()=>{stopMotionPlayback();selectFrame()});$('density').addEventListener('change',drawProfile);$('line-density').addEventListener('input',drawScene);$('force-arrow').addEventListener('change',drawScene);$('velocity-arrow').addEventListener('change',drawScene);$('trajectory').addEventListener('change',drawScene);for(const id of ['heat','contours','lines'])$(id).addEventListener('change',drawScene);
-canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(),px=(e.clientX-rect.left)*canvas.width/rect.width,py=(e.clientY-rect.top)*canvas.height/rect.height;const p=frame.plane,g=frame.grid;const x=p.x_range_m[0]+(px-map.ox)/map.scale,y=p.y_range_m[0]+(canvas.height-py-map.oy)/map.scale;const i=Math.round((x-g.x_m[0])/(g.x_m[1]-g.x_m[0])),j=Math.round((y-g.y_m[0])/(g.y_m[1]-g.y_m[0]));if(!frame||px<map.ox||px>canvas.width-map.ox||py<map.oy||py>canvas.height-map.oy||j<0||i<0||j>=g.y_m.length||i>=g.x_m.length){resetProbe();return;}const v=g.potential_v[j][i],f=g.electric_field_v_per_m[j][i];$('probe').textContent='u='+fmt(g.x_m[i])+' m   v='+fmt(g.y_m[j])+' m   '+g.region[j][i]+'\nV='+ (v===null?'masked':fmt(v)+' V')+'   |E|='+(f===null?'unavailable':fmt(Math.hypot(...f))+' V/m')});
+canvas.addEventListener('mousemove',e=>{if(prescribed)return;const rect=canvas.getBoundingClientRect(),px=(e.clientX-rect.left)*canvas.width/rect.width,py=(e.clientY-rect.top)*canvas.height/rect.height;const p=frame.plane,g=frame.grid;const x=p.x_range_m[0]+(px-map.ox)/map.scale,y=p.y_range_m[0]+(canvas.height-py-map.oy)/map.scale;const i=Math.round((x-g.x_m[0])/(g.x_m[1]-g.x_m[0])),j=Math.round((y-g.y_m[0])/(g.y_m[1]-g.y_m[0]));if(!frame||px<map.ox||px>canvas.width-map.ox||py<map.oy||py>canvas.height-map.oy||j<0||i<0||j>=g.y_m.length||i>=g.x_m.length){resetProbe();return;}const v=g.potential_v[j][i],f=g.electric_field_v_per_m[j][i];$('probe').textContent='u='+fmt(g.x_m[i])+' m   v='+fmt(g.y_m[j])+' m   '+g.region[j][i]+'\nV='+ (v===null?'masked':fmt(v)+' V')+'   |E|='+(f===null?'unavailable':fmt(Math.hypot(...f))+' V/m')});
 canvas.addEventListener('mouseleave',resetProbe);
-selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:heldMotion?'elapsed-time-held-sources':motionIsVector?'elapsed-time-2d':motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get motionSampleCount(){return motion?motion.samples.length:0},get heatmapBuilds(){return heatmapBuilds}};
+selectFrame();window.conductorViewer={frameCount:data.frames.length,schema:data.schema,mode:prescribed?'elapsed-time-prescribed':heldMotion?'elapsed-time-held-sources':motionIsVector?'elapsed-time-2d':motion?'elapsed-time':sweep?'position-sweep':'static',get playing(){return motionPlaying},get motionSampleCount(){return motion?motion.samples.length:0},get heatmapBuilds(){return heatmapBuilds}};
 </script></body></html>'''

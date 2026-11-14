@@ -245,3 +245,16 @@ source-jump/singularity guards, eight JSON examples and independent tests. No
 new runtime dependencies or 2D ring/disc field-map claims. See [M19a](m19a.md).
 M19b should add a prescribed-source viewer adapter and axial E/V/energy plots,
 without introducing another integrator or drawing unsupported off-axis fields.
+
+M19b — **Fixed-source test-charge time viewer candidate:** reuse the existing
+M5–M18 offline HTML renderer, M16–M18 elapsed-time controls, saved trajectory
+and energy plots, but keep M19a's prescribed `F=qE`, full `U=qV`, and no
+back-reaction. Show ring/disc **axis-only** V(s)/E_parallel(s) graphs (with
+real null gaps at ideal disc surface discontinuities); for all other sources
+show E components and V at the real trajectory times. Source geometry is
+shown in an explicitly schematic physical plane, not a fictitious 2D field
+map. Whole numerical trajectory preserved, up to 24 time cursors, with strict
+source/data/energy/guard/frame validation. No new integrator, source field
+law, conductor-induced physics or browser-time force. See [M19b](m19b.md).
+Acceptance requires full Python, retained and new offline Chromium workflows,
+M19a references and 97 separately executed real FEMM tests (zero skips).

@@ -1,0 +1,42 @@
+name: M19b fixed-source offline viewer and physics integrity
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'tools/check_m19b_viewer.py', 'examples/test_charge_viewer.py', '.github/workflows/m19b-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'tools/check_m19b_viewer.py', 'examples/test_charge_viewer.py', '.github/workflows/m19b-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prescribed-offline-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Full M19b viewer, fixed-source physics and original mode regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m19b_prescribed_viewer.py tests/test_m19a_prescribed_fields.py tests/test_m17b_motion_viewer.py tests/test_m18b_motion_viewer.py -q --junitxml=review-artifacts/m19b-tests.xml
+      - name: Reproduce six source geometries and check genuine offline Chromium
+        run: |
+          set -euo pipefail
+          for case in ring-turning ring-crossing two-rings disc-approach uniform-deflection sphere-transit rod-deflection; do
+            python examples/test_charge_viewer.py --case "$case" --visual-frames 7 --profile-samples 101 --resolution 13 --output "review-artifacts/m19b-$case.html"
+            python tools/check_m19b_viewer.py "review-artifacts/m19b-$case.html" \
+              --screenshot "review-artifacts/m19b-$case.png" > "review-artifacts/m19b-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m19b-fixed-source-browser-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error
