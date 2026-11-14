@@ -14,6 +14,27 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M21a — JEE Advanced-focused coverage audit
+
+We reviewed **29 preselected page/question anchors** from both pinned
+electrostatics PDFs, checked original figures, and reassessed the current
+M20c engine's exact vs partial vs unsupported physical regimes. The curated
+counts are 15 with existing qualified physics, 5 with small authoring/view
+or qualification gaps, and 9 needing new physical model relationships.
+**These counts are not an estimate of the fraction of JEE Advanced
+questions solved.** Several archived exercises need gravity, symmetry,
+separated-sphere charge sharing or genuine multidimensional fields.
+
+```powershell
+python tools/m21a_audit.py --out output/m21a-coverage.json
+python -m pytest tests/test_m21a_audit.py -q
+```
+
+See [JEE source-fidelity findings and prioritized next milestones](docs/m21a.md),
+[the 29-question machine-readable matrix](docs/m21a_coverage.json), and
+[the preregistered selection charter](docs/m21a_charter.md).
+No production physics, integrator, renderer or scenario API was changed.
+
 ## M20c — Authorability across new physical systems
 
 A predeclared, curated twelve-question trial challenges the unchanged M20b

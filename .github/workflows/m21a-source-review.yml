@@ -26,6 +26,11 @@ jobs:
           git rev-parse HEAD^{tree} > review-tree.txt
           python tools/m21a_extract_sources.py --out review-artifacts/m21a-source
           cp review-commit.txt review-tree.txt review-artifacts/m21a-source/
+      - name: Independently validate the 29-question matrix and actual source physics spot checks
+        run: |
+          python -m pip install -e ".[test]"
+          python tools/m21a_audit.py --out review-artifacts/m21a-source/coverage-report.json
+          python -m pytest tests/test_m21a_audit.py -q --junitxml=review-artifacts/m21a-source/m21a-tests.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
