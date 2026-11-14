@@ -12,7 +12,7 @@ import pytest
 from conductor_sim import (
     EPSILON_0, PointCharge, PrescribedField,
     UniformRingAxisField, UniformElectricField, UniformShellField,
-    FixedPointField, TestChargeMotionSpec,
+    FixedPointField, TestChargeMotionSpec as MotionSpec,
     ElectrostaticProblem, SolidSphere, SphericalShell, FixedNetCharge,
     ConnectionPlan, ElectricalLink, ConnectedShellBackend,
     UnsupportedProblem,
@@ -37,7 +37,7 @@ def test_no_source_claims_past_paper_authenticity_without_evidence():
     report = validate()
     by_id = {c["id"]:c for c in report["source_cases"]}
     assert "externally corroborated" in by_id["p15-archive-02"]["provenance"]
-    assert "official" not in by_id["p02-single-15"]["provenance"]
+    assert "not claimed official" in by_id["p02-single-15"]["provenance"]
     assert all("teaching illustration" in c["provenance"]
                for c in report["source_cases"]
                if c["source"] == "POTENTIAL_CONDUCTORS1.pdf")
@@ -98,7 +98,7 @@ def test_pdf_p12_Q40_static_ring_work_and_transverse_field_caveat():
     assert work == pytest.approx(3.6,rel=0.002)
     assert field.electric_field_at(Ca)[1] == pytest.approx(1e5)
     with pytest.raises(UnsupportedProblem):
-        TestChargeMotionSpec(field,PointCharge(charge,Ca),
+        MotionSpec(field,PointCharge(charge,Ca),
                              .1,(0.,0.,0.),.2,.01)
 
 

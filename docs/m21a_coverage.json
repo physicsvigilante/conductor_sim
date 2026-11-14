@@ -86,7 +86,7 @@
       "jee_relevance": "high",
       "tier": "A",
       "fidelity": "full",
-      "existing_route": "MixedRadialBackend with Grounded/FIxedNetCharge",
+      "existing_route": "MixedRadialBackend with Grounded/FixedNetCharge",
       "limitation": "Metal thickness must be explicit; conductor interior E=0; no fake thin shell substitution",
       "evidence_tier": "API-assessed",
       "provenance": "workbook exercise; not claimed official JEE exam"
