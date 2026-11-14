@@ -1,0 +1,41 @@
+name: M21c composite symmetry review
+on:
+  pull_request:
+    paths: ['docs/m21c*', 'src/**', 'tests/test_m21c*', 'examples/symmetric_charge_motion.py', 'tools/check_m21c_viewer.py', '.github/workflows/m21c-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/test_m21c*', 'examples/symmetric_charge_motion.py', 'tools/check_m21c_viewer.py', '.github/workflows/m21c-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  certified-motion-and-viewer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Composite proof and retained fixed-source regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m21c_source_symmetry.py tests/test_m19a_prescribed_fields.py tests/test_m19b_prescribed_viewer.py tests/test_m19e_source_orientation.py tests/test_m20b_scenarios.py tests/test_m20b_scenario_types.py -q --junitxml=review-artifacts/m21c-tests.xml
+      - name: Four genuine offline Chromium motion exports
+        run: |
+          set -euo pipefail
+          for case in turning escape-threshold above-escape mirror-plane; do
+            python examples/symmetric_charge_motion.py --case "$case" --output "review-artifacts/m21c-$case.html" > "review-artifacts/m21c-$case-reference.txt"
+            python tools/check_m21c_viewer.py "review-artifacts/m21c-$case.html" --screenshot "review-artifacts/m21c-$case.png" > "review-artifacts/m21c-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m21c-symmetry-motion-evidence
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

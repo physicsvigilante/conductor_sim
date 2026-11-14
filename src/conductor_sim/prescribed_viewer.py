@@ -317,6 +317,20 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
     if annotations is not None:
         physics['source_annotations']=annotations
     frames=[_frame_placeholder(plane,result.samples[i],i,spec) for i in indices]
+    # Composite symmetry can admit sources outside the displayed motion slice.
+    # The existing renderer correctly omits their point markers; name every
+    # omitted source explicitly rather than implying in-plane substitutes.
+    for j, source in enumerate(spec.field.sources):
+        if type(source) is FixedPointField:
+            offset = plane.project(source.position_m)[2]
+            if abs(offset) > 1e-9:  # Same visibility boundary as the shared canvas.
+                label = (f"{annotations[j]['label']} [{annotations[j]['id']}]"
+                         if annotations is not None else f'Source {j+1}')
+                note = (f'{label} at {source.position_m} m is outside this slice '
+                        f'(signed normal offset {offset:.6g} m). Not drawn here; '
+                        'its full physical field is included. No in-plane replacement source.')
+                for frame in frames:
+                    frame['notes'].append(note)
     from .potential_display import potential_colour_scale
     bundle=dict(schema='conductor_sim.visualization.v1',
                 units=dict(length='m',potential='V',field='V/m',density='not applicable',
