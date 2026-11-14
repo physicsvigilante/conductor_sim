@@ -17,7 +17,13 @@ from pathlib import Path
 
 from conductor_sim import (PrescribedField, integrate_test_charge,
                            sample_test_charge_viewer, write_scenario_comparison)
-from examples.ring_source_orientation import make_case, SOURCE_ANNOTATIONS
+# As a module, `examples` is importable from the repo root. When this file is
+# executed directly, Python puts only this examples/ directory on sys.path;
+# use the sibling import without requiring an unstated PYTHONPATH setting.
+if __package__:
+    from examples.ring_source_orientation import make_case, SOURCE_ANNOTATIONS
+else:
+    from ring_source_orientation import make_case, SOURCE_ANNOTATIONS
 
 
 def make_pair(case='axial-field'):
