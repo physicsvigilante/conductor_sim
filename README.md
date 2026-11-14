@@ -14,6 +14,34 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M20c — Authorability across new physical systems
+
+A predeclared, curated twelve-question trial challenges the unchanged M20b
+scenario interface outside Ring A/B: six new independently solved pairs
+(uniform-field deflection, fixed volume sphere, finite charged rod, point
+source plus uniform E, nonconducting charged shell interior, disc axis),
+four correct qualification refusals, and two admissible but incomparable
+analyses. The trial has independent analytic or quadrature checks; it does
+not claim automatic PDF interpretation, conductor induction, or universal
+JEE problem coverage.
+
+```powershell
+python examples/m20c_authoring_trial.py grade --output output/m20c-report.json
+python examples/m20c_authoring_trial.py render P1 --output output/m20c-point-plus-field.html
+Start-Process .\output\m20c-point-plus-field.html
+```
+
+See [the preregistered trial charter](docs/m20c_trial_charter.md) and
+[the methods and scope](docs/m20c.md).
+
+## M20b — Immutable stable-identity parameter revisions
+
+A teacher can author one admissible fixed-source model, then create independent
+validated hypothetical revisions by source identity, genuine initial condition,
+particle mass, or medium permittivity. The original model is preserved and the
+existing M20a viewer compares complete matching physical histories. See
+[M20b interfaces and limitations](docs/m20b.md).
+
 ## M20a — Compare verified teacher hypotheticals side by side
 
 Two independently computed prescribed-field scenarios can now be examined in
