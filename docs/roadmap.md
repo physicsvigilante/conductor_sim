@@ -274,3 +274,14 @@ complete simulations. See the normative
 [evaluation contract](evaluation_contract.md). This affects how future M19c
 and subsequent JEE authoring trials are *graded*; it does not expand the
 physical domain or alter previous test results.
+
+M19f — **Two real prescribed-field scenarios in one offline teaching
+comparison:** a small adapter over existing M19a numerical histories and M19e
+source-identity/world-oriented viewer bundles. Require identical physical
+source inventory IDs/kinds and exact saved display times, plus the same world
+axes, origin and metre scale. Derive actual source/probe/launch changes and
+unchanged properties from verified model inputs; synchronize two existing
+viewers without a new force law, ODE, or interpolated physics. Compare genuine
+position/speed/kinetic-energy differences, explicitly label gauge-dependent
+qV differences. No scene graph, arbitrary structural revision or generic
+inverse solver. See [M19f](m19f.md).

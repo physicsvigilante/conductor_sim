@@ -117,3 +117,8 @@ __all__ += ['ElectricFieldProvider', 'PrescribedField', 'UniformElectricField',
 
 from .prescribed_viewer import sample_test_charge_viewer, test_charge_slice
 __all__ += ['sample_test_charge_viewer','test_charge_slice']
+
+from .scenario_comparison import (compare_prescribed_scenarios, sample_prescribed_scenario_comparison, validate_comparison,
+                                  render_scenario_comparison_html, write_scenario_comparison)
+__all__ += ["compare_prescribed_scenarios", "sample_prescribed_scenario_comparison", "validate_comparison",
+            "render_scenario_comparison_html", "write_scenario_comparison"]

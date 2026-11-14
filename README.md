@@ -1,5 +1,24 @@
 # conductor_sim
 
+## M19f — Compare two verified teaching scenarios
+
+An M19e authored physical model can be investigated in two supported
+hypothetical variants without changing its physics engine. Use
+`sample_prescribed_scenario_comparison()` to obtain two independently
+verified fixed-source motion viewer bundles with the same actual time cursors,
+world axes and metre scale. The offline HTML shows **real changes and
+unchanged source properties**, two full viewer panels and saved-timestamp
+right-minus-left readouts. It never estimates off-axis ring fields or adds a
+browser-time solver. Original textbook source facts and teacher hypotheses
+must be distinguished explicitly; source IDs remain author supplied.
+
+```powershell
+python examples/compare_fixed_scenarios.py --output output/m19f-rings.html
+Start-Process .\output\m19f-rings.html
+```
+
+See [M19f methods, gates and boundaries](docs/m19f.md).
+
 **Project objective:** a scientifically faithful **teaching accompaniment** to
 JEE electrostatics questions—not a textbook-answer reproduction engine.
 The priority is correct physical interpretation, independently verified

@@ -1,0 +1,42 @@
+name: M19f paired prescribed-field teaching comparison
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/compare_fixed_scenarios.py', 'tools/check_m19f_comparison.py', '.github/workflows/m19f-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/compare_fixed_scenarios.py', 'tools/check_m19f_comparison.py', '.github/workflows/m19f-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paired-offline-chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Paired-scenario correctness, source identity, prior motion regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m19f_scenario_comparison.py tests/test_m19e_source_orientation.py tests/test_m19b_prescribed_viewer.py tests/test_m19a_prescribed_fields.py tests/test_m17b_motion_viewer.py tests/test_m18b_motion_viewer.py -q --junitxml=review-artifacts/m19f-tests.xml
+      - name: Genuine Chrome synchronized control, real force/energy and mobile/offline check
+        run: |
+          python examples/compare_fixed_scenarios.py --output review-artifacts/m19f-rings.html
+          python tools/check_m19f_comparison.py review-artifacts/m19f-rings.html --screenshot review-artifacts/m19f-rings.png > review-artifacts/m19f-browser.json
+          # Each underlying viewer must also retain independently accepted M19b playback semantics.
+          python examples/ring_source_orientation.py --case field-off --output review-artifacts/m19e-field-off.html
+          python tools/check_m19e_viewer.py review-artifacts/m19e-field-off.html > review-artifacts/m19e-browser.json
+          python tools/check_m19b_viewer.py review-artifacts/m19e-field-off.html > review-artifacts/m19b-browser.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m19f-paired-source-teaching-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error
