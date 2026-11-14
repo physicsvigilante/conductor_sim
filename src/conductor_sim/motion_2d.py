@@ -388,6 +388,21 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
                 close()
         return result
 
+    samples, events, termination, drift = _integrate_vector_motion(spec, geometry, observe)
+    return Motion2DResult(spec, samples, events, termination,
+                          geometry.origin, geometry.normal, drift)
+
+
+def _integrate_vector_motion(spec, geometry, observe, *,
+                             surface_description='Stopped before the ideal conductor; not an exact collision'):
+    """Shared adaptive controller for conductor and prescribed-field motion.
+
+    The caller supplies observations and a domain; no force law lives here.
+    Existing conductor stepping, error scales, sample times and guards remain
+    unchanged. The prescribed-source domain supplies the same geometry contract.
+    """
+    p0 = spec.selected_charge.position_m
+
     def acceleration(position):
         force, _ = observe(position)
         return tuple(x/spec.mass_kg for x in force)
@@ -444,7 +459,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
                 termination = guard_kind
                 events.append(Motion2DEvent(guard_kind, t, y[:3],
                               'Stopped before the fixed point charge; not an exact collision' if near_charge else
-                              'Stopped before the ideal conductor; not an exact collision'))
+                              surface_description))
                 break
             dt = min(h, target-t)
             a = acceleration(y[:3])
@@ -464,7 +479,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
                     events.append(Motion2DEvent(guard_kind, t, y[:3],
                                   'Stopped before the numerical approach cutoff; not an exact collision'))
                     break
-                raise MotionIntegrationError('timestep collapsed before a conductor guard')
+                raise MotionIntegrationError('timestep collapsed before an approach guard')
             try:
                 large = rk4_step(y, dt, rhs)
                 half = rk4_step(y, .5*dt, rhs)
@@ -480,7 +495,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
                 h = .5*dt
                 continue
             if _norm(fine[3:]) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
-                raise UnsupportedProblem('M17a nonrelativistic limit reached; speed must stay below 0.1c')
+                raise UnsupportedProblem('classical motion limit reached; speed must stay below 0.1c')
             position_scale = max(1e-11*geometry.scale, spec.relative_tolerance*
                                  max(geometry.scale, _norm(_sub(y[:3],p0)), _norm(_sub(fine[:3],p0))))
             velocity_scale = max(1e-10, spec.relative_tolerance*max(1., _norm(y[3:]), _norm(fine[3:])))
@@ -501,8 +516,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
             break
         t = target
         record(t, y)
-    return Motion2DResult(spec, tuple(records), tuple(events), termination,
-                          geometry.origin, geometry.normal, max_drift)
+    return tuple(records), tuple(events), termination, max_drift
 
 
 class _SurfaceGuard(Exception):

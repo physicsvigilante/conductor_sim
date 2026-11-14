@@ -1,0 +1,36 @@
+name: M19a prescribed fields and test-charge physics
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/test_charge_motion.py', '.github/workflows/m19a-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/test_charge_motion.py', '.github/workflows/m19a-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixed-field-physics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]"
+      - name: Fixed-source physics and shared-controller regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m19a_prescribed_fields.py tests/test_m17a_motion_2d.py tests/test_m18a_fixed_sources.py -q --junitxml=review-artifacts/m19a-tests.xml
+          for case in ring-turning ring-crossing two-rings uniform-deflection sphere-transit shell-interior disc-approach rod-deflection; do
+            python examples/test_charge_motion.py --case "$case" --output "review-artifacts/m19a-$case.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m19a-prescribed-field-review
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error
