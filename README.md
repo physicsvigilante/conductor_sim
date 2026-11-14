@@ -1,5 +1,19 @@
 # conductor_sim
 
+**Project objective:** a scientifically faithful **teaching accompaniment** to
+JEE electrostatics questions—not a textbook-answer reproduction engine.
+The priority is correct physical interpretation, independently verified
+simulation of a clearly supported system, honest scope and educational
+usefulness. Exact final answers, multiple-choice formatting and complete
+worked solutions are optional and graded separately.
+
+All new authoring/PDF/simulation evaluations must report
+**interpretation fidelity, physical correctness, simulation coverage,
+educational usefulness and optional textbook-answer completeness as
+separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md).
+An honestly scoped partial simulation or justified refusal must not be
+misrepresented as a full question solution.
+
 ## M19a — Prescribed fixed fields and test-charge motion
 
 For fixed-source JEE field/energy problems, use `PrescribedField` with
@@ -21,9 +35,10 @@ python examples/test_charge_motion.py --case ring-turning --output output/m19a-r
 python examples/test_charge_motion.py --case uniform-deflection --output output/m19a-uniform.json
 ```
 
-This stage exports numerical JSON, not a new HTML viewer. See
-[M19a scope, source domains and equations](docs/m19a.md). The prescribed-source
-viewer is the next stage; all existing conductor viewers remain supported.
+M19a exports numerical JSON; M19b now visualizes supported prescribed
+sources through the existing offline HTML viewer. See
+[M19a scope, source domains and equations](docs/m19a.md) and the
+[M19b viewer](docs/m19b.md). Existing conductor viewers remain supported.
 
 
 Composable, Python-authored electrostatics for JEE conductor problems. Physical

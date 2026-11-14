@@ -258,3 +258,19 @@ source/data/energy/guard/frame validation. No new integrator, source field
 law, conductor-induced physics or browser-time force. See [M19b](m19b.md).
 Acceptance requires full Python, retained and new offline Chromium workflows,
 M19a references and 97 separately executed real FEMM tests (zero skips).
+
+## Evaluation contract for M19c and later milestones
+
+The simulator is a **teaching accompaniment**. Faithful physical
+interpretation and independently verified simulation within its supported
+domain are the primary goals. Do not evaluate authored simulations as though
+reproducing the textbook's last numerical answer, answer-option format or
+full written solution sequence were mandatory. New evaluation reports must
+distinguish **interpretation fidelity**, **physical correctness**,
+**simulation coverage**, **educational usefulness**, and **optional textbook-
+answer completeness**, with separate evidence and denominators. Honest partial
+coverage and justified refusals are valuable but must not be counted as
+complete simulations. See the normative
+[evaluation contract](evaluation_contract.md). This affects how future M19c
+and subsequent JEE authoring trials are *graded*; it does not expand the
+physical domain or alter previous test results.
