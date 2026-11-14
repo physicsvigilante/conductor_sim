@@ -64,6 +64,9 @@ def render_html(bundle, *, title='Conductor simulation'):
     if display.get('prescribed_motion') is not None:
         from .prescribed_viewer_validation import validate_prescribed_viewer
         validate_prescribed_viewer(display)
+    if display.get('static_fixed_source_view') is not None:
+        from .jee_potential_explorer import validate_fixed_potential_map
+        validate_fixed_potential_map(display)
     display.setdefault('potential_colour_scale', potential_colour_scale(frames))
     data = json.dumps(display,allow_nan=False,separators=(',',':'))
     # JSON lives inside a script element: HTML escaping alone is insufficient.
@@ -206,6 +209,18 @@ const prescribed=data.prescribed_motion||null;
 const motion=motion1||motion2||prescribed, motionIsVector=!!(motion2||prescribed);
 const motionFrames=motion?motion.frame_sample_indices.map(i=>motion.samples[i]):null;
 const heldMotion=!!motion2&&Array.isArray(motion.stationary_charges);
+const fixedStatic=data.static_fixed_source_view||null;
+if(fixedStatic){
+ document.querySelector('header .kicker').textContent='CONDUCTOR_SIM / M21B VERIFIED STATIC FIELD';
+ document.querySelector('header .sub').textContent='Actual sampled V and E from fixed point charges and/or an applied uniform field. No metal, induction, moving charges, browser solver or time evolution. Source masks are display exclusions.';
+ $('conductor-panel').hidden=true;$('density-panel').hidden=true;
+ $('frame').parentElement.hidden=true;
+ $('static-playback-note').textContent='Exactly one computed static physical state. There is no elapsed-time playback or inferred trajectory.';
+ $('scene-heading').textContent='Electric potential and field in the physical plane';
+ $('scene-scope').textContent='This is a verified electrostatic slice, not a schematic trajectory. Colored points are fixed charges. Dashed white source discs mark deliberately excluded singularities and are not physical particle radii. Equipotentials are numerical contour approximations, not exact analytic paths; traced field lines do not count electric flux.';
+ $('scene-world-axes').hidden=false;
+ $('scene-world-axes').textContent='Slice axes are the authored physical coordinates saved in the model. Potential contour values and electric-field vectors were computed in Python, not in this browser.';
+}
 function timeUnit(seconds){if(seconds<1e-7)return [1e9,'ns'];if(seconds<1e-4)return [1e6,'µs'];if(seconds<.1)return [1e3,'ms'];return [1,'s']}
 const [timeFactor,timeLabel]=motion?timeUnit(motionFrames[motionFrames.length-1].time_s):[1,'s'];
 if(sweep){
@@ -545,7 +560,10 @@ function drawScene(){
  if(!prescribed&&$('heat').checked)drawHeatmap(W,H,p,ox,oy,scale);
  updateLineDensityLabel();
  ctx.strokeStyle='#d0dae4';ctx.lineWidth=1;ctx.setLineDash([3,5]);for(const z of [0]){ctx.beginPath();ctx.moveTo(X(z),oy);ctx.lineTo(X(z),H-oy);ctx.moveTo(ox,Y(z));ctx.lineTo(W-ox,Y(z));ctx.stroke()}ctx.setLineDash([]);
- if(!prescribed&&$('contours').checked){ctx.strokeStyle='#49677988';ctx.lineWidth=1;for(const c of frame.contours){ctx.beginPath();for(const seg of c.segments_m){ctx.moveTo(X(seg[0][0]),Y(seg[0][1]));ctx.lineTo(X(seg[1][0]),Y(seg[1][1]))}ctx.stroke()}}
+ if(!prescribed&&$('contours').checked){ctx.strokeStyle='#49677988';ctx.lineWidth=1;for(const c of frame.contours){
+   ctx.strokeStyle=fixedStatic&&c.highlight===true?'#a22d74':'#49677988';
+   ctx.lineWidth=fixedStatic&&c.highlight===true?3:1;
+   ctx.beginPath();for(const seg of c.segments_m){ctx.moveTo(X(seg[0][0]),Y(seg[0][1]));ctx.lineTo(X(seg[1][0]),Y(seg[1][1]))}ctx.stroke()}}
  if(!prescribed&&$('lines').checked){ctx.strokeStyle='#183d56';ctx.fillStyle='#183d56';ctx.lineWidth=1.25;for(const l of shownFieldLines()){const q=l.points_m;if(q.length<2)continue;ctx.beginPath();q.forEach((v,i)=>i?ctx.lineTo(X(v[0]),Y(v[1])):ctx.moveTo(X(v[0]),Y(v[1])));ctx.stroke();const k=Math.floor((q.length-1)*.58),a=q[k],b=q[Math.min(k+1,q.length-1)];const angle=Math.atan2(Y(b[1])-Y(a[1]),X(b[0])-X(a[0]));ctx.save();ctx.translate(X(a[0]),Y(a[1]));ctx.rotate(angle);ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(-3,-2.8);ctx.lineTo(-3,2.8);ctx.closePath();ctx.fill();ctx.restore()}}
  for(const s of frame.geometry){
   if(!s.visible){

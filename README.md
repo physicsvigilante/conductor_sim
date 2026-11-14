@@ -14,6 +14,26 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M21b — Source-faithful static JEE electric field, potential and work
+
+Three original JEE-relevant source configurations can now be viewed with
+the existing **fixed-source physics**: the 2021 JEE Advanced Q9–10 exact
+V=0 circle with a real sampled 2D equipotential and field map, the IIT-JEE
+2012 thin uniformly charged shell E(r)/V(r) radial jump, and the
+workbook p12 Q40 two-ring endpoint work with its genuine transverse
+external field. No invented ring trajectory, mass or induction is shown.
+
+```powershell
+python examples/jee_potential_explorer.py --case 2021-equipotential --output output/jee2021.html
+python examples/jee_potential_explorer.py --case 2012-shell --output output/jee2012.html
+python examples/jee_potential_explorer.py --case ring-work --output output/ring-work.html
+```
+
+The planar map currently certifies only in-plane point charges and uniform
+E; axial ring/disc formulas are never evaluated off-axis. One-dimensional
+graphs and work ledgers are saved physical observations, not time evolution.
+See [M21b methods, anchors and limitations](docs/m21b.md).
+
 ## M21a — JEE Advanced-focused coverage audit
 
 We reviewed **29 preselected page/question anchors** from both pinned

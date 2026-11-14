@@ -1,0 +1,55 @@
+name: M21b JEE source-faithful static E, V and work
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/viewer.py'
+      - 'tests/test_m21b_jee_potential.py'
+      - 'examples/jee_potential_explorer.py'
+      - 'tools/check_m21b_viewer.py'
+      - 'docs/m21b*'
+      - '.github/workflows/m21b-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/viewer.py'
+      - 'tests/test_m21b_jee_potential.py'
+      - 'examples/jee_potential_explorer.py'
+      - 'tools/check_m21b_viewer.py'
+      - '.github/workflows/m21b-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  three-source-faithful-representations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Source and independent physics, prior fixed-source and renderer regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+      - name: Three independent offline Chromium JEE observations
+        run: |
+          set -euo pipefail
+          for case in 2021-equipotential 2012-shell ring-work; do
+            python examples/jee_potential_explorer.py --case "$case" --output "review-artifacts/m21b-$case.html"
+            python tools/check_m21b_viewer.py "review-artifacts/m21b-$case.html" --case "$case" \
+              --screenshot "review-artifacts/m21b-$case.png" > "review-artifacts/m21b-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m21b-three-real-jee-static-observations
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error
