@@ -14,6 +14,24 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M21e — Reusable electric force plus uniform gravity
+
+A typed, optional uniform-gravity component now composes with existing
+prescribed electric sources in the **same particle integrator**, viewer and
+immutable scenario-revision API. Electrical E/V remain electrical; separate
+qE, mg, qV and gravitational energy records are validated, including at proton
+scales. No question-specific force law or second motion solver is introduced.
+
+The source-backed workbook IIT-JEE 2012 proton problem is accompanied by
+oblique launch, electric support, gravity-only, nonuniform point-field,
+qualified ring-axis and independently reintegrated mass-revision examples.
+See [the M21e composition contract and examples](docs/m21e.md).
+
+```powershell
+python examples/electric_gravity_motion.py --case jee2012-proton --output output/m21e-proton.html
+python examples/electric_gravity_motion.py --case mass-revision --output output/m21e-mass.html
+```
+
 ## M21b — Source-faithful static JEE electric field, potential and work
 
 Three original JEE-relevant source configurations can now be viewed with

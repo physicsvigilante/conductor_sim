@@ -69,6 +69,8 @@ class PrescribedScenario:
         annotations = _source_annotations(self.spec, self.source_annotations)
         if annotations is None:
             raise ValueError('scenario requires explicit source identity bindings')
+        if self.spec.gravity is not None and any(a['id']=='gravity' for a in annotations):
+            raise ValueError('gravity is reserved for the active mechanical component')
         if any(a['id'] in _RESERVED for a in annotations):
             raise ValueError('source identities test-particle and medium are reserved')
         object.__setattr__(self, 'source_annotations',
@@ -78,6 +80,8 @@ class PrescribedScenario:
     def required_action(self) -> str:
         if self.parent_revision_id is None:
             return 'validate-and-integrate'
+        if any(c.component_id == 'gravity' for c in self.changes):
+            return 'reassemble-forces-and-reintegrate'
         if any(c.component_id != 'test-particle' for c in self.changes):
             return 'reassemble-field-and-reintegrate'
         return 'reintegrate-motion'
@@ -92,6 +96,10 @@ class PrescribedScenario:
         spec = asdict(self.spec)
         # Preserve source *types*, which dataclasses.asdict alone would erase.
         spec['field'] = self.spec.field.as_dict()
+        if self.spec.gravity is None:
+            spec.pop('gravity')  # Preserve all original electric-only hashes.
+        else:
+            spec['gravity'] = self.spec.gravity.as_dict()
         return dict(schema='conductor_sim.prescribed_scenario.v1',
                     scenario_id=self.scenario_id, origin=self.origin,
                     provenance=self.provenance, spec=spec,
@@ -145,11 +153,13 @@ def revise_scenario(parent: PrescribedScenario, *, scenario_id: str, note: str,
                     source_changes: Mapping | None = None,
                     particle_changes: Mapping | None = None,
                     motion_changes: Mapping | None = None,
-                    medium_changes: Mapping | None = None) -> PrescribedScenario:
+                    medium_changes: Mapping | None = None,
+                    gravity_changes: Mapping | None = None) -> PrescribedScenario:
     """Atomically revise supported physical properties without mutating parent.
 
     Source patches are keyed by stable ID, never source index or display label.
     Particle: charge_c, position_m. Motion: mass_kg, initial_velocity_m_s.
+    Gravity: acceleration_m_s2, reference_position_m on an existing component.
     Medium: permittivity_f_m. Source properties are the existing built-in
     dataclass's physical parameters. IDs, labels, kinds, source membership,
     duration, sampling, tolerances, guards and analysis plane cannot be patched.
@@ -191,8 +201,18 @@ def revise_scenario(parent: PrescribedScenario, *, scenario_id: str, note: str,
     motion = {k: (_vector(v, k) if k == 'initial_velocity_m_s' else _number(v, k, positive=True))
               for k, v in motion.items()}
     # Crucially, validate the *whole revised system*, not intermediate patches.
-    spec = replace(parent.spec, field=new_field, particle=particle, **motion)
+    gravity_patch = _mapping(gravity_changes, 'gravity_changes')
+    gravity = parent.spec.gravity
+    if gravity_patch and gravity is None:
+        raise ValueError('gravity_changes requires an authored gravity component; membership is not a parameter patch')
+    if gravity is not None:
+        gravity = _patch(gravity, gravity_patch,
+                         {'acceleration_m_s2', 'reference_position_m'}, 'gravity_changes')
+    spec = replace(parent.spec, field=new_field, particle=particle, gravity=gravity, **motion)
     changes.extend(_differences('test-particle', parent.spec, spec, allowed))
+    if gravity is not None:
+        changes.extend(_differences('gravity', parent.spec.gravity, gravity,
+                                    ('acceleration_m_s2', 'reference_position_m')))
     if not changes:
         raise ValueError('revision has no actual physical or potential-reference change')
     revision = PrescribedScenario(scenario_id, spec, parent.source_annotations,

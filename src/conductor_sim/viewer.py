@@ -72,7 +72,11 @@ def render_html(bundle, *, title='Conductor simulation'):
     # JSON lives inside a script element: HTML escaping alone is insufficient.
     data = data.replace('&','\\u0026').replace('<','\\u003c').replace('>','\\u003e')
     replacements = {'__TITLE__':escape(str(title),quote=True),'__DATA__':data}
-    return re.sub(r'__(?:TITLE|DATA)__',lambda m:replacements[m.group(0)],TEMPLATE)
+    html = re.sub(r'__(?:TITLE|DATA)__',lambda m:replacements[m.group(0)],TEMPLATE)
+    if (display.get('prescribed_motion') or {}).get('gravity') is not None:
+        from .gravity_viewer import append_gravity_presentation
+        html = append_gravity_presentation(html)
+    return html
 
 
 TEMPLATE = r'''<!doctype html>

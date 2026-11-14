@@ -71,6 +71,13 @@ def _changes(left, right):
     if left['field'][k] != right['field'][k]:
         changed.append({'component_id': 'medium', 'property': k,
                         'baseline': left['field'][k], 'variation': right['field'][k]})
+    if (left.get('gravity') is None) != (right.get('gravity') is None):
+        raise ValueError('gravity component membership differs; author matching inventories')
+    if left.get('gravity') is not None:
+        for k in ('acceleration_m_s2','reference_position_m'):
+            a,b=left['gravity'][k],right['gravity'][k]
+            if a!=b:
+                changed.append({'component_id':'gravity','property':k,'baseline':a,'variation':b})
     if not changed:
         raise ValueError('no physical or potential-reference revision found; two identical models do not form this comparison')
     return changed
@@ -122,7 +129,7 @@ def prepare_scenario_comparison(baseline, variation, *,
     if b['termination'] != v['termination'] or b['termination'] != 'duration':
         raise ValueError('comparison requires two complete duration histories; do not hide source-guard censoring')
     differences = _changes(b,v)
-    return {'schema':'conductor_sim.scenario_comparison.v1',
+    manifest = {'schema':'conductor_sim.scenario_comparison.v1',
             'mode':'two complete prescribed-field trajectories; shared real sample times; no browser physics',
             'scenario_ids':[bid,vid],'titles':list(titles),'provenance':list(notes),
             'source_ids':list(_source_map(b)),
@@ -138,6 +145,10 @@ def prepare_scenario_comparison(baseline, variation, *,
             'potential_energy_j':[ [rows0[i]['potential_energy_j'],rows1[i]['potential_energy_j']] for i in index0],
             'time_interpolation':False,
             'source_model_changed':True}
+    if b.get('gravity') is not None:
+        manifest['potential_energy_label']='U_e + U_g'
+        manifest['gravity_inventories']=[b['gravity'],v['gravity']]
+    return manifest
 
 
 def render_scenario_comparison(baseline, variation, *,
@@ -160,7 +171,7 @@ def render_scenario_comparison(baseline, variation, *,
 :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#183047;font:15px/1.5 system-ui,sans-serif}header{background:#183047;color:white;padding:20px max(16px,calc((100vw - 1450px)/2))}h1{font-size:25px;margin:0 0 5px}.sub{color:#d9e5eb;font-size:13px}main{max-width:1500px;margin:auto;padding:16px}.card{background:white;border:1px solid #cbd8e2;border-radius:9px;padding:15px;min-width:0}.meta{color:#506779;font-size:12px}h2{margin:0 0 6px;font-size:17px}h3{font-size:15px}button,select{font:inherit;border-radius:5px;border:1px solid #abbccc;background:white;color:#183047;padding:7px 12px}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:3px solid #197b9d;outline-offset:2px}.playrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.playrow input{flex:1;min-width:170px}.panels{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:16px}iframe{width:100%;height:1040px;border:1px solid #cad9e5;border-radius:5px;background:white}.readout{min-height:60px;background:#edf4f8;padding:9px;border-radius:5px;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap}table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:left;padding:7px;border-bottom:1px solid #dfe7ef;overflow-wrap:anywhere}th{background:#f4f7fa}.overflow{overflow-x:auto}p{margin:7px 0}.notice{font-size:12px;color:#506779}.controls{margin-bottom:16px}@media(max-width:900px){.panels{grid-template-columns:1fr}iframe{height:900px}h1{font-size:20px}}
 </style></head><body><header><h1>'''+h(title)+'''</h1><p class="sub">Two separately validated fixed-field scenarios · one shared physical clock · no interpolated physics or browser integration</p></header><main>
 <section class="card controls"><div class="playrow"><button id="compare-play" type="button" aria-pressed="false">Play</button><button id="compare-reset" type="button">Restart</button><label for="compare-time">Elapsed physical time</label><input type="range" id="compare-time" min="0" max="'''+str(len(manifest['frame_times_s'])-1)+'''" step="1" value="0"><span id="compare-clock" role="status">0 s</span><label for="compare-speed">Playback</label><select id="compare-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div><p class="notice">Shared slider selects exactly the same <strong>saved physical time</strong> for both simulations. Display times are discrete; no interpolation, new field solve or time stepping takes place in this HTML. Both scenarios must complete the same duration; truncated/source-guard histories are refused. Individual panels contain the original M19e drawings and graphs.</p><p id="compare-delta" class="readout" aria-live="off"></p></section>
-<div class="panels">'''+bodies+'''</div><section class="card" style="margin-top:16px"><h3>Verified source and initial-condition revisions</h3><p class="notice">IDs and scenario provenance are authored assertions; differences below are computed from the two complete validated physical model inventories. A numerical comparison at a common saved time does not mean the particle travelled between scenarios. Absolute qV values may differ by voltage-gauge choice.</p><div class="overflow"><table><thead><tr><th>Physical identity</th><th>Changed property</th><th>Baseline</th><th>Variation</th></tr></thead><tbody>'''+changes+'''</tbody></table></div></section></main><script type="application/json" id="comparison-data">'''+metadata+'''</script><script>
+<div class="panels">'''+bodies+'''</div><section class="card" style="margin-top:16px"><h3>Verified source and initial-condition revisions</h3><p class="notice">IDs and scenario provenance are authored assertions; differences below are computed from the two complete validated physical model inventories. A numerical comparison at a common saved time does not mean the particle travelled between scenarios. Absolute potential energies may differ by their declared electric/gravitational reference choices.</p><div class="overflow"><table><thead><tr><th>Physical identity</th><th>Changed property</th><th>Baseline</th><th>Variation</th></tr></thead><tbody>'''+changes+'''</tbody></table></div></section></main><script type="application/json" id="comparison-data">'''+metadata+'''</script><script>
 'use strict';
 const comparison=JSON.parse(document.getElementById('comparison-data').textContent);
 const frames=[document.getElementById('viewer-0'),document.getElementById('viewer-1')];
@@ -173,7 +184,7 @@ function seek(i){if(!Number.isInteger(i)||i<0||i>=comparison.frame_times_s.lengt
  clock.value=String(i);const t=comparison.frame_times_s[i];clockText.textContent=fmt(t)+' s · saved snapshot '+(i+1)+'/'+comparison.frame_times_s.length;
  for(let side=0;side<2;side++){
   const p=comparison.position_m[i][side],v=comparison.velocity_m_s[i][side];
-  document.getElementById('readout-'+side).textContent='Physical t = '+fmt(t)+' s\\nposition (m): ['+p.map(fmt).join(', ')+']\\nvelocity (m/s): ['+v.map(fmt).join(', ')+']\\nK = '+fmt(comparison.kinetic_energy_j[i][side])+' J · qV = '+fmt(comparison.potential_energy_j[i][side])+' J';
+  document.getElementById('readout-'+side).textContent='Physical t = '+fmt(t)+' s\\nposition (m): ['+p.map(fmt).join(', ')+']\\nvelocity (m/s): ['+v.map(fmt).join(', ')+']\\nK = '+fmt(comparison.kinetic_energy_j[i][side])+' J · '+(comparison.potential_energy_label||'qV')+' = '+fmt(comparison.potential_energy_j[i][side])+' J';
   if(!loaded[side])continue;
   const iframe=frames[side].contentWindow,slider=iframe.document.getElementById('frame');
   if(!slider||!iframe.conductorViewer||iframe.conductorViewer.mode!=='elapsed-time-prescribed')throw Error('validated prescribed viewer not loaded');
