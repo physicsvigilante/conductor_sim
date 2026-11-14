@@ -201,8 +201,10 @@ def validate_fixed_potential_map(bundle):
         backend="M21b verification",
         masks=tuple(SourceMask(p, meta["source_exclusion_radius_m"],
                                "display-exclusion") for p in expected_points))
-    verified=contour_segments(grid, [meta["highlight_potential_v"]],
-                              check_context, plane)[0]["segments_m"]
+    # Stored JSON contains lists; the M5 contour routine produces tuples.
+    # Compare exact canonical saved geometry, not Python container types.
+    verified=_json_native(contour_segments(
+        grid, [meta["highlight_potential_v"]], check_context, plane)[0]["segments_m"])
     if (highlights[0]["segments_m"] != verified or
         len(verified) != meta.get("highlighted_segment_count")):
         raise ValueError("saved highlighted contour is not the physical sampled potential")
