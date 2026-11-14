@@ -14,6 +14,27 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M20a — Compare verified teacher hypotheticals side by side
+
+Two independently computed prescribed-field scenarios can now be examined in
+**one standalone offline HTML** with a synchronized saved-physical-time
+slider, original source sketches and energy graphs, preserved authored source
+IDs, model-difference table and actual position/velocity comparisons. Both
+panels must have the same certified physical world axes, diagram scale, real
+sample times and frame indices. The comparison **never interpolates a
+particle path or runs physics in the browser** and refuses truncated/mismatched
+runs instead of inventing missing results.
+
+```powershell
+python examples/compare_prescribed_scenarios.py --case axial-field --output output/m20a-rings.html
+Start-Process .\output\m20a-rings.html
+```
+
+Other cases: `double-mass`, `ring-b-shift`, `gauge-shift`. All are explicitly
+labelled **teacher hypotheticals** rather than new textbook givens. See
+[M20a methods and limitations](docs/m20a.md); no new ODE, field law, graph
+compiler or persistent scenario registry was introduced.
+
 ## M19a — Prescribed fixed fields and test-charge motion
 
 For fixed-source JEE field/energy problems, use `PrescribedField` with

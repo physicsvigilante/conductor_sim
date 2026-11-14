@@ -274,3 +274,16 @@ complete simulations. See the normative
 [evaluation contract](evaluation_contract.md). This affects how future M19c
 and subsequent JEE authoring trials are *graded*; it does not expand the
 physical domain or alter previous test results.
+
+M20a — **Bounded offline comparison of two independently verified prescribed-field
+scenarios.** Reuse both existing M19e standalone viewers with one physical-time
+slider. Validate matching signed physical plane, identical scale and saved
+sample/frame times, two complete duration histories, stable author-provided
+source IDs, unchanged source kinds and actual model-property differences.
+Expose same-time world position, velocity, K and qV plus the magnitude of
+cross-scenario position/velocity differences. Refuse guard-truncated or
+incomparable time/display grids instead of interpolating unsolved values.
+No new physics solver, time integrator, scene graph or scenario database.
+Four original teacher revisions: axial field, doubled mass, shifted ring B,
+voltage-gauge shift. See [M20a](m20a.md); acceptance requires exact-head
+Python/Chromium and all retained real FEMM/nonregression gates.
