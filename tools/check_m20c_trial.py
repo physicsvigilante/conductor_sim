@@ -117,9 +117,12 @@ def check(path: Path, *, case: str, screenshot: Path | None = None):
             assert manifest["position_m"][-1][0] != manifest["position_m"][-1][1]
         page.locator("#compare-reset").click()
         assert page.locator("#compare-time").input_value() == "0"
-        page.locator("#compare-speed").select_option("0.5")
+        # The existing M20a player normalizes one sweep to four wall-clock
+        # seconds at 1x, independent of the physical duration. Use its
+        # established 4x/310 ms acceptance cadence, not physical seconds.
+        page.locator("#compare-speed").select_option("4")
         page.locator("#compare-play").click()
-        page.wait_for_timeout(130)
+        page.wait_for_timeout(310)
         assert page.evaluate("window.conductorComparison.frameIndex") > 0
         assert page.evaluate("window.conductorComparison.playing") is True
         page.locator("#compare-play").click()
