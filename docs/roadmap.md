@@ -234,3 +234,14 @@ unit, energy-convention and corrupted-output mutations, rotation/source-order/
 voltage-gauge invariance, and production-only multi-charge browser exports.
 No production solver, integrator or renderer changes. See [M18c](m18c.md);
 require exact-candidate Python/browser and 97 real-FEMM gates before acceptance.
+
+M19a — **Prescribed fixed-field sources and test-charge dynamics:** pivot to
+fixed-field/energy problems without conductor back-reaction. Common E/V
+observations and superposition for uniform fields, points, axial rings/discs,
+finite rods, uniform volume spheres and uniform thin shells. Reuse the existing
+M17/M18 adaptive vector controller with F=qE and U=qV; preserve the original
+conductor API and exact sample semantics. Certified plane/axis domains, explicit
+source-jump/singularity guards, eight JSON examples and independent tests. No
+new runtime dependencies or 2D ring/disc field-map claims. See [M19a](m19a.md).
+M19b should add a prescribed-source viewer adapter and axial E/V/energy plots,
+without introducing another integrator or drawing unsupported off-axis fields.

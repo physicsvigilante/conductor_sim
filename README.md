@@ -1,5 +1,31 @@
 # conductor_sim
 
+## M19a — Prescribed fixed fields and test-charge motion
+
+For fixed-source JEE field/energy problems, use `PrescribedField` with
+`UniformElectricField`, `FixedPointField`, `UniformRingAxisField`,
+`UniformDiskAxisField`, `UniformRodField`, `UniformSphereField` or
+`UniformShellField`, and a separate `TestChargeMotionSpec`. The sources do
+not respond to the moving particle: force is qE and potential energy is qV.
+The existing M17/M18 adaptive RK4 controller is reused; conductor-induced
+motion remains available through its original API.
+
+Rings/discs are **axis-only** in this first milestone. Full-spatial sources
+support motion in a physically certified plane. Thin-surface jumps and
+singular sources stop at an approach guard; a smooth fixed volume-sphere
+field can be traversed. No artificial conductor, projected force, or
+invented off-axis field is substituted.
+
+```powershell
+python examples/test_charge_motion.py --case ring-turning --output output/m19a-ring.json
+python examples/test_charge_motion.py --case uniform-deflection --output output/m19a-uniform.json
+```
+
+This stage exports numerical JSON, not a new HTML viewer. See
+[M19a scope, source domains and equations](docs/m19a.md). The prescribed-source
+viewer is the next stage; all existing conductor viewers remain supported.
+
+
 Composable, Python-authored electrostatics for JEE conductor problems. Physical
 components, numerical/analytical solvers, and visualization are separate layers.
 
