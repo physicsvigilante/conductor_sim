@@ -1,0 +1,26 @@
+name: M21c composite symmetry review
+on:
+  pull_request:
+    paths: ['docs/m21c*', 'src/**', 'tests/test_m21c*', 'examples/symmetric_charge_motion.py', 'tools/check_m21c_viewer.py', '.github/workflows/m21c-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-checkout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bound source checkout for local reproduction
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          git archive --format=tar.gz HEAD > review-artifacts/source.tar.gz
+          sha256sum review-artifacts/source.tar.gz > review-artifacts/source.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m21c-source-checkout
+          path: review-artifacts/
+          retention-days: 1
+          if-no-files-found: error
