@@ -1,0 +1,25 @@
+name: M21e composed electric and gravity review
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/electric_gravity_motion.py', 'tools/check_m21e_viewer.py', 'docs/m21e*', '.github/workflows/m21e-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retain exact candidate sources
+        run: |
+          mkdir -p source-evidence
+          git rev-parse HEAD > source-evidence/commit.txt
+          git rev-parse HEAD^{tree} > source-evidence/tree.txt
+          git archive HEAD | gzip > source-evidence/source.tar.gz
+          sha256sum source-evidence/source.tar.gz > source-evidence/source.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m21e-exact-source
+          path: source-evidence/
+          retention-days: 2
