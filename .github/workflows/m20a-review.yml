@@ -1,10 +1,10 @@
 name: M20a paired prescribed-field exploration
 on:
   pull_request:
-    paths: ['src/**', 'tests/**', 'examples/compare_prescribed_scenarios.py', 'examples/revise_prescribed_scenarios.py', 'tools/check_m20a_comparison.py', '.github/workflows/m20a-review.yml']
+    paths: ['src/**', 'tests/**', 'examples/compare_prescribed_scenarios.py', 'examples/revise_prescribed_scenarios.py', 'tools/check_m20a_comparison.py', 'examples/m20c_authoring_trial.py', 'tools/check_m20c_trial.py', '.github/workflows/m20a-review.yml']
   push:
     branches: [main]
-    paths: ['src/**', 'tests/**', 'examples/compare_prescribed_scenarios.py', 'examples/revise_prescribed_scenarios.py', 'tools/check_m20a_comparison.py', '.github/workflows/m20a-review.yml']
+    paths: ['src/**', 'tests/**', 'examples/compare_prescribed_scenarios.py', 'examples/revise_prescribed_scenarios.py', 'tools/check_m20a_comparison.py', 'examples/m20c_authoring_trial.py', 'tools/check_m20c_trial.py', '.github/workflows/m20a-review.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,12 +19,12 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -e ".[test]" "playwright==1.57.0"
       - run: python -m playwright install chromium
-      - name: Full focused M20b, M20a, M19e, M19b and M19a correctness regressions
+      - name: Focused M20c, M20b, M20a, M19e, M19b and M19a correctness
         run: |
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m20b_scenarios.py tests/test_m20a_scenario_comparison.py tests/test_m19e_source_orientation.py tests/test_m19b_prescribed_viewer.py tests/test_m19a_prescribed_fields.py -q --junitxml=review-artifacts/m20a-tests.xml
+          python -m pytest tests/test_m20c_authoring_trial.py tests/test_m20b_scenarios.py tests/test_m20a_scenario_comparison.py tests/test_m19e_source_orientation.py tests/test_m19b_prescribed_viewer.py tests/test_m19a_prescribed_fields.py -q --junitxml=review-artifacts/m20a-tests.xml
       - name: Four independent real Chromium paired-scene exports
         run: |
           set -euo pipefail
@@ -42,6 +42,17 @@ jobs:
           for scenario in double-ring-a-charge ring-b-shift double-mass reverse-field launch-speed gauge-shift; do
             python examples/revise_prescribed_scenarios.py --case "$scenario" --output "review-artifacts/m20b-$scenario.html"
             python -c 'import json,sys; from tools.check_m20a_comparison import check; c=sys.argv[1]; p="review-artifacts/m20b-"+c; print(json.dumps(check(p+".html",p+".png",case=c),indent=2))' "$scenario" > "review-artifacts/m20b-$scenario-browser.json"
+          done
+      - name: Twelve preregistered M20c cards and independent checks
+        run: |
+          python examples/m20c_authoring_trial.py grade --output review-artifacts/m20c-trial-grade.json
+      - name: Six fresh non-Ring scenarios in actual Chromium
+        run: |
+          set -euo pipefail
+          for scenario in U1 V1 R1 P1 S1 D1; do
+            python examples/m20c_authoring_trial.py render "$scenario" --output "review-artifacts/m20c-$scenario.html"
+            python tools/check_m20c_trial.py "review-artifacts/m20c-$scenario.html" --case "$scenario" \
+              --screenshot "review-artifacts/m20c-$scenario.png" > "review-artifacts/m20c-$scenario-browser.json"
           done
       - uses: actions/upload-artifact@v4
         if: always()
