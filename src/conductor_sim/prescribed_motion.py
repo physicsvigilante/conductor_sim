@@ -37,7 +37,18 @@ def _certify(spec):
         raise UnsupportedProblem('axis-only field requires an axial launch velocity')
     if abs(_dot(spec.initial_velocity_m_s, normal)) > 1e-11*hypot(*spec.initial_velocity_m_s):
         raise UnsupportedProblem('initial velocity must lie in the physical motion plane')
+    # Preserve legacy per-source qualification when it already suffices.
+    # Otherwise prove closure of the complete point inventory under reflection;
+    # this is not a projection of a locally cancelling transverse force.
+    points = tuple(s for s in spec.field.sources if isinstance(s, FixedPointField))
+    paired_points = (spec.axis is None and any(
+        not _in_plane(s.position_m, origin, normal, scale) for s in points))
+    if paired_points:
+        from .source_symmetry import certify_point_reflection
+        certify_point_reflection(points, origin_m=origin, normal=normal)
     for source in spec.field.sources:
+        if paired_points and type(source) is FixedPointField:
+            continue  # Already qualified jointly; unchanged full E is integrated.
         if isinstance(source, UniformElectricField):
             valid = (_parallel(source.field_v_m, spec.axis) if spec.axis is not None else
                      abs(_dot(source.field_v_m, normal)) <= 1e-11*hypot(*source.field_v_m))
