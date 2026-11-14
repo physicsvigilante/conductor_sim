@@ -39,6 +39,27 @@ equipotentials, directed field lines, conductor results, surface-density profile
 and stored parameter sweeps. Review and live numerical/browser evidence are
 recorded in [docs/m5.md](docs/m5.md) and [the acceptance scope](docs/m5-acceptance.md). No scene graph has been introduced.
 
+## M19b — Prescribed-source interactive physics viewer
+
+M19a's immutable fields and test-charge trajectories can now be explored in
+the **same standalone offline HTML viewer** as the conductor engine. The
+M19b adapter reuses its playback/time slider, vector arrows, path and energy
+graphs. Rings and discs display **only actual symmetry-axis** electric-field
+and potential profiles, with explicit gaps at undefined ideal surface values.
+Other fixed sources show `E(t)` and `V(t)` at real stored test-particle
+positions; the source geometry panel is explicitly **schematic**, not a
+fabricated 2D field map. No extra numerical integrator, conductor induction,
+source response or new physics formula is added.
+
+```powershell
+python examples/test_charge_viewer.py --case ring-turning --output output/m19b-ring.html
+Start-Process .\output\m19b-ring.html
+python examples/test_charge_viewer.py --case uniform-deflection --output output/m19b-uniform.html
+```
+
+All eight M19a cases are supported. See [M19b methods and limitations](docs/m19b.md).
+
+
 ## M6a: PDF-grounded JEE authorability benchmark
 
 A traceable catalog of 19 problems from the checked-in
