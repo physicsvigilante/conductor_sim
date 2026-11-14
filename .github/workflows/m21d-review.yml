@@ -1,0 +1,41 @@
+name: M21d distant connected spheres
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'examples/distant_connected_spheres.py', 'tools/check_m21d_viewer.py', 'docs/m21d*', '.github/workflows/m21d-review.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'examples/distant_connected_spheres.py', 'tools/check_m21d_viewer.py', '.github/workflows/m21d-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-physics-and-offline-states:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" 'playwright==1.57.0'
+      - run: python -m playwright install chromium
+      - name: Independent JEE and retained connection/observer checks
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m21d_distant_spheres.py tests/test_m14_connections.py tests/test_m14b_mixed_radial.py tests/test_m21b_jee_potential.py -q --junitxml=review-artifacts/m21d-tests.xml
+      - name: Five real Chromium source-anchored and hypothetical exports
+        run: |
+          set -euo pipefail
+          for case in jee2011 notes-sharing equal-density surface-ratio signed-groups; do
+            python examples/distant_connected_spheres.py --case "$case" --output "review-artifacts/m21d-$case.html"
+            python tools/check_m21d_viewer.py "review-artifacts/m21d-$case.html" --screenshot "review-artifacts/m21d-$case.png" > "review-artifacts/m21d-$case-browser.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m21d-distant-sphere-evidence
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error
