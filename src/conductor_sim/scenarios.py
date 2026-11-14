@@ -11,6 +11,7 @@ from hashlib import sha256
 import json
 import re
 
+from .model import PointCharge
 from .prescribed_fields import PrescribedField, _number, _vector
 from .prescribed_motion import TestChargeMotionSpec
 from .prescribed_viewer import _source_annotations, sample_test_charge_viewer
@@ -57,6 +58,11 @@ class PrescribedScenario:
             raise ValueError('scenario_id must be a bounded stable ASCII identifier')
         if type(self.spec) is not TestChargeMotionSpec:
             raise TypeError('scenario requires an existing TestChargeMotionSpec')
+        # Revision reconstructs a built-in field. Accepting custom subclasses
+        # here could silently discard their behavior without a ledger entry.
+        if (type(self.spec.field) is not PrescribedField or
+                type(self.spec.particle) is not PointCharge):
+            raise TypeError('scenario requires built-in PrescribedField and PointCharge, not subclasses')
         _text(self.provenance, 'provenance', 400)
         if self.origin not in ('source-given', 'teacher-hypothetical'):
             raise ValueError('origin must be source-given or teacher-hypothetical')
