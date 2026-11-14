@@ -42,13 +42,13 @@ def extract(repo: Path, out: Path):
             # Render about 120dpi so charge labels and spatial geometry remain legible.
             pix = page.get_pixmap(matrix=fitz.Matrix(120/72, 120/72),
                                   alpha=False)
-            img = folder / f"page-{one_based:02d}.png"
-            pix.save(str(img))
+            img = folder / f"page-{one_based:02d}.jpg"
+            pix.save(str(img), jpg_quality=72)
             txt = page.get_text(sort=True)
             (folder / f"page-{one_based:02d}.txt").write_text(
                 txt, encoding="utf-8")
             records.append(dict(pdf_page=one_based,
-                                png=img.relative_to(out).as_posix(),
+                                full_page_image=img.relative_to(out).as_posix(),
                                 extracted_text=(folder / f"page-{one_based:02d}.txt").relative_to(out).as_posix(),
                                 image_width=pix.width, image_height=pix.height,
                                 page_text_length=len(txt)))
@@ -57,7 +57,7 @@ def extract(repo: Path, out: Path):
                          reviewed_pages=records))
         doc.close()
     result=dict(schema="conductor_sim.m21a_source_evidence.v1",
-                method="Original pinned full PDF page renders at 120 dpi; PDF-native text where available; no OCR",
+                method="Original pinned full PDF page JPEG renders at 120 dpi, quality 72; PDF-native text where available; no OCR",
                 sources=meta)
     (out / "source-evidence.json").write_text(
         json.dumps(result, indent=2) + "\n", encoding="utf-8")
