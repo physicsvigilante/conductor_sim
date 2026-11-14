@@ -73,7 +73,9 @@ def check(path, *, case, screenshot=None):
             page.locator('#frame').dispatch_event('input')
             assert page.evaluate('frame.motion_sample_index')==m['frame_sample_indices'][i]
         for control in ('force-arrow','velocity-arrow','trajectory'):
-            page.locator('#frame').fill('4')
+            # At intermediate times a short real path can be hidden under the
+            # drawn probe marker. Check its visible pixels in a later frame.
+            page.locator('#frame').fill(str(8 if control=='trajectory' else 4))
             page.locator('#frame').dispatch_event('input')
             before=canvas.evaluate('c=>c.toDataURL()')
             page.locator('#'+control).uncheck()
