@@ -14,6 +14,23 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M22c — Symmetry-qualified mirrored finite rods
+
+Fixed, uniformly charged finite rods can now be composed in complete
+reflection-symmetric inventories on either side of a genuine physical motion
+plane. The shared point/rod source laws and time integrator remain unchanged;
+one strict geometry certificate admits the assembly. Unmatched, unequal or
+poorly resolved rods and transverse external forces are refused. The offline
+viewer omits actual off-slice rod drawings without removing their full field.
+
+```powershell
+python examples/mirrored_rods.py --case P1 --output output/m22c-parallel.html
+python examples/mirrored_rods.py --case P2 --output output/m22c-tilted.html
+Start-Process .\output\m22c-tilted.html
+```
+
+See [M22c contract, source integrity and reserved transfer](docs/m22c.md).
+
 ## M21e — Reusable electric force plus uniform gravity
 
 A typed, optional uniform-gravity component now composes with existing

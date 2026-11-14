@@ -1,0 +1,137 @@
+{
+  "schema": "conductor_sim.m22c.reserved.v1",
+  "case_id": "R-multipair-mixed",
+  "status": "frozen-unexecuted",
+  "source_type": "teacher-hypothetical (not a real JEE past-paper item)",
+  "plane_normal": [
+    0,
+    1,
+    0
+  ],
+  "particle": {
+    "charge_c": -6e-10,
+    "position_m": [
+      0,
+      0,
+      -0.02
+    ],
+    "mass_kg": 0.000003,
+    "velocity_m_s": [
+      0.06,
+      0,
+      0.04
+    ]
+  },
+  "duration_s": 0.06,
+  "sample_interval_s": 0.005,
+  "length_scale_m": 0.5,
+  "gravity_acceleration_m_s2": [
+    0,
+    0,
+    -1.2
+  ],
+  "sources": [
+    {
+      "id": "rod:upper-A",
+      "kind": "rod",
+      "charge_c": 1.1e-9,
+      "start_m": [
+        -0.1,
+        0.11,
+        0.015
+      ],
+      "end_m": [
+        0.06,
+        0.11,
+        0.04
+      ]
+    },
+    {
+      "id": "rod:lower-A",
+      "kind": "rod",
+      "charge_c": 1.1e-9,
+      "start_m": [
+        -0.1,
+        -0.11,
+        0.015
+      ],
+      "end_m": [
+        0.06,
+        -0.11,
+        0.04
+      ]
+    },
+    {
+      "id": "rod:upper-B",
+      "kind": "rod",
+      "charge_c": -6e-10,
+      "start_m": [
+        -0.07,
+        0.065,
+        0.1
+      ],
+      "end_m": [
+        -0.025,
+        0.095,
+        0.17
+      ]
+    },
+    {
+      "id": "rod:lower-B",
+      "kind": "rod",
+      "charge_c": -6e-10,
+      "start_m": [
+        -0.025,
+        -0.095,
+        0.17
+      ],
+      "end_m": [
+        -0.07,
+        -0.065,
+        0.1
+      ]
+    },
+    {
+      "id": "rod:inplane",
+      "kind": "rod",
+      "charge_c": 2.5e-10,
+      "start_m": [
+        0.15,
+        0,
+        -0.08
+      ],
+      "end_m": [
+        0.15,
+        0,
+        0.07
+      ]
+    },
+    {
+      "id": "point:inplane",
+      "kind": "point",
+      "charge_c": 4e-10,
+      "position_m": [
+        0.09,
+        0,
+        0.19
+      ]
+    },
+    {
+      "id": "field:inplane",
+      "kind": "uniform_E",
+      "field_v_m": [
+        70,
+        0,
+        -25
+      ]
+    }
+  ],
+  "investigation": [
+    "full vector field at 5 in-plane points",
+    "V, E gradient",
+    "actual duration motion",
+    "relative energy drift",
+    "browser drawing and source notes"
+  ],
+  "acceptance_note": "not executed during implementation; first execution after candidate frozen and evidence sealed"
+}

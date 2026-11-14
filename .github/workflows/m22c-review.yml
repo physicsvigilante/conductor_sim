@@ -1,0 +1,67 @@
+name: M22c finite-rod reflection and honest offline viewer
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/source_symmetry.py'
+      - 'src/conductor_sim/prescribed_motion.py'
+      - 'src/conductor_sim/prescribed_viewer.py'
+      - 'src/conductor_sim/prescribed_viewer_validation.py'
+      - 'src/conductor_sim/viewer.py'
+      - 'tests/test_m22c*'
+      - 'examples/mirrored_rods.py'
+      - 'tools/check_m22c_viewer.py'
+      - 'tools/run_m22c_reserved.py'
+      - 'docs/m22c*'
+      - '.github/workflows/m22c-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/conductor_sim/source_symmetry.py'
+      - 'src/conductor_sim/prescribed_motion.py'
+      - 'src/conductor_sim/prescribed_viewer.py'
+      - 'src/conductor_sim/prescribed_viewer_validation.py'
+      - 'src/conductor_sim/viewer.py'
+      - 'tests/test_m22c*'
+      - 'examples/mirrored_rods.py'
+      - 'tools/check_m22c_viewer.py'
+      - 'tools/run_m22c_reserved.py'
+      - '.github/workflows/m22c-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  whole-rod-certificate-and-genuine-motion:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ".[test]" "playwright==1.57.0"
+      - run: python -m playwright install chromium
+      - name: Existing and new physical proof and revision regressions
+        run: |
+          mkdir -p review-artifacts
+          git rev-parse HEAD > review-artifacts/commit.txt
+          git rev-parse HEAD^{tree} > review-artifacts/tree.txt
+          python -m pytest tests/test_m22c_rod_reflection.py tests/test_m21c_source_symmetry.py tests/test_m22a_structural_scenarios.py tests/test_m19a_prescribed_fields.py tests/test_m19b_prescribed_viewer.py tests/test_m19e_source_orientation.py -q --junitxml=review-artifacts/m22c-tests.xml
+      - name: Two independent source-verified real Chromium cases
+        run: |
+          set -euo pipefail
+          for case in P1 P2; do
+            python examples/mirrored_rods.py --case "$case" --output "review-artifacts/m22c-$case.html"
+            python tools/check_m22c_viewer.py "review-artifacts/m22c-$case.html" --case "$case" --screenshot "review-artifacts/m22c-$case.png" > "review-artifacts/m22c-$case-browser.json"
+          done
+      - name: Frozen reserved transfer, only on committed candidate
+        run: |
+          set -euo pipefail
+          python tools/run_m22c_reserved.py --config tests/m22c_reserved_case.json --output review-artifacts/m22c-R.html > review-artifacts/m22c-R-reference.json
+          python tools/check_m22c_viewer.py review-artifacts/m22c-R.html --case R --screenshot review-artifacts/m22c-R.png > review-artifacts/m22c-R-browser.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m22c-mirror-rod-physics-and-three-chromium-views
+          path: review-artifacts/
+          retention-days: 14
+          if-no-files-found: error

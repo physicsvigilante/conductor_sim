@@ -478,6 +478,9 @@ function drawPrescribedSources(p,X,Y,project){
    const point=place(src.position_m);if(Math.abs(point[2])<=1e-9)marker(point[0],point[1],q,tag);return;
   }
   if(kind==='UniformRodField'){
+   // Only in newly certified mirror-rod models: omit true out-of-plane
+   // sources rather than draw their misleading projection as an in-plane rod.
+   if((prescribed.mirrored_rod_source_indices||[]).includes(index))return;
    const a=place(src.start_m),b=place(src.end_m);
    c.strokeStyle=q>0?'#ba5743':'#326bad';c.lineWidth=5;c.beginPath();
    c.moveTo(X(a[0]),Y(a[1]));c.lineTo(X(b[0]),Y(b[1]));c.stroke();
