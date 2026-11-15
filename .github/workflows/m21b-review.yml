@@ -2,6 +2,12 @@ name: M21b JEE source-faithful static E, V and work
 on:
   pull_request:
     paths:
+      - 'src/conductor_sim/source_geometry.py'
+      - 'tests/test_m25a_source_geometry.py'
+      - 'tests/test_m25a_review_corrections.py'
+      - 'tools/check_m25a_source_geometry.py'
+      - 'tools/check_m25a_transfer.py'
+      - 'docs/m25a*'
       - 'tests/test_post_m24b_review.py'
       - 'examples/public_api_event_trial.py'
       - 'tools/check_post_m24b_review.py'
@@ -46,6 +52,12 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/conductor_sim/source_geometry.py'
+      - 'tests/test_m25a_source_geometry.py'
+      - 'tests/test_m25a_review_corrections.py'
+      - 'tools/check_m25a_source_geometry.py'
+      - 'tools/check_m25a_transfer.py'
+      - 'docs/m25a*'
       - 'tests/test_post_m24b_review.py'
       - 'examples/public_api_event_trial.py'
       - 'tools/check_post_m24b_review.py'
@@ -105,7 +117,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_post_m24b_review.py tests/test_m24b_driven_motion.py tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_m25a_review_corrections.py tests/test_m25a_source_geometry.py tests/test_post_m24b_review.py tests/test_m24b_driven_motion.py tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -162,6 +174,16 @@ jobs:
             python examples/public_api_event_trial.py --case "$case" --output "review-artifacts/post-m24b/$case.html"
             python tools/check_m24b_driven.py "review-artifacts/post-m24b/$case.html" --screenshot "review-artifacts/post-m24b/$case.png" > "review-artifacts/post-m24b/$case-browser.json"
           done
+      - name: M25a shared source geometry with two rotated-plane adversarial browsers
+        run: |
+          set -euo pipefail
+          for case in coaxial-rings mirror-rod offplane-rods hybrid-sources ring-disk event-rings tilted-rings tilted-event-rings; do
+            python -m tools.check_m25a_source_geometry --case "$case" --output review-artifacts/m25a > "review-artifacts/m25a-$case-browser.json"
+          done
+      - name: M25a reserved R2 retained regression (initial first run preserved in earlier CI)
+        run: |
+          set -euo pipefail
+          python -m tools.check_m25a_transfer --output review-artifacts/m25a/reserved > review-artifacts/m25a-reserved-reference.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
