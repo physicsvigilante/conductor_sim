@@ -174,11 +174,19 @@ def test_n1_exact_wire_pole_and_ulp_near_wire_are_refused():
     assert s.clearance_at(near)==pytest.approx(.001,rel=1e-12)
 
 
-def test_n4_static_source_does_not_implicitly_enable_particle_dynamics():
+def test_n4_M27b_admits_only_certified_ring_particle_motion_not_dipole_rotation():
     s=ring()
-    with pytest.raises(UnsupportedProblem,match="static E/V only"):
+    # M27a originally forbade all new full-ring time evolution. M27b
+    # prospectively qualifies meridian/equatorial particle motion; this is
+    # not permission for arbitrary off-axis 3D or rigid-dipole dynamics.
+    accepted=TestChargeMotionSpec(PrescribedField((s,)),PointCharge(1e-9,(0,0,.1)),
+                                  1e-6,(.1,0.,0.),.1,.01,
+                                  plane_normal=(0.,1.,0.))
+    assert accepted.plane_normal==(0.,1.,0.)
+    with pytest.raises(UnsupportedProblem,match="oblique"):
         TestChargeMotionSpec(PrescribedField((s,)),PointCharge(1e-9,(0,0,.1)),
-                             1e-6,(.1,0.,0.),.1,.01)
+                             1e-6,(.1,0.,0.),.1,.01,
+                             plane_normal=(1.,0.,1.))
     from conductor_sim.dipoles import RigidDipole,DipoleModel
     from conductor_sim.structural_scenarios import NamedSource
     from conductor_sim.dipole_motion import DipoleMotionSpec
