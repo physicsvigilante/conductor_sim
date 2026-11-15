@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 from examples.m27b_offaxis_motion import run_case
 
@@ -40,7 +40,28 @@ def check(output: Path):
             page.set_content(paths[case].read_text(encoding="utf-8"),wait_until="load")
             viewer="conductorEventViewer" if case=="workbook-xy" else "conductorDrivenViewer"
             root_id="event-data" if case=="workbook-xy" else "driven-data"
-            page.wait_for_function("window."+viewer+" && window."+viewer+".loaded")
+            try:
+                page.wait_for_function(
+                    "window."+viewer+" && window."+viewer+".loaded", timeout=5000)
+            except PlaywrightTimeoutError as exc:
+                try:
+                    diagnostics=page.evaluate("""() => ({
+                        title:document.title,
+                        loaded:document.readyState,
+                        hasData:!!document.getElementById("event-data") ||
+                                !!document.getElementById("driven-data"),
+                        viewerKeys:Object.keys(window).filter(x => x.includes("Viewer")),
+                        scripts:[...document.scripts].map(s => ({
+                            id:s.id,length:s.textContent.length
+                        }))
+                    })""")
+                except Exception as evaluation_exc:
+                    diagnostics={"evaluation_error":str(evaluation_exc)}
+                raise AssertionError(dict(
+                    failure="M27b saved-viewer did not load",
+                    case=case,viewer=viewer,diagnostics=diagnostics,
+                    page_errors=errors,console_errors=consoles,
+                    requests=requests)) from exc
             data=page.evaluate("""(node) => JSON.parse(document.getElementById(node).textContent)""",root_id)
             geometry=data["source_geometry"]
             assert [e["source_id"] for e in geometry["entries"]]==[
