@@ -7,6 +7,8 @@ on:
       - 'tests/test_m21b_jee_potential.py'
       - 'examples/jee_potential_explorer.py'
       - 'tools/check_m21b_viewer.py'
+      - 'tools/check_post_m22c_observations.py'
+      - 'tests/test_post_m22c_review.py'
       - 'docs/m21b*'
       - '.github/workflows/m21b-review.yml'
   push:
@@ -17,6 +19,8 @@ on:
       - 'tests/test_m21b_jee_potential.py'
       - 'examples/jee_potential_explorer.py'
       - 'tools/check_m21b_viewer.py'
+      - 'tools/check_post_m22c_observations.py'
+      - 'tests/test_post_m22c_review.py'
       - '.github/workflows/m21b-review.yml'
   workflow_dispatch:
 permissions:
@@ -37,7 +41,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -46,6 +50,8 @@ jobs:
             python tools/check_m21b_viewer.py "review-artifacts/m21b-$case.html" --case "$case" \
               --screenshot "review-artifacts/m21b-$case.png" > "review-artifacts/m21b-$case-browser.json"
           done
+      - name: Unsampled source jumps and defined endpoint work in Chromium
+        run: python tools/check_post_m22c_observations.py --output review-artifacts/post-m22c
       - uses: actions/upload-artifact@v4
         if: always()
         with:
