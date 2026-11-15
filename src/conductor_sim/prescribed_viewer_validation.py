@@ -89,6 +89,12 @@ def validate_prescribed_viewer(bundle):
         raise ValueError('legacy electric-only metadata cannot carry undeclared gravity')
     gravity=restore_gravity(m.get('gravity')) if composed else None
     field=_restore_field(m.get('field'))
+    # Reject forged legacy M19b exports containing a source that its
+    # schematic cannot physically depict. Real M27b motion is rendered
+    # through the newer event/driven viewers with qualified 3D geometry.
+    from .prescribed_fields import UniformRingField
+    if any(type(s) is UniformRingField for s in field.sources):
+        raise ValueError('legacy M19b cannot depict full-ring motion; use M27b event/driven viewer')
     particle=m.get('particle')
     if (not isinstance(particle,dict) or not _number(particle.get('charge_c')) or
             particle['charge_c']==0 or not _vector(particle.get('position_m'))):

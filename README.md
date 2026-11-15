@@ -32,6 +32,28 @@ python -m pytest tests/test_m27a_ring_field.py -q
 
 See [M27a physics, independent references, scope and acceptance](docs/m27a.md).
 
+## M27b — Real curved test-charge motion in off-axis ring fields
+
+M27b builds on the new M27a static full-ring E/V source and reuses the existing
+adaptive vector integrator, event locator, drag/scheduled uniform-E model, and
+saved-state motion viewers. It admits **meridian and equatorial physical planes**
+only when complete source inventories preserve the plane and ideal-wire
+singularity guards. A genuinely curved charged-particle trajectory through
+the workbook Ring A/B upward-field arrangement is now possible with
+**explicit teacher-authored numeric mass and launch conditions**.
+
+```powershell
+python examples/m27b_offaxis_motion.py --case workbook-xy --output output/m27b-workbook.html
+Start-Process .\output\m27b-workbook.html
+python examples/m27b_offaxis_motion.py --case driven-switch --output output/m27b-driven.html
+python -m pytest tests/test_m27b_ring_motion.py -q
+```
+
+New-source motion is supported through the existing event/driven viewer, not
+the historical M19b axis-only schematic. No responding conductor, invented
+guide, free-3D motion, ring contact or browser-side physics. See the
+[M27b physical and numerical contract](docs/m27b.md).
+
 ## M22c — Symmetry-qualified mirrored finite rods
 
 Fixed, uniformly charged finite rods can now be composed in complete

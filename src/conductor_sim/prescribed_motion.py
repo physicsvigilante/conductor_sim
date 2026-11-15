@@ -73,6 +73,10 @@ def _certify(spec):
         if not valid:
             raise UnsupportedProblem('uniform gravity does not preserve the physical axis/plane')
     for source in spec.field.sources:
+        if type(source) is UniformRingField:
+            from .ring_motion_symmetry import certify_ring_motion_plane
+            certify_ring_motion_plane(source, origin_m=origin, normal=normal)
+            continue  # Integrate genuine off-axis 3D ring E, without projection.
         if paired_points and type(source) is FixedPointField:
             continue  # Already qualified jointly; unchanged full E is integrated.
         if isinstance(source, UniformElectricField):
@@ -119,8 +123,13 @@ class TestChargeMotionSpec:
             raise TypeError('expected PrescribedField and a separate test-particle PointCharge')
         if self.gravity is not None and type(self.gravity) is not UniformGravity:
             raise TypeError('gravity must be built-in UniformGravity or None')
-        if any(type(source) is UniformRingField for source in self.field.sources):
-            raise UnsupportedProblem('M27a off-axis rings support static E/V only; particle motion requires M27b qualification')
+        # A legacy axis-only ring/disc has no E when a full-ring particle
+        # trajectory departs its common axis; refuse mixed qualifications.
+        if (any(type(source) is UniformRingField for source in self.field.sources) and
+                any(type(source) in (UniformRingAxisField, UniformDiskAxisField)
+                    for source in self.field.sources)):
+            raise UnsupportedProblem(
+                'full off-axis rings cannot mix with legacy axis-only ring/disc motion')
         _number(self.particle.charge_c, 'test charge', nonzero=True)
         for name in ('mass_kg','duration_s','sample_interval_s','relative_tolerance',
                      'length_scale_m','source_guard_m'):
@@ -284,6 +293,15 @@ class _FixedDomain:
             elif isinstance(s,UniformDiskAxisField):
                 z0,z1 = s._coordinate(start),s._coordinate(end)
                 distances.append(0. if z0*z1 <= 0 else min(abs(z0),abs(z1)))
+            elif type(s) is UniformRingField:
+                # Distance to an ideal fixed charged-wire set is 1-Lipschitz.
+                # Every point along this RK chord is within half the chord
+                # length of its midpoint. If the *lower bound* approaches
+                # guard, refuse this step and let the controller subdivide.
+                delta = _sub(end, start)
+                midpoint = tuple(start[i]+.5*delta[i] for i in range(3))
+                lower = max(0., s.clearance_at(midpoint)-.5*hypot(*delta))
+                distances.append(lower)
         return min(distances,default=inf)-self.guard
 
 

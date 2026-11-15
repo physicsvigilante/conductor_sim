@@ -23,7 +23,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m19a_prescribed_fields.py tests/test_m17a_motion_2d.py tests/test_m18a_fixed_sources.py tests/test_m27a_ring_field.py -q --junitxml=review-artifacts/m19a-tests.xml
+          python -m pytest tests/test_m19a_prescribed_fields.py tests/test_m17a_motion_2d.py tests/test_m18a_fixed_sources.py tests/test_m27a_ring_field.py tests/test_m27b_ring_motion.py -q --junitxml=review-artifacts/m19a-tests.xml
           for case in ring-turning ring-crossing two-rings uniform-deflection sphere-transit shell-interior disc-approach rod-deflection; do
             python examples/test_charge_motion.py --case "$case" --output "review-artifacts/m19a-$case.json"
           done
@@ -31,6 +31,12 @@ jobs:
         run: python -m tools.check_m27a_reserved --output review-artifacts/m27a-reserved.json
       - name: M27a source-faithful static two-ring HTML and JSON
         run: python examples/m27a_ring_field.py --case workbook-two-rings --output review-artifacts/m27a-two-rings.html
+      - name: M27b predeclared noncoaxial full-ring first transfer (direct quadrature + Verlet)
+        run: python -m tools.check_m27b_reserved --output review-artifacts/m27b-reserved.json
+      - name: M27b real curved two-ring world-xy teaching example
+        run: python examples/m27b_offaxis_motion.py --case workbook-xy --output review-artifacts/m27b-workbook.html
+      - name: M27b real driven two-ring schedule and drag example
+        run: python examples/m27b_offaxis_motion.py --case driven-switch --output review-artifacts/m27b-driven.html
       - uses: actions/upload-artifact@v4
         if: always()
         with:
