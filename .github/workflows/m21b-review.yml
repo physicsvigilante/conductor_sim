@@ -176,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           for case in coaxial-rings mirror-rod offplane-rods hybrid-sources ring-disk event-rings; do
-            python tools/check_m25a_source_geometry.py --case "$case" --output review-artifacts/m25a > "review-artifacts/m25a-$case-browser.json"
+            python -m tools.check_m25a_source_geometry --case "$case" --output review-artifacts/m25a > "review-artifacts/m25a-$case-browser.json"
           done
       - name: M25a reserved R2 (first PR run after frozen source, then retained regression)
         run: |
