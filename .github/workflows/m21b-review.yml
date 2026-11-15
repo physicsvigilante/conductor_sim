@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/dipoles.py'
+      - 'src/conductor_sim/dipole_viewer.py'
+      - 'tests/test_m23a_dipoles.py'
+      - 'examples/rigid_dipoles.py'
+      - 'tools/check_m23a_dipole.py'
+      - 'docs/m23a*'
       - 'src/conductor_sim/viewer.py'
       - 'tests/test_m21b_jee_potential.py'
       - 'examples/jee_potential_explorer.py'
@@ -15,6 +21,12 @@ on:
     branches: [main]
     paths:
       - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/dipoles.py'
+      - 'src/conductor_sim/dipole_viewer.py'
+      - 'tests/test_m23a_dipoles.py'
+      - 'examples/rigid_dipoles.py'
+      - 'tools/check_m23a_dipole.py'
+      - 'docs/m23a*'
       - 'src/conductor_sim/viewer.py'
       - 'tests/test_m21b_jee_potential.py'
       - 'examples/jee_potential_explorer.py'
@@ -41,7 +53,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -52,6 +64,13 @@ jobs:
           done
       - name: Unsampled source jumps and defined endpoint work in Chromium
         run: python tools/check_post_m22c_observations.py --output review-artifacts/post-m22c
+      - name: M23a finite dipoles and four static orientation investigations
+        run: |
+          set -euo pipefail
+          for case in workbook-q47 point-field mixed-sources revised-field; do
+            python examples/rigid_dipoles.py --case "$case" --output "review-artifacts/m23a-$case.html"
+            python tools/check_m23a_dipole.py "review-artifacts/m23a-$case.html" --screenshot "review-artifacts/m23a-$case.png" > "review-artifacts/m23a-$case-browser.json"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
