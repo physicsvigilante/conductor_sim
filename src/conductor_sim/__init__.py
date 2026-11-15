@@ -105,12 +105,12 @@ from .motion_viewer_2d import sample_motion_2d, motion_slice_2d
 __all__ += ['sample_motion_2d', 'motion_slice_2d']
 
 from .prescribed_fields import (ElectricFieldProvider, PrescribedField,
-    UniformElectricField, FixedPointField, UniformRingAxisField,
+    UniformElectricField, FixedPointField, UniformRingAxisField, UniformRingField,
     UniformDiskAxisField, UniformRodField, UniformSphereField, UniformShellField)
 from .prescribed_motion import (TestChargeMotionSpec, TestChargeSample,
     TestChargeEvent, TestChargeMotionResult, integrate_test_charge)
 __all__ += ['ElectricFieldProvider', 'PrescribedField', 'UniformElectricField',
-    'FixedPointField', 'UniformRingAxisField', 'UniformDiskAxisField',
+    'FixedPointField', 'UniformRingAxisField', 'UniformRingField', 'UniformDiskAxisField',
     'UniformRodField', 'UniformSphereField', 'UniformShellField',
     'TestChargeMotionSpec', 'TestChargeSample', 'TestChargeEvent',
     'TestChargeMotionResult', 'integrate_test_charge']

@@ -14,6 +14,24 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M27a — Physical off-axis E/V of fixed uniformly charged rings
+
+`UniformRingField` provides true 3D off-axis static electrostatic E and V
+for an ideal thin charged nonconducting ring, with original axial-only source
+behavior unchanged. Multiple rings compose with fixed points and an external
+uniform E. The new offline **static slice** plots actual V, projected E arrows,
+the complete source geometry and separately stored out-of-plane electric
+components. This is **not** a simulated free particle trajectory; M27b will
+qualify dynamics separately.
+
+```powershell
+python examples/m27a_ring_field.py --case workbook-two-rings --output output/m27a-two-rings.html
+Start-Process .\output\m27a-two-rings.html
+python -m pytest tests/test_m27a_ring_field.py -q
+```
+
+See [M27a physics, independent references, scope and acceptance](docs/m27a.md).
+
 ## M22c — Symmetry-qualified mirrored finite rods
 
 Fixed, uniformly charged finite rods can now be composed in complete

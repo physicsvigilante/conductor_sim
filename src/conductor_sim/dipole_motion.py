@@ -13,7 +13,7 @@ from ._motion_time import output_times
 from .dipoles import DipoleModel, observe_dipole, orient_dipole, _cross, _native
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .prescribed_fields import (_dot, _number, _sub, _unit,
-    UniformRingAxisField, UniformDiskAxisField)
+    UniformRingAxisField, UniformRingField, UniformDiskAxisField)
 from .solver import UnsupportedProblem
 
 _MAX_STEP_ANGLE = .05  # numerical bound, never a mechanical angular stop
@@ -54,8 +54,8 @@ class DipoleMotionSpec:
         if type(self.max_internal_steps) is not int or not 1 <= self.max_internal_steps <= 500000:
             raise ValueError('max_internal_steps must be an integer in 1..500000')
         output_times(self.duration_s, self.sample_interval_s)
-        if any(type(s.source) in (UniformRingAxisField, UniformDiskAxisField) for s in self.model.sources):
-            raise UnsupportedProblem('axis-only ring/disc laws do not qualify a rotational sweep')
+        if any(type(s.source) in (UniformRingAxisField, UniformRingField, UniformDiskAxisField) for s in self.model.sources):
+            raise UnsupportedProblem('M27a static ring or axis-only ring/disc does not qualify a rotational sweep')
         if self.max_endpoint_radius_m <= 1e-12*self.model.dipole.separation_m:
             raise UnsupportedProblem('rotation axis leaves both dipole endpoints fixed')
         _resolved_angle(self.initial_angle_rad)
