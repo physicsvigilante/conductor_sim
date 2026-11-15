@@ -185,7 +185,7 @@ def test_n4_M27b_admits_only_certified_ring_particle_motion_not_dipole_rotation(
     assert accepted.plane_normal==(0.,1.,0.)
     with pytest.raises(UnsupportedProblem,match="oblique"):
         TestChargeMotionSpec(PrescribedField((s,)),PointCharge(1e-9,(0,0,.1)),
-                             1e-6,(.1,0.,0.),.1,.01,
+                             1e-6,(0.,.1,0.),.1,.01,
                              plane_normal=(1.,0.,1.))
     from conductor_sim.dipoles import RigidDipole,DipoleModel
     from conductor_sim.structural_scenarios import NamedSource
