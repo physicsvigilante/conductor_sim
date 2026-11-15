@@ -252,7 +252,7 @@ def test_n5_forged_record_or_hidden_physics_edit_refused():
                                           parent_revision_id=parent.revision_id), child.base_assembly)
     with pytest.raises(ValueError, match="parent revision"):
         DrivenReassembly(parent, replace(child.model, parent_revision_id="f"*64), child.base_assembly)
-    another = make_model()
+    another = replace(parent, base=replace(parent.base))
     with pytest.raises(ValueError, match="retained parent"):
         DrivenReassembly(another, child.model, child.base_assembly)
     with pytest.raises(FrozenInstanceError):
