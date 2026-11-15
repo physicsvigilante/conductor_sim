@@ -2,6 +2,13 @@ name: M21b JEE source-faithful static E, V and work
 on:
   pull_request:
     paths:
+      - 'src/conductor_sim/driven_motion.py'
+      - 'src/conductor_sim/driven_viewer.py'
+      - 'tests/test_m24b_driven_motion.py'
+      - 'examples/drag_and_field_schedule.py'
+      - 'tools/check_m24b_driven.py'
+      - 'tools/check_m24b_transfer.py'
+      - 'docs/m24b*'
       - 'src/conductor_sim/motion_events.py'
       - 'src/conductor_sim/motion_event_viewer.py'
       - 'src/conductor_sim/motion_2d.py'
@@ -35,6 +42,13 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/conductor_sim/driven_motion.py'
+      - 'src/conductor_sim/driven_viewer.py'
+      - 'tests/test_m24b_driven_motion.py'
+      - 'examples/drag_and_field_schedule.py'
+      - 'tools/check_m24b_driven.py'
+      - 'tools/check_m24b_transfer.py'
+      - 'docs/m24b*'
       - 'src/conductor_sim/motion_events.py'
       - 'src/conductor_sim/motion_event_viewer.py'
       - 'src/conductor_sim/motion_2d.py'
@@ -83,7 +97,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_m24b_driven_motion.py tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -120,6 +134,18 @@ jobs:
           set -euo pipefail
           python -m tools.check_m24a_transfer --output review-artifacts/m24a-transfer.html > review-artifacts/m24a-transfer-reference.json
           python tools/check_m24a_events.py review-artifacts/m24a-transfer.html --screenshot review-artifacts/m24a-transfer.png > review-artifacts/m24a-transfer-browser.json
+      - name: M24b drag, scheduled inputs and mechanical work in real Chromium
+        run: |
+          set -euo pipefail
+          for case in constant-drag switched-oblique oil-hypothetical revised-drag source-guard; do
+            python examples/drag_and_field_schedule.py --case "$case" --output "review-artifacts/m24b-$case.html"
+            python tools/check_m24b_driven.py "review-artifacts/m24b-$case.html" --screenshot "review-artifacts/m24b-$case.png" > "review-artifacts/m24b-$case-browser.json"
+          done
+      - name: M24b reserved first transfer on frozen committed candidate
+        run: |
+          set -euo pipefail
+          python -m tools.check_m24b_transfer --output review-artifacts/m24b-transfer.html > review-artifacts/m24b-transfer-reference.json
+          python tools/check_m24b_driven.py review-artifacts/m24b-transfer.html --screenshot review-artifacts/m24b-transfer.png > review-artifacts/m24b-transfer-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

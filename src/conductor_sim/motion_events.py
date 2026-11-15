@@ -111,37 +111,43 @@ class EventStudy:
     def __post_init__(self):
         if type(self.scenario) is not PrescribedScenario or type(self.policy) is not EventPolicy:
             raise TypeError('require an existing PrescribedScenario and EventPolicy')
-        if type(self.questions) not in (list,tuple) or not 1 <= len(self.questions) <= 16:
-            raise ValueError('require 1..16 typed event questions')
-        object.__setattr__(self,'questions',tuple(self.questions))
-        if any(type(q) not in (PlaneEvent,VelocityReversal) for q in self.questions):
-            raise TypeError('unsupported event kind; arbitrary callbacks are not accepted')
-        if len({q.event_id for q in self.questions}) != len(self.questions):
-            raise ValueError('duplicate event identity')
-        if self.policy.time_tolerance_s < 64*ulp(self.scenario.spec.duration_s):
-            raise ValueError('event time tolerance is below resolved clock precision')
-        for q in self.questions:
-            direction = q.normal if type(q) is PlaneEvent else q.axis
-            if type(q) is VelocityReversal and abs(_dot(direction,self.scenario.spec.plane_normal)) > 1-1e-12:
-                raise UnsupportedProblem('normal velocity is identically zero in the qualified plane, not a reversal')
-            if type(q) is PlaneEvent and q.role=='ideal-stop-surface':
-                g=_dot(_sub(self.scenario.spec.particle.position_m,q.point_m),q.normal)
-                if q.direction*g>0:
-                    raise UnsupportedProblem('initial state is beyond the declared stop surface')
-                if g==0:
-                    spec=self.scenario.spec
-                    v=_dot(spec.initial_velocity_m_s,q.normal)
-                    force=spec.forces.observe(spec.particle.position_m,
-                        charge_c=spec.particle.charge_c,mass_kg=spec.mass_kg).force_n
-                    a=_dot(force,q.normal)/spec.mass_kg
-                    if q.direction*v>0 or (v==0 and q.direction*a>0):
-                        raise UnsupportedProblem('initial release departs beyond the stop surface, not into the authored region')
+        object.__setattr__(self,'questions',_validate_questions(
+            self.scenario.spec,self.questions,self.policy))
 
     def as_dict(self):
         return _native(dict(schema='conductor_sim.event_study.v1',
             model=self.scenario.as_dict(), model_revision_id=self.scenario.revision_id,
             questions=[dict(kind=type(q).__name__,**asdict(q)) for q in self.questions],
             numerical_policy=asdict(self.policy)))
+
+
+def _validate_questions(spec, questions, policy, *, initial_force=None):
+    if type(questions) not in (list,tuple) or not 1 <= len(questions) <= 16:
+        raise ValueError('require 1..16 typed event questions')
+    questions=tuple(questions)
+    if any(type(q) not in (PlaneEvent,VelocityReversal) for q in questions):
+        raise TypeError('unsupported event kind; arbitrary callbacks are not accepted')
+    if len({q.event_id for q in questions}) != len(questions):
+        raise ValueError('duplicate event identity')
+    if policy.time_tolerance_s < 64*ulp(spec.duration_s):
+        raise ValueError('event time tolerance is below resolved clock precision')
+    for q in questions:
+        direction = q.normal if type(q) is PlaneEvent else q.axis
+        if type(q) is VelocityReversal and abs(_dot(direction,spec.plane_normal)) > 1-1e-12:
+            raise UnsupportedProblem('normal velocity is identically zero in the qualified plane, not a reversal')
+        if type(q) is PlaneEvent and q.role=='ideal-stop-surface':
+            g=_dot(_sub(spec.particle.position_m,q.point_m),q.normal)
+            if q.direction*g>0:
+                raise UnsupportedProblem('initial state is beyond the declared stop surface')
+            if g==0:
+                v=_dot(spec.initial_velocity_m_s,q.normal)
+                force=(initial_force if initial_force is not None else
+                    spec.forces.observe(spec.particle.position_m,
+                        charge_c=spec.particle.charge_c,mass_kg=spec.mass_kg).force_n)
+                a=_dot(force,q.normal)/spec.mass_kg
+                if q.direction*v>0 or (v==0 and q.direction*a>0):
+                    raise UnsupportedProblem('initial release departs beyond the stop surface, not into the authored region')
+    return questions
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,11 +209,11 @@ def _sample(spec, t, state):
 
 def _value(q,y):
     return (_dot(_sub(y[:3],q.point_m),q.normal) if type(q) is PlaneEvent
-            else _dot(y[3:],q.axis))
+            else _dot(y[3:6],q.axis))
 
 
 def _derivative(q,y,rhs):
-    return _dot(y[3:],q.normal) if type(q) is PlaneEvent else _dot(rhs(y)[3:],q.axis)
+    return _dot(y[3:6],q.normal) if type(q) is PlaneEvent else _dot(rhs(y)[3:6],q.axis)
 
 
 def _critical(a,b,c):
@@ -230,7 +236,10 @@ class _Refine(Exception):
 
 
 class _Monitor:
-    def __init__(self,study):
+    def __init__(self,study, *, sample_factory=None, work_error=None, switch_times=()):
+        # Private adapters allow the same typed locator to retain work states.
+        self.sample_factory=sample_factory;self.work_error=work_error
+        self.switch_times=tuple(switch_times)
         self.study=study;self.spec=study.scenario.spec;self.policy=study.policy
         self.domain=_FixedDomain(self.spec);self.events=[];self.unresolved=[]
         self.evaluations=0;self.last={};self.ordering='resolved-separated-brackets'
@@ -240,8 +249,8 @@ class _Monitor:
             if abs(_value(q,y))<=self.tol(q):
                 value=_value(q,y)
                 tag=('initial-on-plane' if value==0 else 'initial-near-plane-within-tolerance') if type(q) is PlaneEvent else (
-                    'initial-rest' if hypot(*y[3:])==0 else
-                    'initial-speed-within-rest-tolerance' if hypot(*y[3:])<=self.policy.velocity_tolerance_m_s else
+                    'initial-rest' if hypot(*y[3:6])==0 else
+                    'initial-speed-within-rest-tolerance' if hypot(*y[3:6])<=self.policy.velocity_tolerance_m_s else
                     'initial-zero-component' if value==0 else 'initial-small-component-within-tolerance')
                 self.initial.append((q.event_id,tag))
 
@@ -265,17 +274,18 @@ class _Monitor:
             ps=max(1e-11*self.spec.length_scale_m,self.spec.relative_tolerance*max(
                 self.spec.length_scale_m,hypot(*_sub(y[:3],self.spec.particle.position_m)),
                 hypot(*_sub(z[:3],self.spec.particle.position_m))))
-            vs=max(1e-10,self.spec.relative_tolerance*max(1.,hypot(*y[3:]),hypot(*z[3:])))
+            vs=max(1e-10,self.spec.relative_tolerance*max(1.,hypot(*y[3:6]),hypot(*z[3:6])))
             if max(hypot(*_sub(coarse[:3],z[:3]))/(15*ps),
-                   hypot(*_sub(coarse[3:],z[3:]))/(15*vs))>1:raise _Refine()
+                   hypot(*_sub(coarse[3:6],z[3:6]))/(15*vs))>1:raise _Refine()
+            if self.work_error is not None and self.work_error(coarse,z,y)>1:raise _Refine()
             if (self.domain.clearance(z[:3])<=0 or
                 self.domain.charge_segment_clearance(y[:3],middle[:3])<=0 or
                 self.domain.charge_segment_clearance(middle[:3],z[:3])<=0):raise _Refine()
-            if hypot(*z[3:])>=_NONRELATIVISTIC_SPEED_LIMIT_M_S:
+            if hypot(*z[3:6])>=_NONRELATIVISTIC_SPEED_LIMIT_M_S:
                 raise UnsupportedProblem('event evaluation exceeds nonrelativistic regime')
             cache[x]=z
             return z
-        located=[];uncertain=[]
+        located=[];uncertain=[];event_states={}
         try:
             for q in self.study.questions:
                 g0,g1=_value(q,y),_value(q,fine)
@@ -342,11 +352,22 @@ class _Monitor:
                         uncertain.append((q.event_id,t+L*h,t+H*h,'grazing-or-unresolved-normal-speed'))
                         continue
                     if abs(residual)>tol:raise _Refine()
-                    row=_sample(self.spec,time,z)
+                    if any(abs(time-switch)<=self.policy.time_tolerance_s for switch in self.switch_times):
+                        uncertain.append((q.event_id,t+L*h,t+H*h,
+                            'event/switch ordering unresolved within requested time resolution'))
+                        continue
+                    if (self.sample_factory is not None and type(q) is VelocityReversal and
+                        abs(derivative)*self.policy.max_step_s<=self.policy.velocity_tolerance_m_s):
+                        uncertain.append((q.event_id,t+L*h,t+H*h,
+                            'near-stationary velocity root: reversal not resolved'))
+                        continue
+                    row=(self.sample_factory(time,z) if self.sample_factory is not None
+                         else _sample(self.spec,time,z))
+                    event_states[(q.event_id,time)]=z
                     located.append(LocatedEvent(q.event_id,
                         'plane-crossing' if type(q) is PlaneEvent else 'directional-reversal',
                         (t+L*h,t+H*h),residual,'m' if type(q) is PlaneEvent else 'm/s',
-                        direction,q.terminal,hypot(*z[3:])<=self.policy.velocity_tolerance_m_s,row))
+                        direction,q.terminal,hypot(*z[3:6])<=self.policy.velocity_tolerance_m_s,row))
         except _Refine:
             if h<=8*self.policy.time_tolerance_s:
                 self.unresolved.append(('resolution',t,t+h,'event geometry/state could not be resolved'))
@@ -378,7 +399,7 @@ class _Monitor:
                 self.ordering='coincident-or-order-unresolved-within-time-resolution'
         if terminal:
             row=terminal.sample
-            return row.time_s,(*row.position_m,*row.velocity_m_s),'terminal-event'
+            return row.time_s,event_states[(terminal.event_id,row.time_s)],'terminal-event'
         return None
 
 

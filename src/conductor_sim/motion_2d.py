@@ -395,7 +395,7 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
 
 def _integrate_vector_motion(spec, geometry, observe, *,
                              surface_description='Stopped before the ideal conductor; not an exact collision',
-                             step_observer=None, max_step_s=None):
+                             step_observer=None, max_step_s=None, dynamics=None):
     """Shared adaptive controller for conductor and prescribed-field motion.
 
     The caller supplies observations and a domain; no force law lives here.
@@ -403,6 +403,11 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     unchanged. The prescribed-source domain supplies the same geometry contract.
     """
     p0 = spec.selected_charge.position_m
+    if dynamics is not None:
+        # Private, typed M24b adapter; no unrestricted public force callbacks.
+        from .driven_motion import _DrivenDynamics
+        if type(dynamics) is not _DrivenDynamics or dynamics.spec is not spec:
+            raise TypeError('require the bound built-in driven dynamics adapter')
 
     def acceleration(position):
         force, _ = observe(position)
@@ -414,6 +419,9 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         return (*y[3:], *acceleration_vector)
 
     y = (*p0, *spec.initial_velocity_m_s)
+    if dynamics is not None:
+        y = (*y, 0., 0., 0., 0.)  # fixed/applied/gravity work, dissipation
+        rhs = dynamics.rhs
     reference_force, reference_energy = observe(p0)
     _ = reference_force
     energy0 = .5*spec.mass_kg*_norm(spec.initial_velocity_m_s)**2
@@ -423,6 +431,11 @@ def _integrate_vector_motion(spec, geometry, observe, *,
 
     def record(t, values):
         nonlocal max_drift
+        if dynamics is not None:
+            sample = dynamics.sample(t, values)
+            max_drift = max(max_drift, abs(sample.work_balance_error_j))
+            records.append(sample)
+            return
         position, velocity = values[:3], values[3:]
         force, energy = observe(position)
         kinetic = .5*spec.mass_kg*_norm(velocity)**2
@@ -443,6 +456,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     steps_done = 0
     termination: Literal['duration', 'surface-guard', 'charge-guard'] = 'duration'
     targets = output_times(spec.duration_s, spec.sample_interval_s)
+    if dynamics is not None:
+        targets = tuple(sorted(set((*targets, *dynamics.switch_times))))
 
     for target in targets:
         while t < target-2e-15*spec.duration_s:
@@ -465,12 +480,14 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             dt = min(h, target-t)
             if max_step_s is not None:
                 dt = min(dt, max_step_s)  # Opt-in investigation resolution, not output spacing.
-            a = acceleration(y[:3])
-            normal_speed, normal_accel = geometry.approach_speed(y[:3], y[3:], a)
+            if dynamics is not None:
+                dt = min(dt, dynamics.max_step_s)
+            a = acceleration(y[:3]) if dynamics is None else dynamics.rhs(y)[3:6]
+            normal_speed, normal_accel = geometry.approach_speed(y[:3], y[3:6], a)
             if geometry.stationary:
                 # A conservative displacement bound limits leapfrogging an
                 # ideal fixed point-charge singularity between RK stages.
-                normal_speed = max(normal_speed, _norm(y[3:]))
+                normal_speed = max(normal_speed, _norm(y[3:6]))
                 normal_accel = max(normal_accel, _norm(a))
             if normal_speed or normal_accel:
                 bound = normal_speed + normal_accel*dt
@@ -497,13 +514,15 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                     geometry.charge_segment_clearance(half[:3],fine[:3]) <= 0):
                 h = .5*dt
                 continue
-            if _norm(fine[3:]) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
+            if _norm(fine[3:6]) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
                 raise UnsupportedProblem('classical motion limit reached; speed must stay below 0.1c')
             position_scale = max(1e-11*geometry.scale, spec.relative_tolerance*
                                  max(geometry.scale, _norm(_sub(y[:3],p0)), _norm(_sub(fine[:3],p0))))
-            velocity_scale = max(1e-10, spec.relative_tolerance*max(1., _norm(y[3:]), _norm(fine[3:])))
+            velocity_scale = max(1e-10, spec.relative_tolerance*max(1., _norm(y[3:6]), _norm(fine[3:6])))
             error = max(_norm(_sub(large[:3],fine[:3]))/(15*position_scale),
-                        _norm(_sub(large[3:],fine[3:]))/(15*velocity_scale))
+                        _norm(_sub(large[3:6],fine[3:6]))/(15*velocity_scale))
+            if dynamics is not None:
+                error = max(error, dynamics.work_error(large, fine, y))
             if not isfinite(error):
                 raise MotionIntegrationError('nonfinite RK4 integration error')
             if error > 1:
@@ -529,6 +548,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 record(t, y)
             break
         t = target
+        if dynamics is not None:
+            dynamics.at_boundary(t, y)  # continuous state, explicit one-sided force
         record(t, y)
     return tuple(records), tuple(events), termination, max_drift
 
