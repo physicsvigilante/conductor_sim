@@ -2,6 +2,15 @@ name: M21b JEE source-faithful static E, V and work
 on:
   pull_request:
     paths:
+      - 'src/conductor_sim/motion_events.py'
+      - 'src/conductor_sim/motion_event_viewer.py'
+      - 'src/conductor_sim/motion_2d.py'
+      - 'src/conductor_sim/prescribed_motion.py'
+      - 'tests/test_m24a_motion_events.py'
+      - 'examples/motion_event_studies.py'
+      - 'tools/check_m24a_events.py'
+      - 'tools/check_m24a_transfer.py'
+      - 'docs/m24a*'
       - 'src/conductor_sim/jee_potential_explorer.py'
       - 'src/conductor_sim/dipole_motion.py'
       - 'src/conductor_sim/dipole_motion_viewer.py'
@@ -26,6 +35,15 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/conductor_sim/motion_events.py'
+      - 'src/conductor_sim/motion_event_viewer.py'
+      - 'src/conductor_sim/motion_2d.py'
+      - 'src/conductor_sim/prescribed_motion.py'
+      - 'tests/test_m24a_motion_events.py'
+      - 'examples/motion_event_studies.py'
+      - 'tools/check_m24a_events.py'
+      - 'tools/check_m24a_transfer.py'
+      - 'docs/m24a*'
       - 'src/conductor_sim/jee_potential_explorer.py'
       - 'src/conductor_sim/dipole_motion.py'
       - 'src/conductor_sim/dipole_motion_viewer.py'
@@ -65,7 +83,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -90,6 +108,18 @@ jobs:
             python examples/dipole_rotation.py --case "$case" --output "review-artifacts/m23b-$case.html"
             python tools/check_m23b_motion.py "review-artifacts/m23b-$case.html" --screenshot "review-artifacts/m23b-$case.png" > "review-artifacts/m23b-$case-browser.json"
           done
+      - name: M24a reusable event questions and honest guard outcomes
+        run: |
+          set -euo pipefail
+          for case in sheet-stop sheet-encounter plate-transit oblique-gravity source-guard; do
+            python examples/motion_event_studies.py --case "$case" --output "review-artifacts/m24a-$case.html"
+            python tools/check_m24a_events.py "review-artifacts/m24a-$case.html" --screenshot "review-artifacts/m24a-$case.png" > "review-artifacts/m24a-$case-browser.json"
+          done
+      - name: M24a preselected transfer first run on frozen committed candidate
+        run: |
+          set -euo pipefail
+          python -m tools.check_m24a_transfer --output review-artifacts/m24a-transfer.html > review-artifacts/m24a-transfer-reference.json
+          python tools/check_m24a_events.py review-artifacts/m24a-transfer.html --screenshot review-artifacts/m24a-transfer.png > review-artifacts/m24a-transfer-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

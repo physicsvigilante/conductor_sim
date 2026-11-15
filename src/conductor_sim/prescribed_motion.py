@@ -285,7 +285,8 @@ class _FixedDomain:
         return min(distances,default=inf)-self.guard
 
 
-def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
+def _integrate_test_charge(spec: TestChargeMotionSpec, *, step_observer=None,
+                           max_step_s=None) -> TestChargeMotionResult:
     if not isinstance(spec,TestChargeMotionSpec):
         raise TypeError('spec must be TestChargeMotionSpec')
     domain = _FixedDomain(spec)
@@ -315,7 +316,8 @@ def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
 
     rows,events,termination,drift = _integrate_vector_motion(
         spec,domain,observe,surface_description=
-        'Stopped before a fixed-source singularity or field jump; not an exact collision')
+        'Stopped before a fixed-source singularity or field jump; not an exact collision',
+        step_observer=step_observer, max_step_s=max_step_s)
     def components(p):
         return (asdict(forces.observe(p, charge_c=charge, mass_kg=spec.mass_kg))
                 if spec.gravity is not None else {})
@@ -327,4 +329,9 @@ def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
         for s in rows)
     return TestChargeMotionResult(spec,samples,tuple(TestChargeEvent(
         'source-guard',e.time_s,e.position_m,e.description) for e in events),
-        'source-guard' if termination!='duration' else 'duration',drift)
+        'source-guard' if termination in ('surface-guard','charge-guard') else termination,drift)
+
+
+def integrate_test_charge(spec: TestChargeMotionSpec) -> TestChargeMotionResult:
+    """Original public execution path; event investigations are a separate API."""
+    return _integrate_test_charge(spec)
