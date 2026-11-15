@@ -21,6 +21,8 @@ jobs:
           mkdir -p review-artifacts
           git archive --format=zip HEAD -o review-artifacts/source.zip
           git rev-parse HEAD > review-artifacts/commit.txt
+      - name: M27b actual Chromium ring off-axis conservative and driven motion
+        run: python -m tools.check_m27b_browser --output review-artifacts/m27b
       - run: python -m pytest -m "not femm5" -q --junitxml=review-artifacts/python.xml
       - run: python examples/visualize_conductors.py --output review-artifacts/analytical.html
       - name: Browser acceptance (no external requests)
@@ -135,8 +137,6 @@ jobs:
         run: python -m tools.check_m26a_browser --output review-artifacts/m26a
       - name: M27a real Chromium static two-ring off-axis E/V acceptance
         run: python -m tools.check_m27a_ring_browser --output review-artifacts/m27a
-      - name: M27b actual Chromium ring off-axis conservative and driven motion
-        run: python -m tools.check_m27b_browser --output review-artifacts/m27b
       - uses: actions/upload-artifact@v4
         if: always()
         with:
