@@ -1,4 +1,4 @@
-name: Temporary M25a exact-patch materialization
+name: Temporary M25a exact-source extraction
 on:
   push:
     branches:
@@ -6,17 +6,14 @@ on:
     paths:
       - '.github/workflows/m25a-materialize.yml'
 permissions:
-  contents: write
+  contents: read
 jobs:
-  materialize:
+  extract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          persist-credentials: true
-      - name: Reconstruct exact verified patch and publish tested tree
+      - name: Verify complete candidate then expose public source blobs
         shell: bash
         run: |
           set -euo pipefail
@@ -26,10 +23,16 @@ jobs:
           test "$(sha256sum /tmp/m25a-full.patch | cut -d' ' -f1)" = "53ebb2d377d7c0ec972dfa56942c4d1316eeec690cbe830fd831acd7be04c695"
           git apply --check /tmp/m25a-full.patch
           git apply /tmp/m25a-full.patch
-          git add docs/m25a_charter.md
-          git -c user.name='PhysicsVigilante review' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'M25a: retain preimplementation composability acceptance charter'
           git rm -r .m25a-prep .github/workflows/m25a-materialize.yml
           git add -A
           test "$(git write-tree)" = "0bff159adec1a67e2be8f657ab5486dfe06a3060"
-          git -c user.name='PhysicsVigilante review' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'M25a: shared qualified source geometry for motion and event viewers'
-          git push origin HEAD:refs/heads/m25a-qualified-source-geometry
+          for path in \
+            .github/workflows/m21b-review.yml \
+            docs/m25a.md docs/m25a_charter.md docs/m25a_reserved_card.md \
+            src/conductor_sim/driven_viewer.py src/conductor_sim/motion_event_viewer.py src/conductor_sim/source_geometry.py \
+            tests/test_m25a_source_geometry.py tools/check_m25a_source_geometry.py tools/check_m25a_transfer.py; do
+            sha="$(git hash-object "$path")"
+            printf 'M25A_BLOB_BEGIN|%s|%s\n' "$path" "$sha"
+            base64 -w 0 "$path"
+            printf '\nM25A_BLOB_END|%s\n' "$path"
+          done
