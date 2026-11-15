@@ -106,7 +106,10 @@ def test_p3_gravity_added_exact_linear_drag_exponential():
     mass = parent.spec.mass_kg
     lam = parent.drag.coefficient_kg_s / mass
     t = result.samples[-1].time_s
-    a = (.1, 0, -.2)
+    q_over_m = parent.spec.particle.charge_c / parent.spec.mass_kg
+    applied = parent.applied.phases[0].field_v_m
+    a = tuple(q_over_m * field + gravity for field, gravity in
+              zip(applied, (0., 0., -.2)))
     v0 = parent.spec.initial_velocity_m_s
     r0 = parent.spec.particle.position_m
     for i in range(3):
