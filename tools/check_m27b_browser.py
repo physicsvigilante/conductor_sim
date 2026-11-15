@@ -32,11 +32,16 @@ def check(output: Path):
     result={}
     with sync_playwright() as playwright:
         browser=playwright.chromium.launch(headless=True)
-        page=browser.new_page(viewport={"width":1360,"height":900})
-        page.on("pageerror",lambda e:errors.append(str(e)))
-        page.on("console",lambda e:consoles.append(e.text) if e.type=="error" else None)
-        page.on("request",lambda r:requests.append(r.url))
         for case in ("workbook-xy","driven-switch"):
+            # set_content() uses document.write(), which preserves top-level
+            # global lexical declarations in some Chromium contexts. Both
+            # standalone viewers intentionally define const data; they must
+            # be tested in independent documents, not sequentially injected
+            # into the same global JS realm.
+            page=browser.new_page(viewport={"width":1360,"height":900})
+            page.on("pageerror",lambda e:errors.append(str(e)))
+            page.on("console",lambda e:consoles.append(e.text) if e.type=="error" else None)
+            page.on("request",lambda r:requests.append(r.url))
             page.set_content(paths[case].read_text(encoding="utf-8"),wait_until="load")
             viewer="conductorEventViewer" if case=="workbook-xy" else "conductorDrivenViewer"
             root_id="event-data" if case=="workbook-xy" else "driven-data"
@@ -136,7 +141,7 @@ def check(output: Path):
                 canvas_segments_with_path=lines_on,
                 canvas_segments_without_path=lines_off,
                 mobile=mobile)
-            page.set_viewport_size({"width":1360,"height":900})
+            page.close()
         browser.close()
     assert not errors and not consoles and not requests,(errors,consoles,requests)
     report=dict(status="pass",mode="Python-validated numerical physical time; browser saved-state playback only",
