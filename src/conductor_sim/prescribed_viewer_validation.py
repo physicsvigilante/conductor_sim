@@ -156,8 +156,16 @@ def validate_prescribed_viewer(bundle):
                 if any(abs(_dot(_sub(p,spec.particle.position_m),spec.plane_normal))>1e-9
                        for p in (s.start_m,s.end_m)):
                     expected_omissions.append(i)
-    if (m.get('mirrored_rod_source_indices') != expected_omissions
-            if expected_omissions else 'mirrored_rod_source_indices' in m):
+    omissions=m.get('mirrored_rod_source_indices')
+    if expected_omissions:
+        # Python [False, True] == [0, 1], but JS Array.includes uses strict
+        # equality. Reject non-integer IDs before the renderer can draw a
+        # fictitious in-plane projection from a supposedly validated record.
+        if (type(omissions) is not list or
+                any(type(i) is not int for i in omissions) or
+                omissions != expected_omissions):
+            raise ValueError('saved off-plane rod omission is not the physical source geometry')
+    elif 'mirrored_rod_source_indices' in m:
         raise ValueError('saved off-plane rod omission is not the physical source geometry')
     domain=_FixedDomain(spec)
     rows=m.get('samples')

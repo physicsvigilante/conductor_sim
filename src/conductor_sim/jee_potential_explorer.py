@@ -10,14 +10,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from html import escape
 import json
-from math import fsum, hypot, isclose, isfinite
+from math import fsum, hypot, isclose, isfinite, ulp
 from pathlib import Path
 import re
 
 from .model import ElectrostaticProblem, PointCharge
 from .prescribed_fields import (
     PrescribedField, FixedPointField, UniformElectricField,
-    UniformRingAxisField, UniformDiskAxisField, UniformShellField,
+    UniformRingAxisField, UniformDiskAxisField, UniformShellField, UniformRodField,
     _dot, _sub, _mul, _unit, _number, _vector,
 )
 from .prescribed_viewer import _source_annotations
@@ -163,6 +163,8 @@ def validate_fixed_potential_map(bundle):
         _fixed_plane(field, plane)
     except (TypeError, ValueError) as exc:
         raise ValueError("invalid fixed-source physical plane") from exc
+    _number(meta.get("source_exclusion_radius_m"), "saved source mask", positive=True)
+    _number(meta.get("highlight_potential_v"), "saved highlighted potential")
     grid = frame["grid"]
     xs, ys = grid["x_m"], grid["y_m"]
     if (len(xs) != plane.resolution or len(ys) != plane.resolution
@@ -171,7 +173,9 @@ def validate_fixed_potential_map(bundle):
         raise ValueError("static field grid, mask or resolution is inconsistent")
     for j, y in enumerate(ys):
         for i, x in enumerate(xs):
-            if len(grid["electric_field_v_per_m"][j]) != len(xs) or len(grid["potential_v"][j]) != len(xs):
+            if any(not isinstance(grid[k][j], (list, tuple)) or
+                   len(grid[k][j]) != len(xs)
+                   for k in ("electric_field_v_per_m", "potential_v", "region")):
                 raise ValueError("static field grid row width changed")
             point = plane.world((x,y))
             masks = tuple(s.position_m for s in field.sources if type(s) is FixedPointField)
@@ -183,6 +187,10 @@ def validate_fixed_potential_map(bundle):
             else:
                 if v is None or e is None or grid["region"][j][i] != "vacuum":
                     raise ValueError("valid static field node was removed")
+                # zip alone silently accepts missing or extra components;
+                # bool also compares equal to 0/1 in Python, unlike JS indices.
+                _number(v, "saved static potential")
+                _vector(e, "saved static electric field")
                 expected_v = field.potential_at(point)
                 expected_e = field.electric_field_at(point)
                 if (not isclose(v,expected_v,rel_tol=5e-10,abs_tol=1e-9) or
@@ -217,6 +225,42 @@ def validate_fixed_potential_map(bundle):
 
 def _coord_point(origin, axis, coordinate):
     return tuple(origin[i] + axis[i]*coordinate for i in range(3))
+
+
+def _profile_interval_breaks(field, previous, current):
+    """Do not draw through a source jump/pole merely missed by the sample grid.
+
+    Reuse geometric intersection/distance services. No values, source guards,
+    physical constraints or extra samples are invented. Potential is continuous
+    across a shell/disc surface, unlike E; point/rod poles interrupt both.
+    """
+    from .geometry import SphereBoundary, PlaneBoundary
+    from .prescribed_motion import _point_segment_distance, _segment_distance
+
+    field_keys = ("electric_field_v_m", "field_parallel_v_m", "field_transverse_abs_v_m")
+    keys = ("potential_v", *field_keys)
+    blocked = set()
+    a, b = previous["point_m"], current["point_m"]
+    for source in field.sources:
+        if type(source) is UniformShellField:
+            if SphereBoundary(source.center_m, source.radius_m).first_hit(a, b) is not None:
+                blocked.update(field_keys)
+        elif type(source) is UniformDiskAxisField:
+            if PlaneBoundary(source.center_m, source.axis).first_hit(a, b) is not None:
+                blocked.update(field_keys)
+        elif type(source) is FixedPointField:
+            scale = max(hypot(*_sub(p, source.position_m)) for p in (a, b))
+            if _point_segment_distance(source.position_m, a, b) <= 16*ulp(scale):
+                blocked.update(keys)
+        elif type(source) is UniformRodField:
+            scale = max(hypot(*_sub(source.end_m, source.start_m)),
+                        *(hypot(*_sub(p, source.start_m)) for p in (a, b)))
+            if _segment_distance(a, b, source.start_m, source.end_m) <= 16*ulp(scale):
+                blocked.update(keys)
+    # An already-null endpoint supplies its own genuine graph gap. Preserve
+    # those historical records and all smooth-profile samples byte-for-byte.
+    return [key for key in keys if key in blocked and
+            previous[key] is not None and current[key] is not None]
 
 
 def sample_static_profile(field: PrescribedField, *, source_annotations,
@@ -265,6 +309,10 @@ def sample_static_profile(field: PrescribedField, *, source_annotations,
                          field_parallel_v_m=parallel,
                          field_transverse_abs_v_m=transverse,
                          field_undefined=E is None))
+        if len(rows) > 1:
+            breaks = _profile_interval_breaks(field, rows[-2], rows[-1])
+            if breaks:
+                rows[-1]["break_before"] = breaks
     return _json_native(dict(schema="conductor_sim.fixed_profile.v1",
                mode="static spatial samples; no time integration",
                coordinate=coordinate, field=field.as_dict(), source_annotations=ann,
@@ -297,8 +345,18 @@ def endpoint_field_work(field: PrescribedField, *, source_annotations,
     work = q*fsum(x["start_potential_v"]-x["end_potential_v"] for x in components)
     if not isclose(work,q*(va-vb),rel_tol=5e-12,abs_tol=1e-11):
         raise ValueError("work decomposition contradicts source potentials")
-    EA, EB = field.electric_field_at(start),field.electric_field_at(end)
-    return _json_native(dict(schema="conductor_sim.fixed_endpoint_work.v1",
+    # Work requires endpoint potentials, not a defined E at an ideal surface.
+    # Retain the optional field observations where available; never substitute
+    # zero, suppress an unsupported law, or conceal an undefined potential.
+    unavailable = {}
+    def endpoint_field(point, label):
+        try:
+            return field.electric_field_at(point)
+        except SingularField as exc:
+            unavailable[label] = str(exc)
+            return None
+    EA, EB = endpoint_field(start, "start"), endpoint_field(end, "end")
+    record = dict(schema="conductor_sim.fixed_endpoint_work.v1",
         mode="static endpoint work only; no guide, path or elapsed time",
         start_m=start, end_m=end, probe_charge_c=q,field=field.as_dict(),
         source_annotations=ann,
@@ -306,7 +364,12 @@ def endpoint_field_work(field: PrescribedField, *, source_annotations,
         field_work_j=work, external_quasistatic_work_j=-work,
         source_work_components=components,
         start_electric_field_v_m=EA,end_electric_field_v_m=EB,
-        caveat="Conservative static E: W_field=q(V_start-V_end); nonzero transverse force is not discarded or dynamically constrained."))
+        caveat="Conservative static E: W_field=q(V_start-V_end); nonzero transverse force is not discarded or dynamically constrained.")
+    if unavailable:
+        record["unavailable_endpoint_fields"] = unavailable
+        record["caveat"] += (" Endpoint E is undefined at the recorded ideal surface(s); "
+                              "null is not zero. The endpoint potentials and field work remain defined.")
+    return _json_native(record)
 
 
 def _plot_svg(rows, key, *, label, color, surface_coordinate=None):
@@ -326,6 +389,9 @@ def _plot_svg(rows, key, *, label, color, surface_coordinate=None):
     Y=lambda y:H-bottom-(H-top-bottom)*(y-ymin)/(ymax-ymin)
     chunks,one=[],[]
     for r in rows:
+        if key in r.get("break_before", ()):
+            if len(one)>1:chunks.append(one)
+            one=[]
         v=r[key]
         if v is None:
             if len(one)>1:chunks.append(one)
@@ -394,6 +460,9 @@ def render_static_profile(profile, *, title, source_note, surface_coordinate=Non
                      color="#aa5d24",surface_coordinate=surface_coordinate)
     note=("No time evolution. Missing E samples are left blank, not set to zero."
           " Profiles are sampled at the saved physical coordinates.")
+    if any(r.get("break_before") for r in rows):
+        note += (" Lines also stop between samples that straddle a known source jump or "
+                 "singularity; no value at that unsampled location is asserted.")
     work_content=""
     if work:
         cells="".join("<tr><td>"+escape(p["label"])+" ["+escape(p["id"])+"]</td><td>"+
