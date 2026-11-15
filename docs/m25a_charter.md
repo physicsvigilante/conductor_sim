@@ -1,0 +1,25 @@
+# M25a — Source geometry observation: frozen preimplementation charter
+
+**Purpose.** Improve *observation composability* over existing qualified prescribed particle fields. This is a display-only addition, not another electrostatic source law, conductor response, off-axis ring evaluation, or universal scene graph. A source's full 3D field remains the numerical model even when a 2D viewer omits its marker.
+
+Baseline exact merged source tree: `c34fccca5409c81c28a749b74f904e75f98ad1dd`, commit `d27c504f0a2bb336784a4ce9116f84c992b915db`.
+
+## Frozen acceptance cards (before code changes)
+
+1. **R1 — Actual reused coaxial rings (positive).** Reauthor the existing public `coaxial-rings` driven scenario, with two axial ring sources at x=0 and x=.4, radius .3 m and signed stable IDs. Draw both ring geometries as **edge-on orthographic projections** of the actual circles, distinguished visibly from rods and annotated with radius, signed charge and 3D axis. No off-axis field evaluation. Use the same numerical run and preserved original model.
+2. **P2 — Actual mirrored held points plus in-plane rod (positive).** Reauthor existing `mirror-rod` driven scenario with mirrored points at signed nonzero y offsets and one in-plane rod. Both off-slice charge markers must be *omitted*, with signed distances and retained full-field notices; the in-plane rod must remain visible with its original identity. Never project omitted point charges onto the motion plane.
+3. **P3 — Out-of-slice rods (positive).** Use an existing qualified reflection pair of finite rods (M22c) with endpoint offsets on both sides of the invariant plane, plus an in-plane source if applicable. Only true rods contained in the view plane may be drawn as in-plane rods. The valid 3D field remains intact. The older M22c renderer's certified omission behavior must not be weakened.
+4. **P4 — General fixed sources (positive).** In a trusted, typed source ledger inspect uniformly charged sphere, shell, rod, ring, disk and spatially uniform E; include radius, charge, source ID and *nonconducting* material semantics. Rings/disks with arbitrary oriented world axes use genuine orthographic projection of their circular boundary; an edge-on ring is distinguishable from a rod, and an edge-on disk from a charged line segment.
+5. **P5 — Both event and driven viewers (positive).** Same serialized projection entries and same canvas drawing implementation for the two viewer families. A source toggle changes actual painted pixels; full trajectory, forces, numerical event states and work remain identical. Source-list items state drawn/projected/omitted statuses and signed normal offsets; no fake replacement charge.
+6. **B1 — Unsupported physics still refused (negative).** An axially supported ring together with a transverse applied electric field must still be refused by the existing physical qualifier. No display code may relax this, and no app/browser numerical field sampling is permitted.
+7. **B2 — Invalid geometry input (negative).** Reject unknown source types, forged ID sequences and malformed viewing basis rather than depict a fabricated shape. Saved source data remains bound to the actual typed field/model.
+8. **R2 — Unfamiliar saved model (reserved transfer).** After candidate freeze, independently generate one supported, previously unexecuted mixed arrangement from public components (signed ring + uniform E + gravity + drag) and request a new event. It must render without per-card production changes. Disclose same-developer exposure and whether its event is found; never tune parameters to force a desired outcome.
+
+## Definition of done
+
+- Mathematical 2D orthographic geometry is derived from world source parameters and actual motion-plane basis; no field calculations by the viewer. Off-plane points/rods are omitted with signed offset and full-field ledger, not replaced by in-plane ghosts.
+- Preserve normal force laws, model identities, serialization contracts, numerical solver and old static exports. The older prescribed viewer already has distinct meridian/omission rules; any new shared visualization must coexist with those qualifications without a forced refactor.
+- Independent geometry checks: world basis orthogonality, projection of ring/disk circle samples, scale/covariance, offsets, source counts and deterministic serialization, plus physical nonregression and malformed/refusal tests.
+- Real Chromium: source layer changes pixels when toggled, ring versus rod visually distinct, no omitted off-plane point/rod strokes, source notes and mobile layout correct, normal physical-time controls unchanged, no JS errors or external requests.
+- Regression gates include existing M24a/M24b validations, full Python suite and real FEMM conductor nonregression, which is a *preservation* test rather than a display/field reference. Report overlap and remaining qualified limitations.
+- Do not confuse illustrative geometries with equipotential maps or conductor apparatuses, nor claim blinded independent LLM authorability from same-developer cases.
