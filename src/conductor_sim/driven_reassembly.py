@@ -28,7 +28,7 @@ def _model(parent):
 
 
 def _driven_ids(parent):
-    """Only the explicitly retained driven ancestry is an identity namespace."""
+    """Driven model IDs are distinct from physical component/source IDs."""
     identities = set()
     steps = 0
     while True:
@@ -50,7 +50,10 @@ class DrivenReassembly:
 
     `model` is an ordinary DrivenModel accepted by every M24b phase check.
     `base_assembly` is the actual M22a structural edit, preserving its own
-    retired-ID ancestry. This record does *not* certify numerical completion,
+    retired-ID ancestry. Its detached JSON embeds earlier driven assemblies
+    through a bounded parent_driven_assembly link. Model/scenario identifiers
+    and physical component identifiers have separate namespaces; component
+    identities must still be mutually distinct. This record does *not* certify numerical completion,
     original PDF provenance, authenticated JSON import or physical contact.
     """
 
@@ -95,14 +98,20 @@ class DrivenReassembly:
 
     def _record(self):
         original = _model(self.parent)
+        # An exported descendant is independently auditable: retain the
+        # complete earlier driven assembly, not only its digest. Match M22a's
+        # bounded structural ancestry. Resolve the parent's record ONCE to
+        # avoid repeatedly hashing an expanding recursive parent chain.
+        prior = self.parent.as_dict() if type(self.parent) is DrivenReassembly else None
         return dict(
             schema="conductor_sim.driven_reassembly.v1",
             origin="teacher-hypothetical",
             parent_model_revision_id=original.revision_id,
             child_model_revision_id=self.model.revision_id,
             parent_driven_assembly_revision_id=(
-                self.parent.revision_id if type(self.parent) is DrivenReassembly else None
+                prior["revision_id"] if prior is not None else None
             ),
+            parent_driven_assembly=prior,
             parent_model=original.as_dict(),
             child_model=self.model.as_dict(),
             base_assembly=self.base_assembly.as_dict(),
@@ -123,7 +132,11 @@ class DrivenReassembly:
     def as_dict(self):
         """Detached JSON-native lineage; SHA-256 is identity, not authenticity."""
         record = self._record()
-        record["revision_id"] = self.revision_id
+        # Hash exactly the single detached export built above. This remains
+        # identical to revision_id, without rebuilding recursive ancestry.
+        record["revision_id"] = sha256(json.dumps(
+            record, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")).hexdigest()
         return json.loads(json.dumps(record, allow_nan=False))
 
 
