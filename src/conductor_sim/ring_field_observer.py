@@ -310,6 +310,7 @@ def render_ring_field_slice(record, *, title="Off-axis electric field of fixed c
         '<meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escape(title)+'</title>'
         '<style>'+_STYLE+' .static-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,1fr);gap:18px}'
         ' .static-layout > div{min-width:0} svg{max-width:100%;height:auto}code{font-size:12px}'
+        ' .card table{width:100%;table-layout:fixed} .card th,.card td{overflow-wrap:anywhere;word-break:normal}'
         ' @media(max-width:800px){.static-layout{grid-template-columns:1fr}}</style></head>'
         '<body><header><div class="kicker">CONDUCTOR_SIM / STATIC OFF-AXIS RING E/V</div><h1>'+
         escape(title)+'</h1><p class="sub">A real 3D fixed-source field sampled on an authored 2D plane — not constrained particle motion.</p></header>'
