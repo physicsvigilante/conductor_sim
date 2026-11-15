@@ -307,3 +307,84 @@ def test_no_implicit_change_to_questions_numerical_policy_or_baseline():
     assert second.study.model is child.model
     assert baseline.study.model is parent
     assert json.dumps(parent.as_dict(), sort_keys=True) == json.dumps(child.parent.as_dict(), sort_keys=True)
+
+
+def test_review_f01_multigeneration_export_contains_original_driven_model():
+    """Chat B F-01: final detached export alone recovers root driven history."""
+    from hashlib import sha256
+
+    root = replace(make_model(), model_id="review:ROOTMODEL",
+                   provenance="ROOT_DRIVEN_PROVENANCE_26A")
+    snapshot = root.as_dict()
+    source = NamedSource("point:temporary", "Temporary held point",
+                         FixedPointField(1e-10, (.2, 0, .1)))
+    first = edit(root, model_id="review:GEN1MODEL", scenario_id="review:GEN1BASE",
+                 add_sources=(source,))
+    second = edit(first, model_id="review:GEN2MODEL", scenario_id="review:GEN2BASE",
+                  remove_sources=("point:temporary",))
+    third = edit(second, model_id="review:GEN3MODEL", scenario_id="review:GEN3BASE",
+                 gravity=UniformGravity((0., 0., -.2)))
+    assert third.parent is second and second.parent is first and first.parent is root
+
+    # No caller-supplied parent records: the last JSON export is complete.
+    final = json.loads(json.dumps(third.as_dict(), allow_nan=False))
+    gen2 = final["parent_driven_assembly"]
+    gen1 = gen2["parent_driven_assembly"]
+    assert final["child_model"]["model_id"] == "review:GEN3MODEL"
+    assert gen2["child_model"]["model_id"] == "review:GEN2MODEL"
+    assert gen1["child_model"]["model_id"] == "review:GEN1MODEL"
+    assert gen1["parent_model"]["model_id"] == "review:ROOTMODEL"
+    assert gen1["parent_model"]["provenance"] == "ROOT_DRIVEN_PROVENANCE_26A"
+    assert gen1["parent_driven_assembly"] is None
+    assert gen1["parent_driven_assembly_revision_id"] is None
+    assert [c["operation"] for c in gen1["changes"]] == ["add-source"]
+    assert [c["operation"] for c in gen2["changes"]] == ["remove-source"]
+    assert [c["operation"] for c in final["changes"]] == ["add-gravity"]
+
+    for row, previous in ((gen1, None), (gen2, gen1), (final, gen2)):
+        # Parent-model record must match the previous child, both by ID
+        # and full model data. Each record's SHA binds its actual content.
+        assert row["parent_model_revision_id"] == row["parent_model"]["revision_id"]
+        assert row["child_model_revision_id"] == row["child_model"]["revision_id"]
+        assert row["base_assembly"]["parent_revision_id"] == row["parent_model"]["base"]["revision_id"]
+        if previous is not None:
+            assert row["parent_driven_assembly_revision_id"] == previous["revision_id"]
+            assert row["parent_model"] == previous["child_model"]
+        payload = {k: v for k, v in row.items() if k != "revision_id"}
+        digest = sha256(json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")).hexdigest()
+        assert row["revision_id"] == digest
+    assert final["revision_id"] == third.revision_id
+    assert gen2["revision_id"] == second.revision_id
+    assert gen1["revision_id"] == first.revision_id
+    assert root.as_dict() == snapshot
+    final["parent_driven_assembly"]["parent_driven_assembly"]["parent_model"]["provenance"] = "modified"
+    assert third.as_dict()["parent_driven_assembly"]["parent_driven_assembly"]["parent_model"]["provenance"] == "ROOT_DRIVEN_PROVENANCE_26A"
+
+
+def test_review_f02_separate_model_scenario_and_physical_component_namespaces():
+    """Chat B F-02: model IDs are record IDs, not physical component IDs."""
+    parent = make_model()
+    child = edit(
+        parent, model_id="review:CHILDMODEL", scenario_id="review:CHILDSCENARIO",
+        add_sources=(
+            NamedSource(parent.model_id, "Point named after parent model",
+                        FixedPointField(1e-10, (.2, 0, .1))),
+            NamedSource("review:CHILDMODEL", "Point named after child model",
+                        FixedPointField(1e-10, (.25, 0, .1))),
+            NamedSource("review:CHILDSCENARIO", "Point named after scenario",
+                        FixedPointField(1e-10, (.3, 0, .1))),
+        ),
+    )
+    ids = tuple(x[0] for x in child.model.base.source_annotations)
+    assert ids == (parent.model_id, child.model.model_id, child.model.base.scenario_id)
+    assert child.model.base.spec.field.sources
+    # Physical component roles still share ONE physical namespace. These
+    # collisions cannot be mistaken for source additions, despite separate
+    # model/scenario identifiers.
+    for role in (child.model.drag.component_id, child.model.applied.source_id):
+        with pytest.raises(ValueError, match="identities"):
+            edit(parent, model_id="review:other-model", scenario_id="review:other-scenario",
+                 add_sources=(NamedSource(role, "Invalid role alias",
+                                          FixedPointField(1e-10, (.2, 0, .1))),))
