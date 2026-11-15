@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/dipole_motion.py'
+      - 'src/conductor_sim/dipole_motion_viewer.py'
+      - 'tests/test_m23b_dipole_motion.py'
+      - 'examples/dipole_rotation.py'
+      - 'tools/check_m23b_motion.py'
+      - 'docs/m23b*'
       - 'src/conductor_sim/dipoles.py'
       - 'src/conductor_sim/dipole_viewer.py'
       - 'tests/test_m23a_dipoles.py'
@@ -21,6 +27,12 @@ on:
     branches: [main]
     paths:
       - 'src/conductor_sim/jee_potential_explorer.py'
+      - 'src/conductor_sim/dipole_motion.py'
+      - 'src/conductor_sim/dipole_motion_viewer.py'
+      - 'tests/test_m23b_dipole_motion.py'
+      - 'examples/dipole_rotation.py'
+      - 'tools/check_m23b_motion.py'
+      - 'docs/m23b*'
       - 'src/conductor_sim/dipoles.py'
       - 'src/conductor_sim/dipole_viewer.py'
       - 'tests/test_m23a_dipoles.py'
@@ -53,7 +65,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -70,6 +82,13 @@ jobs:
           for case in workbook-q47 point-field mixed-sources revised-field; do
             python examples/rigid_dipoles.py --case "$case" --output "review-artifacts/m23a-$case.html"
             python tools/check_m23a_dipole.py "review-artifacts/m23a-$case.html" --screenshot "review-artifacts/m23a-$case.png" > "review-artifacts/m23a-$case-browser.json"
+          done
+      - name: M23b real fixed-axis angular motion and source-guard stop
+        run: |
+          set -euo pipefail
+          for case in small-oscillation libration rotation point-pivot mixed-sources source-guard; do
+            python examples/dipole_rotation.py --case "$case" --output "review-artifacts/m23b-$case.html"
+            python tools/check_m23b_motion.py "review-artifacts/m23b-$case.html" --screenshot "review-artifacts/m23b-$case.png" > "review-artifacts/m23b-$case-browser.json"
           done
       - uses: actions/upload-artifact@v4
         if: always()
