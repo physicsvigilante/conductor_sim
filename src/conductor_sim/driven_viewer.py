@@ -12,11 +12,16 @@ from .driven_motion import validate_driven_run
 def render_driven_run(run, *, title='M24b · Drag and scheduled electric field'):
     validate_driven_run(run);record=run.as_dict()
     frames={s.time_s:s.as_dict() for s in run.samples}
-    for e in run.events:frames[e.sample.time_s]=e.sample.as_dict()
+    last=run.samples[-1].time_s
+    for e in run.events:
+        if e.sample.time_s<=last:
+            frames[e.sample.time_s]=e.sample.as_dict()
     record['display_states']=[frames[t] for t in sorted(frames)]
     events=''.join('<tr><td>'+escape(e.event_id)+'</td><td>'+escape(e.kind)+'</td><td>'+f'{e.sample.time_s:.10g} s'+
         '<br><small>'+escape(str(e.time_bracket_s))+'</small></td><td>'+f'{e.residual:.5g} '+escape(e.residual_unit)+
         '</td><td>'+('Speed within tolerance' if e.full_stop_within_tolerance else 'Not full rest')+'</td></tr>' for e in run.events)
+    candidate_note=('<p class="muted" id="terminal-candidates">Overlapping terminal brackets retain alternative numerical event states, not post-stop motion. Playback ends at the retained terminal state; their order is unresolved.</p>'
+                    if any(e.sample.time_s>last for e in run.events) else '')
     switches=''.join('<tr><td>'+f'{s.time_s:.10g} s'+'</td><td>'+escape(str(s.left.velocity_m_s))+
         '</td><td>'+escape(str(s.left.acceleration_m_s2))+'</td><td>'+escape(str(s.right.acceleration_m_s2))+'</td></tr>' for s in run.switches)
     outcomes=''.join('<p><strong>'+escape(k)+'</strong>: '+escape(v)+'</p>' for k,v in record['outcomes'].items())
@@ -37,7 +42,7 @@ def render_driven_run(run, *, title='M24b · Drag and scheduled electric field')
         '<section class="card"><h2>Authored switches: continuous position, velocity and work</h2><div class="scroll"><table id="switches"><thead><tr><th>Time</th><th>Velocity, both sides (m/s)</th><th>Left acceleration (m/s²)</th><th>Right acceleration (m/s²)</th></tr></thead><tbody>'+
         (switches or '<tr><td colspan="4">No switch reached in this observed interval.</td></tr>')+'</tbody></table></div></section>'
         '<section class="card"><h2>Located events</h2><div class="scroll"><table id="events"><thead><tr><th>Identity</th><th>Kind</th><th>Time / bracket</th><th>Residual</th><th>Interpretation</th></tr></thead><tbody>'+
-        (events or '<tr><td colspan="5">No isolated event located at the requested resolution.</td></tr>')+'</tbody></table></div><p>Ordering: '+escape(run.ordering)+
+        (events or '<tr><td colspan="5">No isolated event located at the requested resolution.</td></tr>')+'</tbody></table></div>'+candidate_note+'<p>Ordering: '+escape(run.ordering)+
         '</p><p class="muted">Brackets localize the numerical trajectory, not exact ODE error. Events within the requested time tolerance of a switch can remain unresolved.</p></section>'
         '<section class="card" id="outcomes"><h2>Question outcomes</h2>'+outcomes+notes+'<p class="muted">'+escape(record['qualification'])+'</p></section>'
         '</main><script id="driven-data" type="application/json">'+_safe_json_script(record)+'</script><script>'+_JS+'</script></body></html>')

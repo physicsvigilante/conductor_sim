@@ -19,7 +19,8 @@ from .scenarios import PrescribedScenario
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .motion_2d import _integrate_vector_motion, _SurfaceGuard
 from .motion_events import (EventPolicy, PlaneEvent, VelocityReversal, LocatedEvent,
-                            _Monitor, _identity, _native, _validate_questions, _value)
+                            _Monitor, _identity, _native, _validate_questions, _value,
+                            _validate_event_numbers, _validate_event_horizon)
 from .solver import UnsupportedProblem
 
 
@@ -345,10 +346,11 @@ def validate_driven_run(run):
     if rows[0].position_m!=spec.particle.position_m or rows[0].velocity_m_s!=spec.initial_velocity_m_s:
         raise ValueError('driven initial conditions changed')
     dyn=_DrivenDynamics(run.study)
-    def verify(row,*,left=False):
+    def verify(row,*,left=False,terminal_candidate=False):
         if type(row) is not DrivenSample:raise ValueError('invalid driven sample')
         _number(row.time_s,'saved time')
-        if not 0<=row.time_s<=rows[-1].time_s:raise ValueError('sample outside observed interval')
+        horizon=rows[-1].time_s+(policy.time_tolerance_s if terminal_candidate else 0.)
+        if not 0<=row.time_s<=horizon:raise ValueError('sample outside observed interval')
         if type(row.phase_index) is not int:raise ValueError('phase index must be integer')
         expected=model.applied.phase_at(row.time_s)-(1 if left else 0)
         if row.phase_index!=expected:raise ValueError('saved phase contradicts schedule')
@@ -380,7 +382,10 @@ def validate_driven_run(run):
         if not any(row==switch.right for row in rows):raise ValueError('right switch state not retained')
     questions={q.event_id:q for q in run.study.questions}
     for e in run.events:
-        verify(e.sample)
+        _validate_event_numbers(e)
+        _validate_event_horizon(e,run.events,rows[-1].time_s,run.termination,
+                                run.ordering,policy.time_tolerance_s)
+        verify(e.sample,terminal_candidate=True)
         if e.event_id not in questions:raise ValueError('unrequested driven event')
         q=questions[e.event_id];lo,hi=e.time_bracket_s
         if not 0<lo<=e.sample.time_s<=hi<=spec.duration_s or hi-lo>1.01*policy.time_tolerance_s:
