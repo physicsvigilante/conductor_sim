@@ -394,7 +394,8 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
 
 
 def _integrate_vector_motion(spec, geometry, observe, *,
-                             surface_description='Stopped before the ideal conductor; not an exact collision'):
+                             surface_description='Stopped before the ideal conductor; not an exact collision',
+                             step_observer=None, max_step_s=None):
     """Shared adaptive controller for conductor and prescribed-field motion.
 
     The caller supplies observations and a domain; no force law lives here.
@@ -462,6 +463,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                               surface_description))
                 break
             dt = min(h, target-t)
+            if max_step_s is not None:
+                dt = min(dt, max_step_s)  # Opt-in investigation resolution, not output spacing.
             a = acceleration(y[:3])
             normal_speed, normal_accel = geometry.approach_speed(y[:3], y[3:], a)
             if geometry.stationary:
@@ -506,11 +509,22 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             if error > 1:
                 h = max(.15*dt, dt*min(.8,.9*error**(-.2)))
                 continue
+            if step_observer is not None:
+                # Only a numerically accepted step is offered. A monitor may
+                # ask for subdivision or end the reported observation interval;
+                # it never supplies a force law or alters default trajectories.
+                decision = step_observer(t, y, dt, half, fine, rhs)
+                if decision is False:
+                    h = .5*dt
+                    continue
+                if decision is not None:
+                    t, y, termination = decision
+                    break
             t += dt
             y = fine
             h = min(spec.sample_interval_s,
                     max(.2*dt, dt*min(2.5,(.9/max(error,1e-10))**.2)))
-        if termination in ('surface-guard', 'charge-guard'):
+        if termination != 'duration':
             if t > records[-1].time_s + 2e-15*spec.duration_s:
                 record(t, y)
             break
