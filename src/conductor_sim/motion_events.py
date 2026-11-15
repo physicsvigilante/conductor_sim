@@ -417,6 +417,36 @@ def investigate_motion(study: EventStudy) -> EventRun:
     return result
 
 
+def _validate_event_numbers(event):
+    """Boolean numeric aliases must never become saved times or residuals."""
+    bracket = event.time_bracket_s
+    if type(bracket) not in (tuple, list) or len(bracket) != 2:
+        raise ValueError('event bracket must contain two finite physical times')
+    for value in bracket:
+        _number(value, 'event bracket time')
+    _number(event.residual, 'event residual')
+
+
+def _validate_event_horizon(event, events, last_time, termination, ordering, tolerance):
+    """Retain overlapping terminal alternatives, never later resolved motion.
+
+    A cluster can have slightly different representative numerical root times.
+    Only candidates whose brackets overlap the retained terminal bracket may
+    extend past its representative time, and only within the declared resolution.
+    Those alternative samples are not eligible for post-stop playback.
+    """
+    time = _number(event.sample.time_s, 'event time')
+    if time <= last_time:
+        return
+    overlaps = any(e.terminal and e.sample.time_s == last_time and
+        max(event.time_bracket_s[0], e.time_bracket_s[0]) <=
+        min(event.time_bracket_s[1], e.time_bracket_s[1]) for e in events)
+    if (termination != 'terminal-event' or
+            ordering != 'coincident-or-order-unresolved-within-time-resolution' or
+            time-last_time > tolerance or not overlaps):
+        raise ValueError('event is beyond the observed interval, not an unresolved terminal alternative')
+
+
 def validate_event_run(run):
     """Observation consistency, not authentication or an independent ODE proof."""
     if type(run) is not EventRun or run.trajectory.spec!=run.study.scenario.spec:
@@ -435,26 +465,42 @@ def validate_event_run(run):
     for row in (*rows,*(e.sample for e in run.events)):
         if type(row.time_s) not in (int,float) or not isfinite(row.time_s):
             raise ValueError('invalid saved physical time')
-        for key in ('position_m','velocity_m_s','force_n','electric_field_v_m','acceleration_m_s2'):
+        for key in ('position_m','displacement_m','velocity_m_s','force_n','electric_field_v_m','acceleration_m_s2'):
             _vector(getattr(row,key),key)
         if _FixedDomain(spec).clearance(row.position_m)<=0:raise ValueError('event inside source guard')
         expected=_sample(spec,row.time_s,(*row.position_m,*row.velocity_m_s))
-        for key in ('force_n','electric_field_v_m','acceleration_m_s2'):
+        for key in ('displacement_m','force_n','electric_field_v_m','acceleration_m_s2'):
             if getattr(row,key)!=getattr(expected,key):raise ValueError('saved event force/field mismatch')
-        for key in ('kinetic_energy_j','potential_energy_j','total_energy_j','energy_drift_j'):
+        for key in ('potential_v','kinetic_energy_j','potential_energy_j','total_energy_j','energy_drift_j'):
             a,b=getattr(row,key),getattr(expected,key)
             if type(a) not in (int,float) or not isfinite(a) or abs(a-b)>256*ulp(max(abs(a),abs(b),1e-300)):
-                raise ValueError('saved event energy mismatch')
+                raise ValueError('saved event energy/potential mismatch')
+        # Separate physical contributions remain meaningful even when totals
+        # cancel. Validate every exported contribution, including declared absence.
+        for key in CONTRIBUTION_KEYS:
+            actual, value = getattr(row,key), getattr(expected,key)
+            if value is None:
+                if actual is not None:
+                    raise ValueError('undeclared saved event contribution: '+key)
+            elif isinstance(value,tuple):
+                _vector(actual,key)
+                if actual != value:
+                    raise ValueError('saved event contribution mismatch: '+key)
+            else:
+                _number(actual,key)
+                if abs(actual-value)>256*ulp(max(abs(actual),abs(value),1e-300)):
+                    raise ValueError('saved event contribution mismatch: '+key)
     inventory={q.event_id:q for q in run.study.questions}
     for e in run.events:
         if e.event_id not in inventory:raise ValueError('unknown saved event identity')
+        _validate_event_numbers(e)
         q=inventory[e.event_id];lo,hi=e.time_bracket_s
         if e.kind!=('plane-crossing' if type(q) is PlaneEvent else 'directional-reversal') or e.residual_unit!=('m' if type(q) is PlaneEvent else 'm/s'):
             raise ValueError('event quantity or unit was changed')
         if type(e.full_stop_within_tolerance) is not bool:
             raise ValueError('full-stop classification must be Boolean')
-        if e.sample.time_s>rows[-1].time_s+policy.time_tolerance_s:
-            raise ValueError('event was reported beyond the observed interval')
+        _validate_event_horizon(e,run.events,rows[-1].time_s,
+            run.trajectory.termination,run.ordering,policy.time_tolerance_s)
         if not (0<lo<=e.sample.time_s<=hi<=spec.duration_s and hi-lo<=policy.time_tolerance_s*1.01):
             raise ValueError('invalid root time bracket')
         if type(e.direction) is not int or e.direction not in (-1,1) or q.direction and e.direction!=q.direction:

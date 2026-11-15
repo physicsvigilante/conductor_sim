@@ -2,6 +2,10 @@ name: M21b JEE source-faithful static E, V and work
 on:
   pull_request:
     paths:
+      - 'tests/test_post_m24b_review.py'
+      - 'examples/public_api_event_trial.py'
+      - 'tools/check_post_m24b_review.py'
+      - 'docs/post_m24b_review.md'
       - 'src/conductor_sim/driven_motion.py'
       - 'src/conductor_sim/driven_viewer.py'
       - 'tests/test_m24b_driven_motion.py'
@@ -42,6 +46,10 @@ on:
   push:
     branches: [main]
     paths:
+      - 'tests/test_post_m24b_review.py'
+      - 'examples/public_api_event_trial.py'
+      - 'tools/check_post_m24b_review.py'
+      - 'docs/post_m24b_review.md'
       - 'src/conductor_sim/driven_motion.py'
       - 'src/conductor_sim/driven_viewer.py'
       - 'tests/test_m24b_driven_motion.py'
@@ -97,7 +105,7 @@ jobs:
           mkdir -p review-artifacts
           git rev-parse HEAD > review-artifacts/commit.txt
           git rev-parse HEAD^{tree} > review-artifacts/tree.txt
-          python -m pytest tests/test_m24b_driven_motion.py tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
+          python -m pytest tests/test_post_m24b_review.py tests/test_m24b_driven_motion.py tests/test_m24a_motion_events.py tests/test_m23b_dipole_motion.py tests/test_m23a_dipoles.py tests/test_post_m22c_review.py tests/test_m21b_jee_potential.py tests/test_m21a_audit.py tests/test_m19a_prescribed_fields.py tests/test_m19e_source_orientation.py tests/test_m20a_scenario_comparison.py -q --junitxml=review-artifacts/m21b-tests.xml
       - name: Three independent offline Chromium JEE observations
         run: |
           set -euo pipefail
@@ -129,7 +137,7 @@ jobs:
             python examples/motion_event_studies.py --case "$case" --output "review-artifacts/m24a-$case.html"
             python tools/check_m24a_events.py "review-artifacts/m24a-$case.html" --screenshot "review-artifacts/m24a-$case.png" > "review-artifacts/m24a-$case-browser.json"
           done
-      - name: M24a preselected transfer first run on frozen committed candidate
+      - name: M24a retained transfer regression
         run: |
           set -euo pipefail
           python -m tools.check_m24a_transfer --output review-artifacts/m24a-transfer.html > review-artifacts/m24a-transfer-reference.json
@@ -141,11 +149,19 @@ jobs:
             python examples/drag_and_field_schedule.py --case "$case" --output "review-artifacts/m24b-$case.html"
             python tools/check_m24b_driven.py "review-artifacts/m24b-$case.html" --screenshot "review-artifacts/m24b-$case.png" > "review-artifacts/m24b-$case-browser.json"
           done
-      - name: M24b reserved first transfer on frozen committed candidate
+      - name: M24b retained transfer regression
         run: |
           set -euo pipefail
           python -m tools.check_m24b_transfer --output review-artifacts/m24b-transfer.html > review-artifacts/m24b-transfer-reference.json
           python tools/check_m24b_driven.py review-artifacts/m24b-transfer.html --screenshot review-artifacts/m24b-transfer.png > review-artifacts/m24b-transfer-browser.json
+      - name: Post-M24b terminal resolution and public authoring regressions
+        run: |
+          set -euo pipefail
+          python tools/check_post_m24b_review.py --output review-artifacts/post-m24b
+          for case in mirror-rod coaxial-rings; do
+            python examples/public_api_event_trial.py --case "$case" --output "review-artifacts/post-m24b/$case.html"
+            python tools/check_m24b_driven.py "review-artifacts/post-m24b/$case.html" --screenshot "review-artifacts/post-m24b/$case.png" > "review-artifacts/post-m24b/$case-browser.json"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
