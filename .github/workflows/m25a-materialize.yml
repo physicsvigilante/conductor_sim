@@ -1,0 +1,35 @@
+name: Temporary M25a exact-patch materialization
+on:
+  push:
+    branches:
+      - m25a-qualified-source-geometry
+    paths:
+      - '.github/workflows/m25a-materialize.yml'
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Reconstruct exact verified patch and publish tested tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .m25a-prep/chunk*.b64 > /tmp/m25a-archive.b64
+          test "$(sha256sum /tmp/m25a-archive.b64 | cut -d' ' -f1)" = "bb8760dee628cc8287c76c8390dc8df268145f6aaeedc3295565535ce0b57484"
+          base64 -d /tmp/m25a-archive.b64 | xz -d > /tmp/m25a-full.patch
+          test "$(sha256sum /tmp/m25a-full.patch | cut -d' ' -f1)" = "53ebb2d377d7c0ec972dfa56942c4d1316eeec690cbe830fd831acd7be04c695"
+          git apply --check /tmp/m25a-full.patch
+          git apply /tmp/m25a-full.patch
+          git add docs/m25a_charter.md
+          git -c user.name='PhysicsVigilante review' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'M25a: retain preimplementation composability acceptance charter'
+          git rm -r .m25a-prep .github/workflows/m25a-materialize.yml
+          git add -A
+          test "$(git write-tree)" = "0bff159adec1a67e2be8f657ab5486dfe06a3060"
+          git -c user.name='PhysicsVigilante review' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'M25a: shared qualified source geometry for motion and event viewers'
+          git push origin HEAD:refs/heads/m25a-qualified-source-geometry
