@@ -49,7 +49,7 @@ def _restore_field(record):
             restored=types[kind](**source)
         except (TypeError,ValueError) as exc:
             raise ValueError('invalid saved fixed-source geometry') from exc
-        if kind in ('UniformRingAxisField','UniformDiskAxisField'):
+        if kind in ('UniformRingAxisField','UniformRingField','UniformDiskAxisField'):
             # A normalized tilted axis can have norm 1 - 1 ulp. Running the
             # source constructor *again* renormalizes it and changes the last
             # float bit of E/V, including the tiny saved energy drift. Only

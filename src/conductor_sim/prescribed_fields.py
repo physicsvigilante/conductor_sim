@@ -1,12 +1,12 @@
 """Fixed, nonresponding electrostatic sources (SI), separate from conductors.
 
-Ring/disc formulas are deliberately axis-only. They must never be used to
-paint off-axis field maps. Charged material is not solved as an equipotential.
+The legacy ring/disc laws are axis-only. M27a's new UniformRingField has
+true off-axis E/V; the historical axial-only type stays unchanged. Charged material is not solved as an equipotential.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import copysign, fsum, hypot, inf, isfinite, log1p, pi, ulp
+from math import copysign, fsum, hypot, inf, isfinite, log1p, pi, sqrt, ulp
 from typing import Protocol
 
 from .model import EPSILON_0, Vector3
@@ -185,6 +185,127 @@ class UniformRingAxisField(_AxialDistribution):
         return k*self.charge_c/h, _mul(self.axis, k*self.charge_c*(z/h)/h/h)
 
 
+def _complete_ring_elliptics(complement):
+    """Complete K(m), E(m), with complement=1-m in (0,1].
+
+    Carlson RF(0,p,1) and RD(0,p,1) via bounded duplication and a
+    high-order convergent correction; no external math package. Supplying
+    the complementary parameter directly retains near-wire resolution
+    where 1 - m would spuriously round to zero.
+    """
+    p = _number(complement, "ring elliptic complementary parameter", positive=True)
+    if p > 1:
+        raise ValueError("ring elliptic complementary parameter must be <= 1")
+    x, y, z = 0., p, 1.
+    for _ in range(64):
+        avg = (x+y+z)/3
+        dx, dy, dz = (avg-x)/avg, (avg-y)/avg, (avg-z)/avg
+        if max(abs(dx), abs(dy), abs(dz)) < .0025:
+            e2 = dx*dy - dz*dz
+            e3 = dx*dy*dz
+            rf = (1 + (-.1 + e2/24 - 3*e3/44)*e2 + e3/14)/sqrt(avg)
+            break
+        sx, sy, sz = sqrt(x), sqrt(y), sqrt(z)
+        lam = sx*(sy+sz) + sy*sz
+        x, y, z = (x+lam)/4, (y+lam)/4, (z+lam)/4
+    else:
+        raise ValueError("ring elliptic RF did not converge")
+    x, y, z, total, fac = 0., p, 1., 0., 1.
+    for _ in range(64):
+        avg = (x+y+3*z)/5
+        dx, dy, dz = (avg-x)/avg, (avg-y)/avg, (avg-z)/avg
+        if max(abs(dx), abs(dy), abs(dz)) < .0015:
+            ea, eb = dx*dy, dz*dz
+            ec, ed = ea-eb, ea-6*eb
+            ee = ed+2*ec
+            rd = 3*total + fac*(1 + ed*(-3/14 + 9*ed/88 - 9*dz*ee/52)
+                                + dz*(ee/6 + dz*(-9*ec/22 + 3*dz*ea/26)))/(avg*sqrt(avg))
+            break
+        sx, sy, sz = sqrt(x), sqrt(y), sqrt(z)
+        lam = sx*(sy+sz) + sy*sz
+        total += fac/(sz*(z+lam))
+        fac /= 4
+        x, y, z = (x+lam)/4, (y+lam)/4, (z+lam)/4
+    else:
+        raise ValueError("ring elliptic RD did not converge")
+    k_integral = rf
+    e_integral = rf - (1-p)*rd/3
+    if not all(isfinite(v) and v > 0 for v in (k_integral, e_integral)):
+        raise ValueError("ring elliptic integral was not numerically representable")
+    return k_integral, e_integral
+
+
+@dataclass(frozen=True, slots=True)
+class UniformRingField(_AxialDistribution):
+    """Static 3D E/V of an ideal uniformly charged, nonconducting thin ring.
+
+    Unlike historical UniformRingAxisField, this supports genuine off-axis
+    observations. It does NOT qualify particle/dipole time integration in
+    M27a; that requires a separate whole-system M27b certificate.
+    """
+    def __post_init__(self):
+        _AxialDistribution.__post_init__(self)
+        resolution = max(ulp(c) for c in (*self.center_m, self.radius_m))
+        if 64*resolution > 1e-10*self.radius_m:
+            raise UnsupportedProblem("ring radius/centre geometry is poorly resolved in world coordinates")
+
+    def _cylindrical(self, point):
+        displacement = _sub(point, self.center_m)
+        axial = _dot(displacement, self.axis)
+        transverse = _sub(displacement, _mul(self.axis, axial))
+        radius = hypot(*transverse)
+        return axial, transverse, radius
+
+    def clearance_at(self, point_m):
+        point = _vector(point_m, "ring clearance sample point")
+        z, _, rho = self._cylindrical(point)
+        return hypot(rho-self.radius_m, z)
+
+    def _values(self, point, k, need_field):
+        z, transverse, rho = self._cylindrical(point)
+        a = self.radius_m
+        # An ideal line-charge ring has a logarithmic V pole and divergent
+        # E on its rim. A world-coordinate ulp guard prevents treating an
+        # indistinguishable near-rim point as a well-resolved field value.
+        precision = 64*max(ulp(c) for c in (*point, *self.center_m, a, rho, z))
+        separation = hypot(a-rho, z)
+        if separation <= precision:
+            raise SingularField("ideal thin charged ring wire is singular or numerically unresolved")
+        scale = max(a, rho, abs(z))
+        aa, rr, zz = a/scale, rho/scale, z/scale
+        axial_distance = hypot(aa, zz)
+        if rr <= .003*axial_distance:
+            # A fourth-order near-axis expansion avoids subtracting large
+            # near-equal complete-elliptic terms to obtain E_rho ~ rho.
+            a2, z2 = aa*aa, zz*zz
+            h2 = a2 + z2
+            h = sqrt(h2)
+            c2 = (a2-2*z2)/(4*h2*h2)
+            c4 = (9*a2*a2-72*a2*z2+24*z2*z2)/(64*h2**4)
+            pot = (1 + c2*rr*rr + c4*rr**4)/h
+            radial = -(2*c2*rr + 4*c4*rr**3)/h
+            axial_field = (zz/h**3 +
+                rr*rr*zz*(9*a2-6*z2)/(4*h2**3.5) +
+                rr**4*zz*(225*a2*a2-600*a2*z2+120*z2*z2)/(64*h2**5.5))
+        else:
+            b = hypot(aa+rr, zz)
+            d = hypot(aa-rr, zz)
+            complementary = (d/b)**2  # Do NOT evaluate 1 - 4*a*rho/b^2.
+            if complementary == 0:
+                raise SingularField("ring is too near its ideal wire for resolved E/V")
+            K, E = _complete_ring_elliptics(complementary)
+            pot = 2*K/(pi*b)
+            axial_field = 2*zz*E/(pi*b*d*d)
+            radial = (K + ((rr*rr-aa*aa-zz*zz)/(d*d))*E)/(pi*rr*b)
+        strength = k*self.charge_c
+        potential = strength*pot/scale
+        ez = strength*axial_field/(scale*scale)
+        er = strength*radial/(scale*scale)
+        if rho == 0:
+            return potential, _mul(self.axis, ez)
+        return potential, tuple(ez*self.axis[i]+er*transverse[i]/rho for i in range(3))
+
+
 @dataclass(frozen=True, slots=True)
 class UniformDiskAxisField(_AxialDistribution):
     """Uniform fixed disc surface charge, ONLY on its axis, not a metal disc."""
@@ -253,7 +374,7 @@ class UniformRodField(_FixedSource):
 
 
 SOURCE_TYPES = (UniformElectricField, FixedPointField, UniformSphereField,
-                UniformShellField, UniformRingAxisField, UniformDiskAxisField, UniformRodField)
+                UniformShellField, UniformRingAxisField, UniformRingField, UniformDiskAxisField, UniformRodField)
 
 
 @dataclass(frozen=True, slots=True)

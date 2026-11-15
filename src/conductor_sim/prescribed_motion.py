@@ -15,7 +15,7 @@ from .motion_2d import _integrate_vector_motion, _perpendicular, _SurfaceGuard
 from .observables import EnergyBreakdown
 from .prescribed_fields import (
     PrescribedField, UniformElectricField, FixedPointField, UniformSphereField,
-    UniformShellField, UniformRingAxisField, UniformDiskAxisField, UniformRodField,
+    UniformShellField, UniformRingAxisField, UniformRingField, UniformDiskAxisField, UniformRodField,
     _dot, _sub, _mul, _number, _vector, _unit, _on_line,
 )
 from .solver import UnsupportedProblem
@@ -119,6 +119,8 @@ class TestChargeMotionSpec:
             raise TypeError('expected PrescribedField and a separate test-particle PointCharge')
         if self.gravity is not None and type(self.gravity) is not UniformGravity:
             raise TypeError('gravity must be built-in UniformGravity or None')
+        if any(type(source) is UniformRingField for source in self.field.sources):
+            raise UnsupportedProblem('M27a off-axis rings support static E/V only; particle motion requires M27b qualification')
         _number(self.particle.charge_c, 'test charge', nonzero=True)
         for name in ('mass_kg','duration_s','sample_interval_s','relative_tolerance',
                      'length_scale_m','source_guard_m'):
