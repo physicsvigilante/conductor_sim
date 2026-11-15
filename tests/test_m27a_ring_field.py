@@ -266,3 +266,25 @@ def test_n5_masked_cell_cannot_be_replaced_with_fabricated_zero(workbook):
     masked["electric_field_v_m"]=[0.,0.,0.]
     with pytest.raises(ValueError,match="source mask"):
         validate_ring_field_slice(tampered)
+
+
+def test_rotated_observation_plane_roundtrip_and_real_geometry_tamper_refusal():
+    """Double normalization of valid tilted plane basis is harmless rounding."""
+    source=ring(charge_c=-1.3e-9, radius_m=.17,
+                center_m=(.01,.02,-.03), axis=(1.,2.,3.))
+    field=PrescribedField((source,UniformElectricField((1.,-2.,3.))))
+    plane=SliceSpec(origin_m=(.03,-.01,.04),
+            u=(.2005,.7333,.4123),v=(-.7333,.2005,0.),
+            x_range_m=(-.4,.4),y_range_m=(-.4,.4),resolution=17)
+    original=plane.u
+    assert isclose(hypot(*original),1.,rel_tol=3e-15)
+    bundle=sample_ring_field_slice(field,plane,
+       source_annotations=(("ring:tilted","Tilted physical ring"),
+                           ("field:tilted","Oblique uniform E")),
+       exclusion_width_m=.008)
+    assert validate_ring_field_slice(bundle) is True
+    assert bundle["ring_projections"][0]["projection"].startswith("orthographic")
+    changed=deepcopy(bundle)
+    changed["ring_projections"][0]["projected_rim_uvn"][14][0]+=1e-5
+    with pytest.raises(ValueError,match="projection"):
+        validate_ring_field_slice(changed)

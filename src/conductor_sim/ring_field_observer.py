@@ -155,8 +155,36 @@ def validate_ring_field_slice(record):
     if incoming != annotations:
         raise ValueError("source identity or kind differs from actual ring model")
     expected_geometry = _projection_metadata(field, plane, annotations)
-    if record["ring_projections"] != json.loads(json.dumps(expected_geometry, allow_nan=False)):
-        raise ValueError("saved ring projection differs from 3D source geometry")
+    rendered_geometry = record["ring_projections"]
+    if type(rendered_geometry) is not list or len(rendered_geometry) != len(expected_geometry):
+        raise ValueError("ring source projection inventory differs from actual 3D sources")
+    for saved, expected in zip(rendered_geometry, expected_geometry):
+        if type(saved) is not dict or set(saved) != set(expected):
+            raise ValueError("ring projection has forged or missing physical source metadata")
+        # Exact source identities, physical parameters and world orientations
+        # remain byte-specific. Only the calculated 2D/normal projection
+        # coordinates tolerate unit-vector re-normalization by a few ulps
+        # when a tilted SliceSpec is reconstructed from saved JSON.
+        for key in ("source_id", "label", "kind", "projection", "charge_c",
+                    "radius_m", "world_center_m", "world_axis"):
+            if saved[key] != expected[key]:
+                raise ValueError("ring projection identity or physical source was modified")
+        scale = max(expected["radius_m"], *(abs(v) for v in (
+            *expected["world_center_m"], *plane.origin_m)))
+        tol = 4e-13*scale
+        for key in ("center_uvn", "projected_rim_uvn"):
+            a, b = saved[key], expected[key]
+            if type(a) is not list or len(a) != len(b):
+                raise ValueError("ring projection coordinates are malformed")
+            pairs = (zip(a,b) if key == "center_uvn" else
+                     (pair for arow,brow in zip(a,b)
+                      if type(arow) is list and len(arow) == len(brow) == 3
+                      for pair in zip(arow,brow)))
+            if key == "projected_rim_uvn" and any(type(row) is not list or len(row)!=3 for row in a):
+                raise ValueError("ring projected-rim coordinate shape changed")
+            if any(not _real(v) or not isclose(v,ex,rel_tol=4e-13,abs_tol=tol)
+                   for v,ex in pairs):
+                raise ValueError("saved ring projection differs from actual 3D source geometry")
     grid = record["grid"]
     if type(grid) is not dict or set(grid) != {"x_m","y_m","rows","columns","cells"}:
         raise ValueError("invalid saved ring grid")
