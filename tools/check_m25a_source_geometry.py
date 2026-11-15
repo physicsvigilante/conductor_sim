@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from dataclasses import replace
+from math import sqrt, hypot
 import shutil
 
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
@@ -26,11 +28,25 @@ from conductor_sim.driven_viewer import render_driven_run
 from examples.public_api_event_trial import author
 from examples.mirrored_rods import make_case
 
-CASES=('coaxial-rings','mirror-rod','offplane-rods','hybrid-sources','ring-disk','event-rings')
+CASES=('coaxial-rings','mirror-rod','offplane-rods','hybrid-sources','ring-disk','event-rings',
+       'tilted-rings','tilted-event-rings')
 
 
 def prepare(case):
     policy=EventPolicy(.01,1e-9,1e-10,1e-9)
+    if case in ('tilted-rings','tilted-event-rings'):
+        original, queries = author('coaxial-rings')
+        normal=(0.,1/sqrt(2),1/sqrt(2))
+        spec=replace(original.spec,plane_normal=normal)
+        base=PrescribedScenario('m25a:tilted-ring-plane', spec,original.base.source_annotations,
+            'Teacher hypothetical: the true x-axis trajectory stays in the rotated motion plane.')
+        if case=='tilted-event-rings':
+            run=investigate_motion(EventStudy(base,(queries[1],),policy))
+            return render_event_run(run,title='M25a F-01 corrected 45-degree edge-on ring geometry'),run.as_dict()
+        driven=DrivenModel(base,original.drag,original.applied,'m25a:tilted-ring-driven',
+            'Teacher hypothetical; true physical rotated plane with unchanged source laws.')
+        run=investigate_driven_motion(DrivenStudy(driven,queries,policy))
+        return render_driven_run(run,title='M25a F-01 corrected driven ring geometry'),run.as_dict()
     if case in ('coaxial-rings','mirror-rod','event-rings'):
         model, queries=author('coaxial-rings' if case=='event-rings' else case)
         if case=='event-rings':
@@ -84,7 +100,7 @@ def check(case,out_dir:Path):
         page.on('console',lambda e:console_errors.append(e.text) if e.type=='error' else None)
         page.on('request',lambda r:external_requests.append(r.url))
         page.set_content(html,wait_until='load')
-        viewer='conductorEventViewer' if case in ('event-rings','offplane-rods') else 'conductorDrivenViewer'
+        viewer='conductorEventViewer' if case in ('event-rings','offplane-rods','tilted-event-rings') else 'conductorDrivenViewer'
         page.wait_for_function('window.'+viewer+' && window.'+viewer+'.loaded')
         data=page.evaluate('data');geometry=data['source_geometry'];entries=geometry['entries']
         full_model=(data['study']['model'] if viewer=='conductorEventViewer'
@@ -121,15 +137,33 @@ def check(case,out_dir:Path):
                 assert len(e['bounds_uv'])==0
                 assert 'full 3d field' in e['notes'].lower() or 'source field still active' in e['notes'].lower()
                 assert 'omitted' in page.locator('#sources').inner_text().lower()
-            elif e['shape'] in ('point','rod','sphere-slice','shell-slice','ring-projection','disk-projection'):
+            elif e['shape'] in ('point','rod','sphere-slice','shell-slice','slice-tangent','ring-projection','disk-projection'):
                 assert label_found,(case,'missing visible source label',e['source_id'])
-        if case in ('coaxial-rings','event-rings'):
+        if case in ('coaxial-rings','event-rings','tilted-rings','tilted-event-rings'):
             assert [e['shape'] for e in entries]==['ring-projection']*2
             assert all(e['edge_on'] for e in entries)
             assert all(e['radius_m']==.3 for e in entries)
             assert any('ring (edge-on)' in x for x in painted_labels)
             assert not any(' · rod' in x for x in painted_labels)
             assert len([x for x in painted if x['name']=='lineTo'])>130
+            if case in ('tilted-rings','tilted-event-rings'):
+                # Fresh CanvasRenderingContext2D arc instrumentation, not a
+                # DOM-only label test. Physical ring axis is world x, and
+                # the qualified 45-degree normal is (0,1/sqrt(2),1/sqrt(2)).
+                # Hence the true projected rim endpoints are at world-plane
+                # coordinates center_uv +/- (0,R), NOT either R/sqrt(2) rim column.
+                arcs=[c['args'] for c in painted if c['name']=='arc' and abs(c['args'][2]-4)<1e-8]
+                expected=page.evaluate('''()+>'''.replace('+>','=>')+'''{
+                  const e=data.source_geometry.entries;
+                  return e.flatMap(r=>[[X(r.center_uv[0]),Y(r.center_uv[1]-r.radius_m)],
+                                      [X(r.center_uv[0]),Y(r.center_uv[1]+r.radius_m)]]);
+                }''')
+                assert len(arcs)==len(expected),(case,'ring marker count',len(arcs),len(expected))
+                for x,y in expected:
+                    assert min(hypot(c[0]-x,c[1]-y) for c in arcs)<1e-5,(
+                        case,'edge-on canvas endpoint deviates from true projected rim',(x,y),arcs)
+                assert all(abs(hypot(*e['projected_major_axis_uv'])-.3)<1e-13 for e in entries)
+                assert any(max(hypot(*b) for b in e['rim_basis_uv'])<.22 for e in entries)
         elif case=='mirror-rod':
             assert [e['shape'] for e in entries]==['omitted','omitted','rod']
             assert entries[0]['signed_normal_offset_m']==.18

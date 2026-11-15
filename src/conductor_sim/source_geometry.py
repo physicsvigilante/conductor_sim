@@ -51,17 +51,55 @@ def _rim_axes(normal):
     return first, _unit(_cross(normal, first), 'rim second axis')
 
 
-def source_geometry(spec: TestChargeMotionSpec, annotations) -> dict:
+
+def _projected_major_axis(a, b, radius):
+    """Major projected semiaxis of a physical circular rim, not one rim column.
+
+    The projection matrix is [a b]. Its major squared singular value is the
+    largest eigenvalue of a*a.T + b*b.T. Divide by the physical radius before
+    squaring to avoid an otherwise unnecessary radius-squared overflow.
+    Either orientation is valid; the viewer paints both endpoint signs.
+    """
+    ax, ay, bx, by = a[0]/radius, a[1]/radius, b[0]/radius, b[1]/radius
+    xx, xy, yy = ax*ax+bx*bx, ax*ay+bx*by, ay*ay+by*by
+    eigen = (xx+yy+hypot(xx-yy, 2*xy))/2
+    # Choose the better-conditioned eigenvector identity in near-axial cases.
+    c1, c2 = (xy, eigen-xx), (eigen-yy, xy)
+    direction = c1 if hypot(*c1) >= hypot(*c2) else c2
+    norm = hypot(*direction)
+    if norm == 0:  # Face-on circle: any direction is a major axis.
+        direction, norm = (1., 0.), 1.
+    semiaxis = radius*sqrt(eigen)
+    result = (semiaxis*direction[0]/norm, semiaxis*direction[1]/norm)
+    if not all(isfinite(x) for x in result):
+        raise ValueError('circular projected semiaxis overflowed')
+    return result
+
+def source_geometry(spec: TestChargeMotionSpec, annotations, *, trusted_scenario=None) -> dict:
     """A typed, deterministic visual ledger; unchanged physical model and IDs.
 
     `point`, `rod` and `sphere/shell` are *physical slice geometry*; rings
     and discs are *3D orthographic projections* of their actual circles.
     Fields are arrow glyphs, not a field-line map. Undrawable shapes keep their
     world positions and signed normal offsets in the visible source ledger.
+
+    Raw (spec, annotations) is an *author assertion*; syntax/uniqueness alone
+    cannot authenticate physical source IDs. Integrated viewers supply the
+    already validated, immutable PrescribedScenario as trusted_scenario and
+    require its exact spec object and annotation binding. HTML is not an
+    authenticated import format; model revision IDs encode authored facts.
     """
     if type(spec) is not TestChargeMotionSpec or type(spec.field) is not PrescribedField:
         raise TypeError('geometry requires a qualified built-in particle-motion specification')
     annotations = tuple(annotations)
+    if trusted_scenario is not None:
+        # Only an explicit immutable authored scenario can bind physical IDs.
+        # The independent-array helper does not claim to authenticate labels.
+        from .scenarios import PrescribedScenario
+        if (type(trusted_scenario) is not PrescribedScenario or
+                trusted_scenario.spec is not spec or
+                trusted_scenario.source_annotations != annotations):
+            raise ValueError('geometry IDs must match the exact retained scenario binding')
     if len(annotations) != len(spec.field.sources):
         raise ValueError('physical source IDs must match the exact source inventory')
     n = _unit(spec.plane_normal, 'physical-plane normal')
@@ -115,11 +153,19 @@ def source_geometry(spec: TestChargeMotionSpec, annotations) -> dict:
             c = _plane_coordinate(src.center_m, origin, u, v, n)
             e.update(charge_c=src.charge_c, radius_m=src.radius_m,
                      world_position_m=src.center_m, signed_normal_offset_m=c[2], center_uv=c[:2])
-            if abs(c[2]) > src.radius_m + _normal_clearance(src.center_m, origin, spec.length_scale_m):
+            separation = abs(c[2])
+            if separation > src.radius_m:
+                # Physical geometric non-intersection is STRICT: the numerical
+                # tolerance for an almost invariant motion plane cannot make
+                # a genuine off-plane sphere/shell intersect that plane.
                 e.update(shape='omitted', status='omitted-out-of-plane',
-                         notes='No intersection with physical motion slice; source field still active.')
+                         notes='No physical intersection with motion slice; source field still active.')
+            elif separation == src.radius_m:
+                e.update(shape='slice-tangent', status='slice-tangent',
+                         slice_radius_m=0., bounds_uv=[c[:2]],
+                         notes='Actual single-point tangent to physical motion slice; no nonzero-area cross-section.')
             else:
-                radius = sqrt(max(0., (src.radius_m-abs(c[2]))*(src.radius_m+abs(c[2]))))
+                radius = sqrt((src.radius_m-separation)*(src.radius_m+separation))
                 e.update(shape='sphere-slice' if type(src) is UniformSphereField else 'shell-slice',
                          status='slice-intersection', slice_radius_m=radius,
                          bounds_uv=[(c[0]-radius,c[1]-radius),(c[0]+radius,c[1]+radius)],
@@ -134,11 +180,13 @@ def source_geometry(spec: TestChargeMotionSpec, annotations) -> dict:
                 raise ValueError('circular source projection overflowed')
             edge_on = abs((a[0]/src.radius_m)*(b[1]/src.radius_m)-(a[1]/src.radius_m)*(b[0]/src.radius_m)) <= 1e-10
             rx, ry = hypot(a[0],b[0]), hypot(a[1],b[1])
+            major = _projected_major_axis(a, b, src.radius_m)
             e.update(shape='ring-projection' if type(src) is UniformRingAxisField else 'disk-projection',
                      status='orthographic-projection', charge_c=src.charge_c,
                      radius_m=src.radius_m, world_position_m=src.center_m,
                      signed_normal_offset_m=c[2], center_uv=c[:2],
-                     world_axis=src.axis, rim_basis_uv=[a,b], edge_on=edge_on,
+                     world_axis=src.axis, rim_basis_uv=[a,b], projected_major_axis_uv=major,
+                     edge_on=edge_on,
                      bounds_uv=[(c[0]-rx,c[1]-ry),(c[0]+rx,c[1]+ry)],
                      notes=('Fixed thin charged ring' if type(src) is UniformRingAxisField
                             else 'Fixed uniformly charged nonconducting disc')+
@@ -210,6 +258,10 @@ function drawSourceGeometry(ctx,geometry,X,Y,pix,region){
    ctx.lineWidth=5;path(e.endpoints_uv);ctx.stroke();
    label(e,[(e.endpoints_uv[0][0]+e.endpoints_uv[1][0])/2,(e.endpoints_uv[0][1]+e.endpoints_uv[1][1])/2],' · rod');continue;
   }
+  if(e.shape==='slice-tangent'){
+   const p=e.center_uv;ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(p[0]),Y(p[1]),4,0,2*Math.PI);ctx.stroke();
+   label(e,p,' · tangent point');continue;
+  }
   if(e.shape==='sphere-slice'||e.shape==='shell-slice'){
    const p=e.center_uv;ctx.setLineDash(e.shape==='shell-slice'?[3,4]:[8,4]);
    ctx.beginPath();ctx.arc(X(p[0]),Y(p[1]),e.slice_radius_m*pix,0,2*Math.PI);ctx.stroke();
@@ -226,7 +278,9 @@ function drawSourceGeometry(ctx,geometry,X,Y,pix,region){
    }else{
     ctx.setLineDash([4,3]);ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
     if(e.edge_on){
-     const z=Math.hypot(...a)>Math.hypot(...b)?a:b;
+     // The end of an edge-on projected circle is the major singular
+     // semiaxis of [a b], not necessarily either parameterization column.
+     const z=e.projected_major_axis_uv;
      for(const s of [-1,1]){ctx.beginPath();ctx.arc(X(c[0]+s*z[0]),Y(c[1]+s*z[1]),4,0,2*Math.PI);ctx.stroke();}
     }
    }

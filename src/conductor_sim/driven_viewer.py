@@ -12,7 +12,7 @@ from .source_geometry import source_geometry, SOURCE_GEOMETRY_JS
 
 def render_driven_run(run, *, title='M24b · Drag and scheduled electric field'):
     validate_driven_run(run);record=run.as_dict()
-    record['source_geometry']=source_geometry(run.study.model.base.spec, run.study.model.base.source_annotations)
+    record['source_geometry']=source_geometry(run.study.model.base.spec, run.study.model.base.source_annotations, trusted_scenario=run.study.model.base)
     frames={s.time_s:s.as_dict() for s in run.samples}
     last=run.samples[-1].time_s
     for e in run.events:

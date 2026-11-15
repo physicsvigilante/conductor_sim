@@ -13,7 +13,7 @@ from .source_geometry import source_geometry, SOURCE_GEOMETRY_JS
 def render_event_run(run: EventRun, *, title='M24a · Motion event investigations'):
     validate_event_run(run)
     record=run.as_dict()
-    record['source_geometry']=source_geometry(run.study.scenario.spec, run.study.scenario.source_annotations)
+    record['source_geometry']=source_geometry(run.study.scenario.spec, run.study.scenario.source_annotations, trusted_scenario=run.study.scenario)
     frames={s.time_s:s.as_dict() for s in run.trajectory.samples}
     last=run.trajectory.samples[-1].time_s
     for event in run.events:
