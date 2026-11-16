@@ -133,3 +133,9 @@ from .trajectory_sweep_viewer import (render_trajectory_sweep,
 __all__ += ["SweepAxis", "TrajectorySweepPlan", "SweepEntry",
             "TrajectorySweepRun", "run_trajectory_sweep",
             "render_trajectory_sweep", "write_trajectory_sweep_html"]
+
+from .event_sweep import (EventSweepPlan, EventSweepEntry,
+                          EventSweepRun, run_event_sweep)
+from .event_sweep_viewer import render_event_sweep, write_event_sweep_html
+__all__ += ["EventSweepPlan", "EventSweepEntry", "EventSweepRun",
+            "run_event_sweep", "render_event_sweep", "write_event_sweep_html"]
