@@ -166,3 +166,10 @@ from .structural_parameter_family import (
 )
 __all__ += ["BranchSweep", "StructuralParameterPlan", "BranchSweepEntry",
             "StructuralParameterRun", "run_structural_parameter_family"]
+
+from .nested_event_family import (
+    NestedEventPlan, NestedVariationEvent, NestedBranchEvent,
+    NestedEventRun, run_nested_event_family,
+)
+__all__ += ["NestedEventPlan", "NestedVariationEvent", "NestedBranchEvent",
+            "NestedEventRun", "run_nested_event_family"]
