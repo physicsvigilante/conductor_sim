@@ -154,8 +154,7 @@ shared physically qualified plane. This is TRAJECTORY SPACE ONLY, NOT an apparat
 geometry, not a map of ring rims or source positions, and not a video of sources
 changing during one physical experiment. Paths stop at real solved termination;
 no source contact or postguard continuation is inferred.</p>
-<svg id="structural-plot" viewBox="0 0 860 480" role="img" aria-label="Compared native particle trajectories in a common world plane">"""+
-svg+"""</svg>
+<svg id="structural-plot" viewBox="0 0 860 480" role="img" aria-label="Compared native particle trajectories in a common world plane">"""+svg+"""</svg>
 <p class="muted" id="projection"></p>
 <div class="controls"><button type="button" id="play">Play saved states</button>
 <button type="button" id="restart">Restart</button>
