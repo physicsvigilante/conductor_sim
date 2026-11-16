@@ -12,7 +12,7 @@ import re
 
 from .prescribed_fields import (
     FixedPointField, PrescribedField, UniformDiskAxisField,
-    UniformElectricField, UniformRingAxisField, UniformRodField,
+    UniformElectricField, UniformRingAxisField, UniformRingField, UniformRodField,
     UniformShellField, UniformSphereField, _dot, _sub, _unit, _vector,
 )
 from .prescribed_motion import TestChargeMotionSpec
@@ -171,7 +171,7 @@ def source_geometry(spec: TestChargeMotionSpec, annotations, *, trusted_scenario
                          bounds_uv=[(c[0]-radius,c[1]-radius),(c[0]+radius,c[1]+radius)],
                          notes=('Uniform nonconducting volume-charge sphere cross-section.' if type(src) is UniformSphereField
                                 else 'Fixed nonconducting thin-shell surface intersection; field jumps at surface.'))
-        elif type(src) in (UniformRingAxisField, UniformDiskAxisField):
+        elif type(src) in (UniformRingAxisField, UniformRingField, UniformDiskAxisField):
             c = _plane_coordinate(src.center_m, origin, u, v, n)
             p, q = _rim_axes(src.axis)
             a = (src.radius_m*_dot(p,u), src.radius_m*_dot(p,v))
@@ -181,17 +181,23 @@ def source_geometry(spec: TestChargeMotionSpec, annotations, *, trusted_scenario
             edge_on = abs((a[0]/src.radius_m)*(b[1]/src.radius_m)-(a[1]/src.radius_m)*(b[0]/src.radius_m)) <= 1e-10
             rx, ry = hypot(a[0],b[0]), hypot(a[1],b[1])
             major = _projected_major_axis(a, b, src.radius_m)
-            e.update(shape='ring-projection' if type(src) is UniformRingAxisField else 'disk-projection',
+            e.update(shape='ring-projection' if type(src) in (UniformRingAxisField, UniformRingField) else 'disk-projection',
                      status='orthographic-projection', charge_c=src.charge_c,
                      radius_m=src.radius_m, world_position_m=src.center_m,
                      signed_normal_offset_m=c[2], center_uv=c[:2],
                      world_axis=src.axis, rim_basis_uv=[a,b], projected_major_axis_uv=major,
                      edge_on=edge_on,
                      bounds_uv=[(c[0]-rx,c[1]-ry),(c[0]+rx,c[1]+ry)],
-                     notes=('Fixed thin charged ring' if type(src) is UniformRingAxisField
+                     notes=('Fixed thin charged ring' if type(src) in (UniformRingAxisField, UniformRingField)
                             else 'Fixed uniformly charged nonconducting disc')+
                            ' · '+('edge-on' if edge_on else 'elliptical')+
-                           ' orthographic projection ONLY; field and potential remain axis-only.')
+                           (' orthographic projection ONLY; full 3D off-axis E/V is evaluated in the certified plane.'
+                            if type(src) is UniformRingField else
+                            ' orthographic projection ONLY; field and potential remain axis-only.'))
+            if type(src) is UniformRingField:
+                from .ring_motion_symmetry import certify_ring_motion_plane
+                e['motion_symmetry_mode'] = certify_ring_motion_plane(
+                    src, origin_m=origin, normal=n)
         else:
             raise TypeError('unsupported physical source type: '+kind)
         # Guard display-only computed extents against overflow: the underlying
@@ -199,12 +205,24 @@ def source_geometry(spec: TestChargeMotionSpec, annotations, *, trusted_scenario
         if any(not isfinite(x) for p in e['bounds_uv'] for x in p):
             raise ValueError('source geometry display extent overflowed')
         entries.append(e)
+    has_full_ring = any(type(src) is UniformRingField for src in spec.field.sources)
+    # Old source-geometry ledgers and viewer imports remain byte-identical
+    # when the new full-ring component is absent.
+    qualification = (
+        'Geometry only; new full rings use genuine off-axis 3D E/V under strict '
+        'meridian/equatorial physical-plane symmetry; legacy axial rings/discs '
+        'remain axis-only. Ring rims are orthographic 3D projections, not '
+        'charged rods or particle guides. Off-plane point/rod sources remain '
+        'active in the physical field despite their omitted glyphs. '
+        'No conductor response or browser physics.'
+        if has_full_ring else
+        'Geometry only; no off-axis ring/disc field or potential, no conductor response. '
+        'Off-plane point/rod objects have no false in-plane markers. '
+        'Ring/disc shapes are orthographic 3D projections; spheres/shells are physical slice intersections.')
     return dict(schema='conductor_sim.source_geometry.v1',
                 physical_plane='through moving particle at initial position; normal is authored',
                 origin_m=origin, normal=n, u=u, v=v, entries=entries,
-                qualification=('Geometry only; no off-axis ring/disc field or potential, no conductor response. '
-                    'Off-plane point/rod objects have no false in-plane markers. '
-                    'Ring/disc shapes are orthographic 3D projections; spheres/shells are physical slice intersections.'))
+                qualification=qualification)
 
 
 # A single browser renderer for conservative-event and drag/scheduled viewers.

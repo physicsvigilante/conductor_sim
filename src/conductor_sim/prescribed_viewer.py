@@ -295,6 +295,12 @@ def sample_test_charge_viewer(spec:TestChargeMotionSpec, *, result=None, visual_
     """
     if not isinstance(spec,TestChargeMotionSpec):
         raise TypeError('expected TestChargeMotionSpec')
+    # M19b does not offer an honest off-axis full-ring source drawing.
+    # Use the M24a/M24b event/driven viewer for new M27b motion.
+    from .prescribed_fields import UniformRingField
+    if any(type(s) is UniformRingField for s in spec.field.sources):
+        raise UnsupportedProblem(
+            'full-ring motion requires the M27b event/driven viewer, not legacy M19b')
     # Validate presentation binding independently of the numerical integration.
     annotations=_source_annotations(spec,source_annotations)
     if spec.gravity is not None and annotations and any(a['id']=='gravity' for a in annotations):
