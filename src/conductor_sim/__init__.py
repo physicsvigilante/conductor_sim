@@ -125,3 +125,11 @@ __all__ += ['prepare_scenario_comparison','render_scenario_comparison',
 
 from .conservative_forces import UniformGravity, PrescribedElectricForce, ConservativeForceSystem
 __all__ += ['UniformGravity', 'PrescribedElectricForce', 'ConservativeForceSystem']
+
+from .trajectory_sweep import (SweepAxis, TrajectorySweepPlan, SweepEntry,
+                               TrajectorySweepRun, run_trajectory_sweep)
+from .trajectory_sweep_viewer import (render_trajectory_sweep,
+                                      write_trajectory_sweep_html)
+__all__ += ["SweepAxis", "TrajectorySweepPlan", "SweepEntry",
+            "TrajectorySweepRun", "run_trajectory_sweep",
+            "render_trajectory_sweep", "write_trajectory_sweep_html"]
