@@ -131,11 +131,14 @@ def check(output: Path):
                                               f'[data-event-id="{q.event_id}"]')
                         assert affected.count()==max(1,len(roots))
                         assert outcome in affected.first.inner_text()
-                        for event in roots:
-                            assert f"signed direction {event.direction:+d}" in affected.all_inner_texts()[0] or (
-                                any(f"signed direction {event.direction:+d}" in t
-                                    for t in affected.all_inner_texts()))
-                            assert "bracket=" in affected.inner_text()
+                        for root_index,event in enumerate(roots):
+                            # The same physical detector can cross more than
+                            # once. Verify EACH native root's own displayed row:
+                            # Playwright strict mode correctly forbids treating
+                            # multiple matches as one arbitrary first element.
+                            visible=affected.nth(root_index).inner_text()
+                            assert f"signed direction {event.direction:+d}" in visible
+                            assert "bracket=" in visible
                 if study is None:
                     expected_rows+=len(run.plan.questions)
             assert page.locator("#event-rows tr").count()==expected_rows
