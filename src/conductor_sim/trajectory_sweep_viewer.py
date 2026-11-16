@@ -117,9 +117,9 @@ def render_trajectory_sweep(run: TrajectorySweepRun, *,
 :root{color-scheme:light;font:15px/1.5 system-ui,sans-serif;color:#162e42;background:#f5f7fa}
 *{box-sizing:border-box}body{margin:0}header{padding:22px max(16px,calc((100vw - 1100px)/2));background:#18364d;color:#fff}
 h1{font-size:23px;margin:0 0 7px}header p{margin:0;font-size:13px;color:#d7e7f3}
-main{max-width:1130px;margin:auto;padding:16px;display:grid;gap:16px}
-.card{background:white;border:1px solid #cbd6e1;border-radius:9px;padding:16px;min-width:0}
-h2{font-size:17px;margin:0 0 8px}p{margin:6px 0 12px}.meta{color:#536b7e;font-size:12px}
+main{width:100%;max-width:1130px;margin:auto;padding:16px;display:grid;gap:16px}
+.card{background:white;border:1px solid #cbd6e1;border-radius:9px;padding:16px;min-width:0;overflow-wrap:anywhere}
+h2{font-size:17px;margin:0 0 8px}p{margin:6px 0 12px}.meta{color:#536b7e;font-size:12px;overflow-wrap:anywhere}
 .controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 button{border:1px solid #a7b9c8;border-radius:5px;background:white;color:#173a55;padding:8px 13px;font:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:3px solid #327aab;outline-offset:2px}

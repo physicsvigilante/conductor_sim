@@ -93,7 +93,14 @@ def check(output: Path):
                 svg:document.getElementById('sweep-plot').getBoundingClientRect().width
             })""")
             assert mobile["viewport"] == 390
-            assert mobile["document"] <= 390, mobile
+            if mobile["document"] > 390:
+                offenders = page.evaluate("""() => [...document.querySelectorAll('*')]
+                  .map(el => ({tag:el.tagName,id:el.id,
+                    right:el.getBoundingClientRect().right,
+                    width:el.getBoundingClientRect().width}))
+                  .filter(x => x.right > window.innerWidth+1)
+                  .slice(0,12)""")
+                raise AssertionError((mobile, offenders))
             assert mobile["svg"] <= 390, mobile
             results[kind] = dict(status="pass", source_ids=data["source_ids"],
                                  saved_states=len(data["frame_times_s"]),

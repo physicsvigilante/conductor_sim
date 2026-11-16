@@ -214,3 +214,53 @@ def test_p5_p6_offline_html_displays_native_states_and_escaped_titles(tmp_path):
     file = write_trajectory_sweep_html(run, tmp_path/"sweeps"/"view.html")
     assert file.read_text(encoding="utf-8").startswith("<!doctype html>")
     assert json.dumps(run.as_dict(), allow_nan=False)
+
+
+def test_p3_unfamiliar_fixed_point_and_uniform_field_rotate_covariantly():
+    """New M28a transfer: same actual physical experiment after a rigid 90-degree rotation.
+
+    It is deliberately not one of the M27b reserved ring cards. No new
+    production solver or field formula is introduced for this case.
+    """
+    def rotate(v):
+        return (-v[1], v[0], v[2])
+
+    source=(.075, 0., -.045)
+    electric=(1.4, 0., -.8)
+    particle=(.025, 0., .11)
+    velocity=(.062, 0., -.042)
+    normal=(0., 1., 0.)
+
+    def case(rotated):
+        position=rotate(particle) if rotated else particle
+        speed=rotate(velocity) if rotated else velocity
+        held=rotate(source) if rotated else source
+        held_e=rotate(electric) if rotated else electric
+        plane=rotate(normal) if rotated else normal
+        spec=TestChargeMotionSpec(
+            PrescribedField((FixedPointField(2e-10, held),
+                             UniformElectricField(held_e))),
+            PointCharge(-5.2e-10, position), 4.2e-7, speed,
+            .085, .0085, plane_normal=plane, source_guard_m=.006,
+            relative_tolerance=1e-10)
+        baseline=PrescribedScenario(
+            "m28:rotated" if rotated else "m28:unrotated", spec,
+            (("point:held", "Held point P"), ("field:held", "Held E")),
+            "Teacher hypothetical: unfamiliar point and mixed uniform field.")
+        return run_trajectory_sweep(TrajectorySweepPlan(
+            "m28:rot90" if rotated else "m28:original",
+            baseline, SweepAxis("point:held", "charge_c", (2.4e-10, 2.8e-10))))
+
+    original, turned=case(False), case(True)
+    assert [x.status for x in original.entries] == ["complete", "complete"]
+    assert [x.status for x in turned.entries] == ["complete", "complete"]
+    for native, rotated in [(original.baseline_trajectory, turned.baseline_trajectory)] + [
+        (a.trajectory, b.trajectory) for a, b in zip(original.entries, turned.entries)]:
+        assert len(native.samples)==len(rotated.samples)
+        for a, b in zip(native.samples, rotated.samples):
+            assert b.time_s == a.time_s
+            assert b.position_m == pytest.approx(rotate(a.position_m), abs=2e-11)
+            assert b.velocity_m_s == pytest.approx(rotate(a.velocity_m_s), abs=2e-10)
+            assert b.force_n == pytest.approx(rotate(a.force_n), abs=2e-15)
+            assert b.total_energy_j == pytest.approx(a.total_energy_j, abs=2e-14)
+    assert original.plan.baseline.revision_id != turned.plan.baseline.revision_id
