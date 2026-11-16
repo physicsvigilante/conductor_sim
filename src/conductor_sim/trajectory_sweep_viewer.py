@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from html import escape
 import json
-from math import hypot
+from math import hypot, ulp
 from pathlib import Path
 
 from .trajectory_sweep import TrajectorySweepRun, _shared_rows
@@ -56,7 +56,23 @@ def render_trajectory_sweep(run: TrajectorySweepRun, *,
             not title.isprintable() or title != title.strip()):
         raise ValueError("invalid trajectory comparison title")
     origin = run.plan.baseline.spec.particle.position_m
-    u, v = _physical_axes(run.plan.baseline.spec.plane_normal)
+    normal = run.plan.baseline.spec.plane_normal
+    # Several parallel physical planes can all be separately invariant
+    # (e.g. uniform E with a shifted out-of-plane launch). A single 2D
+    # projection must NOT silently collapse distinct world planes.
+    for entry in run.entries:
+        if entry.scenario is None or entry.trajectory is None:
+            continue
+        revised = entry.scenario.spec
+        if hypot(*(a-b for a,b in zip(revised.plane_normal, normal))) > 1e-12:
+            raise ValueError("sweep viewer requires the same world physical plane orientation")
+        launch = revised.particle.position_m
+        world_scale = max(1., *(abs(x) for x in (*origin, *launch)))
+        separation = abs(_dot(tuple(launch[i]-origin[i] for i in range(3)), normal))
+        if separation > max(1e-12, 64*ulp(world_scale)):
+            raise ValueError("sweep viewer refuses different physical planes; "
+                             "use the full 3D numerical JSON comparison")
+    u, v = _physical_axes(normal)
     all_tracks = []
 
     def project(sample):

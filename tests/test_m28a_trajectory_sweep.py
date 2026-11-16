@@ -264,3 +264,28 @@ def test_p3_unfamiliar_fixed_point_and_uniform_field_rotate_covariantly():
             assert b.force_n == pytest.approx(rotate(a.force_n), abs=2e-15)
             assert b.total_energy_j == pytest.approx(a.total_energy_j, abs=2e-14)
     assert original.plan.baseline.revision_id != turned.plan.baseline.revision_id
+
+
+def test_n4_parallel_but_distinct_valid_planes_refused_by_plot_not_by_physics():
+    """A z-shift in a uniform x-y E field creates a *different* valid plane.
+
+    The native numerical 3D comparison is meaningful but a common-plane
+    trajectory overlay would erase the true normal displacement.
+    """
+    base = uniform_base()
+    shifted = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:parallel", base,
+        SweepAxis("test-particle", "position_m", ((0., 0., .02),))))
+    assert shifted.entries[0].status == "complete"
+    at_zero = shifted.as_dict()["entries"][0]["comparisons"][0]
+    assert at_zero["position_distance_m"] == pytest.approx(.02, abs=1e-12)
+    assert at_zero["delta_position_m"] == pytest.approx((0., 0., .02), abs=1e-12)
+    with pytest.raises(ValueError, match="different physical planes"):
+        render_trajectory_sweep(shifted)
+    # Genuine in-plane initial-position changes still render as compared
+    # physical paths without pretending they are a new apparatus.
+    in_plane = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:in-plane", base,
+        SweepAxis("test-particle", "position_m", ((.01, 0., 0.),))))
+    assert in_plane.entries[0].status == "complete"
+    assert "m28-sweep-data" in render_trajectory_sweep(in_plane)
