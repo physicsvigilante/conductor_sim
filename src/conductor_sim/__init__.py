@@ -159,3 +159,10 @@ from .structural_event_viewer import (
 __all__ += ["StructuralEventFamilyPlan", "StructuralEventEntry",
             "StructuralEventFamilyRun", "run_structural_event_family",
             "render_structural_event_family", "write_structural_event_family_html"]
+
+from .structural_parameter_family import (
+    BranchSweep, StructuralParameterPlan, BranchSweepEntry,
+    StructuralParameterRun, run_structural_parameter_family,
+)
+__all__ += ["BranchSweep", "StructuralParameterPlan", "BranchSweepEntry",
+            "StructuralParameterRun", "run_structural_parameter_family"]
