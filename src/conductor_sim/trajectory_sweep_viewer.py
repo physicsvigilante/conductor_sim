@@ -6,8 +6,9 @@ JavaScript selects already-solved Python samples; it never integrates ODEs.
 from __future__ import annotations
 
 from html import escape
+from fractions import Fraction
 import json
-from math import hypot, ulp
+from math import hypot
 from pathlib import Path
 
 from .trajectory_sweep import TrajectorySweepRun, _shared_rows
@@ -57,19 +58,25 @@ def render_trajectory_sweep(run: TrajectorySweepRun, *,
         raise ValueError("invalid trajectory comparison title")
     origin = run.plan.baseline.spec.particle.position_m
     normal = run.plan.baseline.spec.plane_normal
-    # Several parallel physical planes can all be separately invariant
-    # (e.g. uniform E with a shifted out-of-plane launch). A single 2D
-    # projection must NOT silently collapse distinct world planes.
+    # Distinct parallel invariant planes must never be flattened into a
+    # misleading shared 2D picture. Revision does not edit the authored normal;
+    # exact vector identity is therefore the appropriate conservative check.
+    # Compare the signed displacement using the EXACT binary rational values
+    # of the accepted float coordinates. A world-coordinate 64-ULP tolerance
+    # can swallow a genuine representable millimetre shift at large offsets.
+    # Refusing uncertain near-coincident cases is safer than hiding motion.
     for entry in run.entries:
         if entry.scenario is None or entry.trajectory is None:
             continue
         revised = entry.scenario.spec
-        if hypot(*(a-b for a,b in zip(revised.plane_normal, normal))) > 1e-12:
+        if revised.plane_normal != normal:
             raise ValueError("sweep viewer requires the same world physical plane orientation")
         launch = revised.particle.position_m
-        world_scale = max(1., *(abs(x) for x in (*origin, *launch)))
-        separation = abs(_dot(tuple(launch[i]-origin[i] for i in range(3)), normal))
-        if separation > max(1e-12, 64*ulp(world_scale)):
+        offset = sum(
+            ((Fraction(launch[i]) - Fraction(origin[i])) * Fraction(normal[i])
+             for i in range(3)),
+            Fraction(0))
+        if offset:
             raise ValueError("sweep viewer refuses different physical planes; "
                              "use the full 3D numerical JSON comparison")
     u, v = _physical_axes(normal)
@@ -118,7 +125,10 @@ def render_trajectory_sweep(run: TrajectorySweepRun, *,
                     property_name=run.plan.axis.property_name),
                 baseline_revision_id=run.plan.baseline.revision_id,
                 source_ids=[pair[0] for pair in run.plan.baseline.source_annotations],
-                frame_times_s=[s.time_s for s in run.baseline_trajectory.samples],
+                baseline_origin=run.plan.baseline.origin,
+                baseline_provenance=run.plan.baseline.provenance,
+                frame_times_s=sorted({sample["time_s"]
+                                      for track in all_tracks for sample in track["samples"]}),
                 bounds=bounds, origin_m=origin, projection_u=u, projection_v=v,
                 tracks=all_tracks, time_interpolation=False, browser_ode=False)
     raw=json.dumps(data, separators=(",", ":"), allow_nan=False)
@@ -157,25 +167,29 @@ extended after termination.</p>
 <svg id="sweep-plot" viewBox="0 0 840 490" role="img" aria-label="Compared particle trajectories in a physically qualified plane"></svg>
 <p class="meta" id="projection"></p>
 <div class="controls"><button id="play" type="button">Play saved states</button>
-<button id="reset" type="button">Restart</button><label for="frame">Saved physical time</label>
+<button id="reset" type="button">Restart</button><label for="frame">Saved physical time (union)</label>
 <input id="frame" type="range" min="0" max="0" step="1" value="0">
 <output id="clock" for="frame">0 s</output></div>
 <p class="notice">Playback selects discrete Python-saved states at display pace, not physical-time-rate
-integration or interpolation. A missing synchronized sample is displayed as unavailable.
-For source geometry and field maps use the original qualified M27b viewer.</p></section>
+integration or interpolation. Available times are the union of exact Python-saved
+samples across all trajectories, including late variation-only states after a
+censored baseline. A missing synchronized sample is displayed as unavailable.
+For source geometry and fields, use the matching qualified apparatus viewer when available.</p></section>
 <section class="card"><h2>Actual outcomes at the selected saved time</h2>
 <div class="scroll"><table><thead><tr><th>Physical scenario</th><th>Status / saved state</th>
 <th>Difference from baseline at identical time</th></tr></thead>
 <tbody id="sweep-states"></tbody></table></div></section>
 <section class="card"><h2>Model lineage and interpretation</h2>
-<p class="meta" id="source-ids"></p><p>All variations are teacher-authored physical hypotheses
+<p class="meta" id="source-ids"></p>
+<p class="meta" id="baseline-provenance"></p><p>All variations are teacher-authored physical hypotheses
 from the unchanged baseline; they are not intermediate particle states or literal
 experimental transitions. An admissible revised model can still fail or terminate at
 a source guard. Comparison of absolute potential energies is intentionally omitted
 because electrostatic reference choices can differ between scenarios.</p>
-<p class="notice">Source workbook p12 Q40–41 gives ring A/B geometry, E, and source-given probe q=+10 µC.
-The M27b numeric mass, shifted launch, elapsed time and these revisions are teacher choices.
-The simulator does not solve the source's original symbolic axial Q41 as written.</p>
+<p class="notice">Baseline source identities and provenance are author-supplied
+assertions, not independent authentication of an external document. Each revised
+physical scenario is a separate teacher hypothetical, not a transition during
+one particle trajectory. Do not infer textbook-answer completeness.</p>
 </section></main><script type="application/json" id="m28-sweep-data">"""+safe+"""</script>
 <script>
 'use strict';
@@ -216,6 +230,9 @@ document.getElementById('projection').textContent='Origin (m) = ['+
   '] · world v = ['+data.projection_v.map(fmt).join(', ')+']';
 document.getElementById('source-ids').textContent='Author-bound source identities: '+
   data.source_ids.join(', ')+' · parent revision SHA-256: '+data.baseline_revision_id;
+document.getElementById('baseline-provenance').textContent=
+  'Authored baseline ('+data.baseline_origin+'; not independently source-verified): '+
+  data.baseline_provenance;
 slider.max=String(data.frame_times_s.length-1);
 const viewer={loaded:true,physicalTime:0,frameIndex:0,activeCount:0,missingCount:0};
 window.m28SweepViewer=viewer;
@@ -245,7 +262,8 @@ function redraw(index){
         track.status+': '+track.explanation :
         'No saved state at this time; '+track.termination+' at '+fmt(track.samples.at(-1).time_s)+' s';
     }
-    if(track.role==='baseline')delta.textContent='Reference state';
+    if(track.role==='baseline')delta.textContent=row?'Reference state':
+      'Reference unavailable at this time';
     else{
       const match=track.comparisons.find(s=>s.time_s===t);
       delta.textContent=match?'|Δr| = '+fmt(match.position_distance_m)+

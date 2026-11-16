@@ -6,11 +6,15 @@ not a proof of the exact ODE or an authenticated transcription of a workbook.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import json
 from math import dist, isfinite
 import re
 
+from .prescribed_fields import (
+    UniformElectricField, FixedPointField, UniformSphereField, UniformShellField,
+    UniformRingAxisField, UniformRingField, UniformDiskAxisField, UniformRodField,
+)
 from .motion_1d import MotionIntegrationError
 from .prescribed_motion import TestChargeMotionResult, integrate_test_charge
 from .scenarios import PrescribedScenario, revise_scenario
@@ -20,7 +24,22 @@ _ID = re.compile(r"[A-Za-z][A-Za-z0-9:_-]{0,63}\Z")
 _MAX_VARIATIONS = 6
 _PARTICLE = frozenset(("charge_c", "position_m",
                        "mass_kg", "initial_velocity_m_s"))
-_GRAVITY = frozenset(("acceleration_m_s2", "reference_position_m"))
+_GRAVITY = frozenset(("acceleration_m_s2",))
+
+# M20b deliberately permits ordinary gauge/reference-only revisions. M28a's
+# physically varying-trajectory interface is narrower. Explicit allowlists
+# prevent a potential-reference shift from being mislabeled a physical force
+# or geometry change. Keep new source types unsupported until classified.
+_PHYSICAL_SOURCE_PROPERTIES = {
+    UniformElectricField: frozenset(("field_v_m",)),
+    FixedPointField: frozenset(("charge_c", "position_m")),
+    UniformSphereField: frozenset(("charge_c", "radius_m", "center_m")),
+    UniformShellField: frozenset(("charge_c", "radius_m", "center_m")),
+    UniformRingAxisField: frozenset(("charge_c", "radius_m", "center_m", "axis")),
+    UniformRingField: frozenset(("charge_c", "radius_m", "center_m", "axis")),
+    UniformDiskAxisField: frozenset(("charge_c", "radius_m", "center_m", "axis")),
+    UniformRodField: frozenset(("charge_c", "start_m", "end_m")),
+}
 
 
 def _number(value):
@@ -47,15 +66,18 @@ def _target(baseline, component_id, property_name):
         return baseline.spec.field.permittivity_f_m
     if component_id == "gravity":
         if baseline.spec.gravity is None or property_name not in _GRAVITY:
-            raise ValueError("gravity parameter requires an existing gravity component")
+            raise ValueError("gravity sweep requires an existing component and "
+                             "a physical acceleration parameter; reference position is an energy gauge")
         return getattr(baseline.spec.gravity, property_name)
     inventory = dict(zip((identity for identity, _ in baseline.source_annotations),
                          baseline.spec.field.sources))
     if component_id not in inventory:
         raise ValueError("unknown physical source identity; source indices are not IDs")
     source = inventory[component_id]
-    if property_name not in {f.name for f in fields(source)}:
-        raise ValueError("unsupported physical property on named source")
+    if property_name not in _PHYSICAL_SOURCE_PROPERTIES.get(type(source), ()):
+        raise ValueError(
+            "unsupported physical sweep property on named source; "
+            "gauge/reference-only settings belong to the ordinary M20b revision API")
     return getattr(source, property_name)
 
 
