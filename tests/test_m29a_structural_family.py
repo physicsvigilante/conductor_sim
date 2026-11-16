@@ -261,7 +261,7 @@ def test_p6_offline_html_source_provenance_rejects_forgery_and_escapes(tmp_path)
     run=run_case("uniform-edits")
     html=render_structural_family(run,title="<source add/remove/replace>")
     assert "&lt;source add/remove/replace&gt;" in html
-    assert "M29a" in html
+    assert "conductor_sim.structural_family_view.v1" in html
     assert 'id="m29a-native-data"' in html
     assert "field:E0" in html and "field:Enew" in html
     assert "source_inventory" in html
