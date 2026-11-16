@@ -47,7 +47,7 @@ def check(output: Path):
                 len(e.run.events) for e in run.entries if e.run is not None)
             assert page.locator("#event-timeline circle").count() == actual_roots
             assert [x["requested_value"] for x in evidence["entries"]]==[
-                x.requested_value for x in run.entries]
+                x["requested_value"] for x in run.as_dict()["entries"]]
             assert all(e["time_interpolation"] is False for e in
                        ({"time_interpolation":evidence["time_interpolation"]},))
             if case=="ring-detector":
