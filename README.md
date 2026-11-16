@@ -14,6 +14,28 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M28a — Independently solved parameter sweeps of real trajectories
+
+One reusable `PrescribedScenario` now supports bounded one-parameter sweeps
+using the existing immutable M20b revision API and the same certified physical
+field/plane, RK and source-guard controller. Every physical revision is validated
+and integrated anew; refused models and early-guard-censored results are retained.
+Side-by-side trajectory-space comparison uses **identical real saved timestamps**,
+never a browser ODE or an imagined path after a guard.
+
+```powershell
+python examples/m28a_ring_sweep.py --axis ring-b-charge --output output/m28a-charge.html
+Start-Process .\output\m28a-charge.html
+python examples/m28a_ring_sweep.py --axis ring-b-separation --output output/m28a-separation.html
+python -m pytest tests/test_m28a_trajectory_sweep.py -q
+```
+
+Other `--axis` choices: `mass`, `launch-vx`. The HTML is a **world-plane
+trajectory plot**, not a new diagram of the actual charged-ring apparatus;
+the M27b viewer continues to show verified source geometry. The textbook
+probe charge and ring values are source-given; numerical mass, launch, duration
+and variations are teacher hypotheses. See [M28a](docs/m28a.md).
+
 ## M27a — Physical off-axis E/V of fixed uniformly charged rings
 
 `UniformRingField` provides true 3D off-axis static electrostatic E and V
