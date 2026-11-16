@@ -14,6 +14,36 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M29b — Observe the same physical event across different source arrangements
+
+M29b builds one more layer of source-model composability. Instead of
+reauthoring each problem, a teacher can ask **the same typed M24a detector
+or velocity-reversal question** across 1..5 independently reassembled M29a
+source inventories. This is not just changing a charge or mass parameter:
+the real named held charges, fields and gravity components can be **added,
+removed or replaced**, with M22a's original source-ID lineage and full-model
+physical plane/guard qualification.
+
+Every eligible alternative is newly integrated with the **unchanged M24a
+native event solver**. A genuine early crossing before a later source guard
+is preserved but cannot assert a unique full-duration event time. Likewise
+multiple roots, opposite directions and terminal observations remain
+unpaired; only one same-direction root from two full-duration runs admits a
+numerical bracket-difference comparison. A native, offline event-time report
+shows original source ID/name/type and actual numerical event bracket and
+termination, not a fake reacting conductor or browser ODE.
+
+```powershell
+python examples/m29b_structural_events.py --case uniform-detector --output output/m29b-uniform.html
+Start-Process .\output\m29b-uniform.html
+python examples/m29b_structural_events.py --case guard-detector --output output/m29b-guard.html
+python -m pytest tests/test_m29b_structural_event_family.py -q
+```
+
+Other examples: `terminal-refusal`, `double-crossing`,
+`coincident-terminal`, `mirror-detector`. See [M29b
+structural event observers](docs/m29b.md).
+
 ## M29a — Compare genuinely different fixed-source arrangements
 
 M29a composes M22a's existing **atomic named-source reassembly** with the
