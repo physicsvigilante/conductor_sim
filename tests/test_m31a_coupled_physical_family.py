@@ -86,12 +86,12 @@ def test_p2_joint_translation_admitted_while_either_individual_physical_edit_ref
     source=original.spec.field.sources[0].position_m
     proposed_particle=(initial[0],initial[1],.05)
     proposed_source=(source[0],source[1],.05)
-    with pytest.raises(UnsupportedProblem,match="fixed sources do not preserve"):
+    with pytest.raises(UnsupportedProblem,match="fixed point-source inventory is not reflection symmetric"):
         revise_scenario(
             original,scenario_id="m31a:bad-single-particle",
             note="Isolated z translation does not preserve plane",
             particle_changes={"position_m":proposed_particle})
-    with pytest.raises(UnsupportedProblem,match="fixed sources do not preserve"):
+    with pytest.raises(UnsupportedProblem,match="fixed point-source inventory is not reflection symmetric"):
         revise_scenario(
             original,scenario_id="m31a:bad-single-source",
             note="Isolated z translation does not preserve plane",
