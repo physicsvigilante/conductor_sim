@@ -23,7 +23,7 @@ from .trajectory_sweep import (
     run_trajectory_sweep,
 )
 
-_PLAN = re.compile(r"[A-Za-z][A-Za-z0-9:_-]{0,55}\Z")
+_PLAN = re.compile(r"[A-Za-z][A-Za-z0-9:_-]{0,51}\Z")
 _MAX_BRANCHES = 3
 _MAX_TOTAL_VALUES = 12
 
@@ -63,7 +63,7 @@ class StructuralParameterPlan:
 
     def __post_init__(self):
         if type(self.plan_id) is not str or _PLAN.fullmatch(self.plan_id) is None:
-            raise ValueError("M30a plan ID must be stable, ASCII and at most 56 characters")
+            raise ValueError("M30a plan ID must be stable, ASCII and at most 52 characters")
         if type(self.family) is not StructuralFamilyPlan:
             raise TypeError("M30a requires one existing M29a StructuralFamilyPlan")
         if type(self.branches) is not tuple or not 1 <= len(self.branches) <= _MAX_BRANCHES:
