@@ -73,6 +73,11 @@ class StructuralParameterPlan:
         keys = [b.branch_id for b in self.branches]
         if len(set(keys)) != len(keys):
             raise ValueError("a physical structural branch can have only one sweep")
+        # "baseline" is a reserved selector, not an alternative case ID.
+        # Otherwise a teacher might silently sweep the untouched original
+        # instead of a separately authored structural branch with that name.
+        if any(c.case_id == "baseline" for c in self.family.cases):
+            raise ValueError("M30a reserves baseline as the original-world selector")
         existing = {"baseline", *(c.case_id for c in self.family.cases)}
         if any(k not in existing for k in keys):
             raise ValueError("sweep branch does not identify an authored structural case")
@@ -135,10 +140,22 @@ class StructuralParameterRun:
                 type(self.entries) is not tuple or
                 len(self.entries) != len(self.plan.branches)):
             raise ValueError("M30a result must be bound to one original native structural family")
+        structural_by_id = {row.case.case_id: row for row in self.structural_run.entries}
         for i, entry in enumerate(self.entries, 1):
             if (type(entry) is not BranchSweepEntry or entry.index != i or
                     entry.request is not self.plan.branches[i-1]):
                 raise ValueError("M30a branch result ordering or identity changed")
+            if entry.request.branch_id == "baseline":
+                if (entry.structural_entry is not None or
+                        entry.parent_scenario is not self.plan.family.baseline):
+                    raise ValueError("baseline branch not bound to the original world")
+            else:
+                actual = structural_by_id[entry.request.branch_id]
+                if entry.structural_entry is not actual:
+                    raise ValueError("branch result lost its actual structural case")
+                expected = None if actual.assembly is None else actual.assembly.scenario
+                if entry.parent_scenario is not expected:
+                    raise ValueError("branch source inventory does not match reassembly")
             if entry.parent_scenario is None:
                 if entry.status != "skipped-structural-model" or entry.sweep_run is not None:
                     raise ValueError("refused structural branch has a fabricated physical model")
