@@ -12,6 +12,7 @@ from math import isfinite
 from pathlib import Path
 
 from .event_sweep import EventSweepRun
+from .motion_events import validate_event_run
 
 
 def _h(value):
@@ -21,7 +22,13 @@ def _h(value):
 def _fmt(value):
     if type(value) not in (int, float) or not isfinite(value):
         raise ValueError("nonfinite event display value")
-    return f"{value:.10g}"
+    return f"{value:.16g}"
+
+
+def _root_scope(event, last_time):
+    if event.sample.time_s > last_time:
+        return "coincident terminal alternative at stop boundary, not post-stop motion"
+    return "terminal observation" if event.terminal else "passive observation"
 
 
 def _statuses(run: EventSweepRun):
@@ -74,6 +81,10 @@ def _timeline(rows, run):
         s.append(f'<text x="8" y="{y+4}" fill="#263e55" font-size="12">'
                  f'{_h(name[:25])}</text>')
         native = entry["event_run"]
+        if native is not None:
+            # M24a owns the special overlapping-terminal-alternative contract.
+            # Validate it rather than treating its alternate root as motion.
+            validate_event_run(native)
         if native is None:
             s.append(f'<text x="{left}" y="{y+4}" fill="#8b5757" font-size="12">'
                      f'{_h(entry["status"])}</text>')
@@ -84,14 +95,36 @@ def _timeline(rows, run):
         s.append(f'<line x1="{left}" x2="{left+last_t*scale:.7f}" '
                  f'y1="{y}" y2="{y}" stroke="{color}" stroke-width="3" '
                  'stroke-linecap="round"/>')
+        alternative_count = 0
         for event in native.events:
             at = event.sample.time_s
-            if not (0 <= at <= last_t):
-                raise ValueError("event is outside real observed horizon")
-            x = left + at*scale
-            label = f"{event.event_id} numerical event at {_fmt(at)} s"
-            s.append(f'<circle cx="{x:.7f}" cy="{y}" r="5" '
-                     f'fill="{color}" stroke="#fff" stroke-width="1.5">'
+            if not (0 <= at <= horizon):
+                raise ValueError("event sample lies outside authored duration")
+            alternative = at > last_t
+            if alternative:
+                # M24a may retain another terminal candidate with an
+                # overlapping bracket slightly later than the selected stop.
+                # Place its marker at the terminal BOUNDARY, never at the
+                # later candidate's t: there is NO post-stop physical path.
+                if native.trajectory.termination != "terminal-event":
+                    raise ValueError("post-horizon nonterminal event")
+                x = left + last_t*scale
+                cy = y-8-alternative_count*8
+                alternative_count += 1
+                info = ('Overlapping terminal-boundary alternative, numerical '
+                        'sample only; no post-stop physical motion')
+            else:
+                x, cy = left + at*scale, y
+                info = "Located numerical root in the observed horizon"
+            label = (f"{event.event_id}: {info}; candidate time {_fmt(at)} s; "
+                     f"signed direction {event.direction:+d}; "
+                     f"numerical bracket [{_fmt(event.time_bracket_s[0])}, "
+                     f"{_fmt(event.time_bracket_s[1])}] s")
+            alt_style = (' data-boundary-alternative="true" '
+                         'stroke-dasharray="2 2"') if alternative else ''
+            s.append(f'<circle cx="{x:.7f}" cy="{cy}" r="5" '
+                     f'data-event-id="{_h(event.event_id)}"'
+                     f'{alt_style} fill="{color}" stroke="#fff" stroke-width="1.5">'
                      f'<title>{_h(label)}</title></circle>')
         terminal = native.trajectory.termination
         x = left + last_t*scale
@@ -122,10 +155,14 @@ def render_event_sweep(run: EventSweepRun, *,
                 results = native.as_dict()
                 classification = results["outcomes"][qid]
                 roots = [e for e in native.events if e.event_id == qid]
+                last = native.trajectory.samples[-1].time_s
                 root_details = "; ".join(
                     f"[{_fmt(e.time_bracket_s[0])}, {_fmt(e.time_bracket_s[1])}] s"
-                    f" (t≈{_fmt(e.sample.time_s)} s, residual "
-                    f"{_fmt(e.residual)} {e.residual_unit})" for e in roots)
+                    f" (t≈{_fmt(e.sample.time_s)} s; signed direction "
+                    f"{e.direction:+d}; residual {_fmt(e.residual)} "
+                    f"{e.residual_unit}; "
+                    f"{_root_scope(e, last)})"
+                    for e in roots)
                 if not root_details:
                     root_details = ("No located root: not proven absent" if
                                     classification == "not-found-at-requested-resolution"
@@ -187,7 +224,7 @@ that an event never occurs.</p>"""+_timeline(rows, run)+"""</section>
 <section><h2>Model and provenance</h2><p id="provenance">"""+_h(source)+"""</p>
 <p class="muted" id="source-ids">"""+_h(details)+"""</p>
 <p>Every scenario is a separate teacher-authored physical hypothesis from
-the unchanged baseline, not a time-dependent change of ring charge.
+the unchanged baseline, not a time-dependent change of a model parameter.
 Potential references are not physical sweep axes. Provenance labels
 are author assertions, not verification of a textbook scan.</p></section>
 <section><h2>Every detected event and numerical shift</h2>

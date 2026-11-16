@@ -64,6 +64,18 @@ def check(output: Path):
             if case=="multi-crossing":
                 assert evidence["entries"][0]["event_time_comparisons"][0]["status"]=="unpaired"
                 assert page.locator("#event-timeline circle").count()==4
+            if case=="coincident-terminal":
+                native = run.baseline_run
+                assert native.trajectory.termination == "terminal-event"
+                assert len(native.events) == 2
+                assert any(e.sample.time_s > native.trajectory.samples[-1].time_s
+                           for e in native.events)
+                assert page.locator('circle[data-boundary-alternative="true"]').count()>=1
+                assert "coincident terminal alternative" in page.locator("#event-rows").inner_text()
+                assert "signed direction +1" in page.locator("#event-rows").inner_text()
+                assert "post-stop motion" in page.locator("body").inner_text()
+                assert all(x["status"]=="unpaired" for item in evidence["entries"]
+                           for x in item["event_time_comparisons"])
             if case=="gravity-guard":
                 assert evidence["baseline_termination"]=="source-guard"
                 assert evidence["entries"][0]["event_run"]["trajectory"]["termination"]=="duration"

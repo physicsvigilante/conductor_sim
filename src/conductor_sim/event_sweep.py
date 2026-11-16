@@ -43,35 +43,57 @@ def _outcomes(run: EventRun) -> dict:
 
 
 def _root_pair(base: EventRun, child: EventRun, event_id: str) -> dict:
-    """Only compare uniquely located resolved roots. Never pair arbitrary firsts."""
+    """Pair only same-direction, unique resolved events over COMPLETE horizons.
+
+    A detector may have one *observed* root before source guard or a terminal
+    stop, yet later roots are unknowable. This API compares uniqueness across
+    the requested physical horizon, not first observed crossings. For a
+    bidirectional query, opposite directions are distinct physical events.
+    Actual native event roots and brackets remain in both EventRun records.
+    """
     left, right = _outcomes(base), _outcomes(child)
-    if left[event_id] != "located" or right[event_id] != "located":
-        return dict(event_id=event_id, status="unpaired",
-                    baseline_outcome=left[event_id],
-                    variation_outcome=right[event_id],
-                    reason="not two independently resolved unique event roots")
     b = [e for e in base.events if e.event_id == event_id]
     v = [e for e in child.events if e.event_id == event_id]
+    metadata = dict(
+        event_id=event_id,
+        baseline_outcome=left[event_id], variation_outcome=right[event_id],
+        baseline_termination=base.trajectory.termination,
+        variation_termination=child.trajectory.termination,
+        baseline_root_count=len(b), variation_root_count=len(v),
+        baseline_directions=[e.direction for e in b],
+        variation_directions=[e.direction for e in v],
+    )
+    if left[event_id] != "located" or right[event_id] != "located":
+        return dict(**metadata, status="unpaired",
+                    reason="not two independently resolved event outcomes")
     if len(b) != 1 or len(v) != 1:
-        return dict(event_id=event_id, status="unpaired",
-                    baseline_outcome=left[event_id],
-                    variation_outcome=right[event_id],
-                    baseline_root_count=len(b), variation_root_count=len(v),
+        return dict(**metadata, status="unpaired",
                     reason="multiple crossings/reversals cannot be silently paired")
+    if (base.trajectory.termination != "duration" or
+            child.trajectory.termination != "duration"):
+        return dict(**metadata, status="unpaired",
+                    reason="censored observation horizon: later roots are unknown; "
+                           "cannot assert a unique whole-duration event")
+    if b[0].direction != v[0].direction:
+        return dict(**metadata, status="unpaired",
+                    reason="opposite signed crossing/reversal directions are distinct "
+                           "even for a bidirectional event question")
     lower = v[0].time_bracket_s[0] - b[0].time_bracket_s[1]
     upper = v[0].time_bracket_s[1] - b[0].time_bracket_s[0]
     diff = v[0].sample.time_s - b[0].sample.time_s
     if not all(isfinite(x) for x in (lower, upper, diff)):
         raise ValueError("nonfinite numerical event-shift interval")
-    return dict(event_id=event_id, status="one-resolved-pair",
-                baseline_outcome=left[event_id], variation_outcome=right[event_id],
+    if not lower <= diff <= upper:
+        raise ValueError("numerical event-shift point estimate escapes bracket")
+    return dict(**metadata, status="one-resolved-pair",
+                direction=b[0].direction,
                 baseline_time_bracket_s=b[0].time_bracket_s,
                 variation_time_bracket_s=v[0].time_bracket_s,
                 estimated_numerical_shift_s=diff,
                 numerical_bracket_shift_interval_s=(lower, upper),
-                qualification=("Difference of separately localized numerical roots; "
-                               "does not bound global ODE trajectory error"))
-
+                qualification=("Same-direction unique numerical roots in two "
+                               "duration-complete studies. Difference of localized "
+                               "numerical roots; no bound on global ODE error"))
 
 @dataclass(frozen=True, slots=True)
 class EventSweepEntry:

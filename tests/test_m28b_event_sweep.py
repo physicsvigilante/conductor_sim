@@ -235,3 +235,102 @@ def test_p6_html_escapes_source_and_all_event_brackets(tmp_path):
     assert "<img src=x onerror=alert(1)>" not in html
     assert "</script><script>alert" not in html
     assert r"\u003cimg" in html
+
+
+def test_r2_f01_unique_root_before_guard_is_not_whole_horizon_unique():
+    """Real preguard roots remain located; their shift cannot claim future uniqueness."""
+    origin = make_plan("gravity-guard")
+    q = PlaneEvent("before-guard", (.05, 0., 0.), (1., 0., 0.),
+                   "Early passive crossing before possible source guard", direction=1)
+    result = run_event_sweep(EventSweepPlan(origin.sweep, (q,), origin.policy))
+    b, v = result.baseline_run, result.entries[0].run
+    assert b.trajectory.termination == "source-guard"
+    assert v.trajectory.termination == "duration"
+    assert b.as_dict()["outcomes"][q.event_id] == "located"
+    assert v.as_dict()["outcomes"][q.event_id] == "located"
+    assert len(b.events) == len(v.events) == 1
+    assert b.events[0].direction == v.events[0].direction == 1
+    assert b.events[0].sample.time_s == pytest.approx(.062499194145202636, abs=5e-7)
+    assert v.events[0].sample.time_s == pytest.approx(.07752344608306884, abs=5e-7)
+    pair = result.entries[0].as_dict(b, result.plan.questions)["event_time_comparisons"][0]
+    assert pair["status"] == "unpaired"
+    assert pair["baseline_termination"] == "source-guard"
+    assert "censored" in pair["reason"]
+    assert "estimated_numerical_shift_s" not in pair
+    assert "numerical_bracket_shift_interval_s" not in pair
+    record = result.as_dict()
+    assert len(record["baseline_event_run"]["events"]) == 1
+    assert len(record["entries"][0]["event_run"]["events"]) == 1
+    assert "unpaired" in render_event_sweep(result)
+
+
+def test_r2_f02_coincident_terminal_alternatives_render_without_poststop_motion():
+    """M24a permits overlapping alternatives past selected terminal representative."""
+    run = run_case("coincident-terminal")
+    b = run.baseline_run
+    assert b.trajectory.termination == "terminal-event"
+    assert b.ordering == "coincident-or-order-unresolved-within-time-resolution"
+    assert {e.event_id for e in b.events} == {"stop:near", "stop:alternative"}
+    tstop = b.trajectory.samples[-1].time_s
+    later = [e for e in b.events if e.sample.time_s > tstop]
+    assert later, "must exercise numerical candidate beyond terminal representative"
+    assert all(e.sample.time_s - tstop <= run.plan.policy.time_tolerance_s
+               for e in later)
+    # No numerical event is silently erased; only physical timeline *line*
+    # ends at terminal t. Later candidate marker is drawn at that boundary.
+    html = render_event_sweep(run)
+    assert "coincident terminal alternative at stop boundary" in html
+    assert 'data-boundary-alternative="true"' in html
+    assert "stop:near" in html and "stop:alternative" in html
+    assert "signed direction +1" in html
+    assert "post-stop motion" in html
+    for entry in run.entries:
+        assert entry.status == "censored"
+        assert entry.run.trajectory.termination == "terminal-event"
+        event_comparisons = entry.as_dict(b, run.plan.questions)["event_time_comparisons"]
+        assert all(p["status"] == "unpaired" for p in event_comparisons)
+        assert all("censored" in p["reason"] for p in event_comparisons)
+
+
+def test_r2_f03_opposite_direction_bidirectional_crossings_remain_unpaired():
+    """Two separate experiments cross one bidirectional detector in opposite directions."""
+    sc = PrescribedScenario(
+        "m28b:opposite-directions",
+        TestChargeMotionSpec(
+            PrescribedField((
+                FixedPointField(2e-6, (-.5, 0., 0.)),
+                FixedPointField(2e-6, (.5, 0., 0.)))),
+            PointCharge(1e-9, (-.08, 0., 0.)), 1e-5,
+            (0., 0., 0.), .32, .02,
+            plane_normal=(0., 0., 1.), source_guard_m=.002),
+        (("point:L", "Held left charge"), ("point:R", "Held right charge")),
+        "Teacher hypothetical mirror-symmetric point-source bidirectional detector.")
+    query = PlaneEvent("centre", (0., 0., 0.), (1., 0., 0.),
+                       "Bidirectional centre plane", direction=0)
+    run = run_event_sweep(EventSweepPlan(
+        TrajectorySweepPlan(
+            "m28b:mirrored-direction", sc,
+            SweepAxis("test-particle", "position_m", ((.08, 0., 0.),))),
+        (query,), EventPolicy(.01, 1e-9, 1e-8, 1e-7)))
+    b, v = run.baseline_run, run.entries[0].run
+    assert b.trajectory.termination == v.trajectory.termination == "duration"
+    assert len(b.events) == len(v.events) == 1
+    assert b.events[0].direction == +1 and v.events[0].direction == -1
+    assert b.events[0].sample.time_s == pytest.approx(
+        v.events[0].sample.time_s, abs=2e-8)
+    pair = run.entries[0].as_dict(b, run.plan.questions)["event_time_comparisons"][0]
+    assert pair["status"] == "unpaired"
+    assert pair["baseline_directions"] == [1]
+    assert pair["variation_directions"] == [-1]
+    assert "opposite signed" in pair["reason"]
+    assert "estimated_numerical_shift_s" not in pair
+    html = render_event_sweep(run)
+    assert "signed direction +1" in html and "signed direction -1" in html
+    assert "ring charge" not in html
+
+
+def test_r2_f04_generic_model_event_view_never_mentions_ring_charge():
+    page = render_event_sweep(run_case("uniform-mass"))
+    assert "not a time-dependent change of ring charge" not in page
+    assert "not a time-dependent change of a model parameter" in page
+    assert "Workbook" not in page

@@ -21,10 +21,24 @@ from conductor_sim.event_sweep_viewer import write_event_sweep_html
 from conductor_sim.motion_events import EventPolicy, PlaneEvent, VelocityReversal
 from examples.m27b_offaxis_motion import author
 
-CASES = ("ring-detector", "uniform-mass", "multi-crossing", "gravity-guard")
+CASES = ("ring-detector", "uniform-mass", "multi-crossing", "gravity-guard", "coincident-terminal")
 
 
 def make_plan(case="ring-detector"):
+    if case == "coincident-terminal":
+        parent = make_plan("uniform-mass")
+        questions = (
+            PlaneEvent("stop:near", (.05, 0., 0.), (1., 0., 0.),
+                       "Signed near terminal stop", direction=1, terminal=True,
+                       role="ideal-stop-surface"),
+            PlaneEvent("stop:alternative", (.0500000005, 0., 0.), (1., 0., 0.),
+                       "Signed overlapping alternative", direction=1,
+                       terminal=True, role="ideal-stop-surface"),
+        )
+        return EventSweepPlan(
+            TrajectorySweepPlan("m28b:coincident-terminal",
+                                parent.sweep.baseline, parent.sweep.axis),
+            questions, EventPolicy(.01, 1e-8, 1e-10, 1e-8))
     if case == "ring-detector":
         base, questions = author("workbook-xy")
         axis = SweepAxis("ring:B", "charge_c", (-18e-6, -22e-6))
