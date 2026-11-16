@@ -14,6 +14,32 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M29a — Compare genuinely different fixed-source arrangements
+
+M29a composes M22a's existing **atomic named-source reassembly** with the
+unchanged M27b physical test-particle integrator. A teacher can add, remove
+or replace supported held sources, or add/remove gravity, and compare **genuine
+newly solved** particle trajectories without writing another force law.
+Every structural alternative is independently qualified from the unchanged
+baseline: incompatible off-plane fields refuse, source-guard hits remain
+censored, and actual native 3D position/velocity differences are compared
+only at literally identical saved physical times.
+
+The source-inventory-aware offline viewer plots **particle trajectory space**
+and lists actual member IDs/types/structural operations. It does not pretend
+to draw source geometry, induced conductors or a time-changing apparatus.
+All new scenarios are explicitly teacher hypotheticals.
+
+```powershell
+python examples/m29a_structural_family.py --case uniform-edits --output output/m29a-uniform.html
+Start-Process .\output\m29a-uniform.html
+python examples/m29a_structural_family.py --case mirror-pair --output output/m29a-mirror.html
+python -m pytest tests/test_m29a_structural_family.py -q
+```
+
+Other case choices: `point-replace`, `guard-and-refusal`.
+See [M29a reusable structural trajectory comparisons](docs/m29a.md).
+
 ## M28b — Compare genuine detected events across physical parameter changes
 
 One `EventSweepPlan` combines an unchanged M28a physical parameter sweep
