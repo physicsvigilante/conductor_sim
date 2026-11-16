@@ -6,8 +6,9 @@ from pathlib import Path
 
 from conductor_sim import (
     CoupledPropertyEdit, CoupledHypothesis, CoupledPhysicalPlan,
-    CoupledEventPlan, EventPolicy, PlaneEvent, run_coupled_event_family,
+    CoupledEventPlan, run_coupled_event_family,
 )
+from conductor_sim.motion_events import EventPolicy, PlaneEvent
 from examples.m29a_structural_family import model
 
 

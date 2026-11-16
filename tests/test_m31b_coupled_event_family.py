@@ -6,9 +6,10 @@ import pytest
 
 from conductor_sim import (
     CoupledPropertyEdit, CoupledHypothesis, CoupledPhysicalPlan,
-    CoupledEventPlan, CoupledEventRun, EventPolicy, PlaneEvent,
+    CoupledEventPlan, CoupledEventRun,
     run_coupled_event_family,
 )
+from conductor_sim.motion_events import EventPolicy, PlaneEvent
 from examples.m29a_structural_family import model
 
 
