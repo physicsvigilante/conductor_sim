@@ -4,6 +4,7 @@ Test references are direct constant-acceleration and independent Coulomb
 midpoint quadrature, never callbacks installed in the production solver.
 """
 from dataclasses import replace
+import json
 from math import hypot, pi
 
 import pytest
@@ -499,6 +500,9 @@ def test_f01r_native_literal_time_and_censored_controls_remain_accepted():
     row = guard.entries[0]
     assert row.status == "censored"
     assert row.trajectory.termination == "source-guard"
-    assert guard.as_dict()["entries"][0]["exact_time_comparisons"] == list(row.comparisons)
+    # Detached JSON turns the genuine in-memory 3-vector tuples into arrays.
+    # Compare the same canonical JSON shape, not a tuple to a JSON list.
+    assert guard.as_dict()["entries"][0]["exact_time_comparisons"] == json.loads(
+        json.dumps(row.comparisons, allow_nan=False))
     assert all(type(record["time_s"]) is float
                for record in guard.as_dict()["entries"][0]["exact_time_comparisons"])
