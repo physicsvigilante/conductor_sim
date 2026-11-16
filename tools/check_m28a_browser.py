@@ -8,10 +8,12 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from conductor_sim import (FixedPointField, PointCharge, PrescribedField,
-                           TestChargeMotionSpec, SweepAxis, TrajectorySweepPlan,
+                           TestChargeMotionSpec, UniformElectricField,
+                           SweepAxis, TrajectorySweepPlan,
                            run_trajectory_sweep, write_trajectory_sweep_html)
 from conductor_sim.scenarios import PrescribedScenario
 from examples.m28a_ring_sweep import run_case
+from examples.m28a_guard_transfer import run_case as gravity_transfer_case
 
 
 def guard_case():
@@ -28,14 +30,38 @@ def guard_case():
         SweepAxis("test-particle", "initial_velocity_m_s", ((1., 0., 0.),))))
 
 
+
+def uniform_case():
+    baseline = PrescribedScenario(
+        "m28:uniform-browser",
+        TestChargeMotionSpec(
+            PrescribedField((UniformElectricField((40., 0., 0.)),)),
+            PointCharge(1e-9, (0., 0., 0.)),
+            1e-5, (0., 0., 0.), .05, .01,
+            plane_normal=(0., 0., 1.)),
+        (("field:uniform", "Held uniform electric field"),),
+        "Teacher hypothetical uniform field, unrelated to ring workbook.")
+    return run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:uniform-browser-sweep", baseline,
+        SweepAxis("field:uniform", "field_v_m", ((55., 0., 0.),))))
+
+
 def check(output: Path):
     output.mkdir(parents=True, exist_ok=True)
     errors, consoles, requests = [], [], []
     results = {}
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        for kind in ("ring-b-charge", "ring-b-separation", "guard"):
-            sweep = guard_case() if kind == "guard" else run_case(kind)
+        for kind in ("ring-b-charge", "ring-b-separation", "guard",
+                     "uniform-only", "baseline-guard"):
+            if kind == "guard":
+                sweep = guard_case()
+            elif kind == "uniform-only":
+                sweep = uniform_case()
+            elif kind == "baseline-guard":
+                sweep = gravity_transfer_case()
+            else:
+                sweep = run_case(kind)
             html = write_trajectory_sweep_html(sweep, output/(kind+".html"))
             page = browser.new_page(viewport={"width": 1360, "height": 900})
             page.on("pageerror", lambda e: errors.append(str(e)))
@@ -53,14 +79,36 @@ def check(output: Path):
             assert page.evaluate("window.m28SweepViewer.physicalTime") == 0
             assert page.locator("#sweep-states tr").count() == len(data["tracks"])
             assert "not an apparatus/ring-geometry drawing" in page.locator("body").inner_text().lower()
-            assert "source-given" in page.locator("body").inner_text()
-            if kind == "guard":
-                assert sweep.entries[0].status == "censored"
-                assert data["tracks"][1]["termination"] == "source-guard"
-            else:
+            visible = page.locator("body").inner_text()
+            assert "Authored baseline" in visible
+            assert "not independently source-verified" in visible
+            assert data["baseline_provenance"] == sweep.plan.baseline.provenance
+            assert data["baseline_origin"] == sweep.plan.baseline.origin
+            if kind.startswith("ring-b-"):
+                assert "Workbook physical p12" in visible
                 assert [t["status"] for t in data["tracks"]] == [
                     "complete", "complete", "complete"]
                 assert data["source_ids"] == ["ring:A", "ring:B", "field:up"]
+            else:
+                # The generic renderer MUST NOT misattribute a point-only
+                # or uniform-only apparatus to workbook ring questions.
+                assert "Workbook" not in visible and "Q40" not in visible
+                assert "probe q=+10" not in visible
+                if kind == "guard":
+                    assert sweep.entries[0].status == "censored"
+                    assert data["tracks"][1]["termination"] == "source-guard"
+                    assert data["source_ids"] == ["point:held"]
+                elif kind == "uniform-only":
+                    assert data["source_ids"] == ["field:uniform"]
+                    assert [t["status"] for t in data["tracks"]] == [
+                        "complete", "complete"]
+                else:
+                    assert data["source_ids"] == ["point:review-held"]
+                    assert sweep.baseline_trajectory.termination == "source-guard"
+                    assert sweep.entries[0].status == "complete"
+                    assert data["tracks"][0]["termination"] == "source-guard"
+                    assert data["tracks"][1]["termination"] == "duration"
+                    assert data["frame_times_s"][-1] == .30
             # Prove the play control really steps saved states.
             page.locator("#play").click()
             page.wait_for_function("window.m28SweepViewer.frameIndex > 0", timeout=5000)
@@ -74,13 +122,21 @@ def check(output: Path):
             assert end == data["frame_times_s"][-1]
             active = page.evaluate("window.m28SweepViewer.activeCount")
             missing = page.evaluate("window.m28SweepViewer.missingCount")
-            if kind == "guard":
+            if kind in ("guard", "baseline-guard"):
                 assert active == 1 and missing == 1
                 assert "No saved state" in page.locator("#sweep-states").inner_text()
-                assert page.locator("#sweep-plot circle").nth(1).evaluate(
+                # Neither a guarded child nor an early-censored baseline
+                # can invent a physical state at another track's later time.
+                missing_marker = 1 if kind == "guard" else 0
+                assert page.locator("#sweep-plot circle").nth(missing_marker).evaluate(
                     "(el) => getComputedStyle(el).display") == "none"
+                if kind == "baseline-guard":
+                    assert "Reference unavailable at this time" in page.locator(
+                        "#sweep-states").inner_text()
+                    assert "No exact-time comparison" in page.locator(
+                        "#sweep-states").inner_text()
             else:
-                assert active == 3 and missing == 0
+                assert active == (2 if kind == "uniform-only" else 3) and missing == 0
                 assert "|Δr|" in page.locator("#sweep-states").inner_text()
             page.screenshot(path=str(output/(kind+"-wide.png")), full_page=True)
             page.locator("#reset").click()
@@ -103,6 +159,7 @@ def check(output: Path):
                 raise AssertionError((mobile, offenders))
             assert mobile["svg"] <= 390, mobile
             results[kind] = dict(status="pass", source_ids=data["source_ids"],
+                                 baseline_provenance=data["baseline_provenance"],
                                  saved_states=len(data["frame_times_s"]),
                                  final_saved_physical_time_s=end,
                                  active_at_end=active, unavailable_at_end=missing,
@@ -113,8 +170,9 @@ def check(output: Path):
     report = dict(status="pass", cases=results, page_errors=errors,
                   console_errors=consoles, network_requests=requests,
                   facts="Python physical samples; no browser ODE or time interpolation",
-                  provenance="Workbook source-given ring geometry and probe charge; "
-                             "teacher-chosen numerical launch/mass/time and sweep variations")
+                  provenance="Case-specific authored baseline metadata. Workbook ring and "
+                             "probe claims apply only to ring cases; all variation "
+                             "parameters are teacher hypotheses.")
     (output/"m28a-browser.json").write_text(
         json.dumps(report, indent=2, allow_nan=False)+"\n", encoding="utf-8")
     return report
