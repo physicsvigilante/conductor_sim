@@ -23,6 +23,8 @@ jobs:
           git rev-parse HEAD > review-artifacts/commit.txt
       - name: M27b actual Chromium ring off-axis conservative and driven motion
         run: python -m tools.check_m27b_browser --output review-artifacts/m27b
+      - name: M28a real Chromium parameter sweeps and source-guard censoring
+        run: python -m tools.check_m28a_browser --output review-artifacts/m28a
       - run: python -m pytest -m "not femm5" -q --junitxml=review-artifacts/python.xml
       - run: python examples/visualize_conductors.py --output review-artifacts/analytical.html
       - name: Browser acceptance (no external requests)
