@@ -29,6 +29,8 @@ jobs:
         run: python -m tools.check_m28b_browser --output review-artifacts/m28b
       - name: M29a actual Chromium structural inventories, native motion and censoring
         run: python -m tools.check_m29a_browser --output review-artifacts/m29a
+      - name: M29b actual Chromium structural inventories and typed event observations
+        run: python -m tools.check_m29b_browser --output review-artifacts/m29b
       - run: python -m pytest -m "not femm5" -q --junitxml=review-artifacts/python.xml
       - run: python examples/visualize_conductors.py --output review-artifacts/analytical.html
       - name: Browser acceptance (no external requests)
