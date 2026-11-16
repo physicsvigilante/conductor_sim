@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from math import isfinite
 import re
 
 from .motion_1d import MotionIntegrationError
@@ -140,6 +141,35 @@ def _physical_changes(parent: PrescribedScenario, edits: tuple[CoupledPropertyEd
     return {key: value for key, value in patches.items() if value}
 
 
+
+def _same_native_comparison_value(observed, genuine):
+    """Type-faithful equality for literal saved-SI-time numerical evidence.
+
+    Python considers False == 0.0, float subclasses can redefine equality,
+    and +0.0 == -0.0 despite different serialized floating-point spellings.
+    Preserve the original M28a calculation but compare its actual built-in
+    payload types and exact values instead of relying on Python container ==.
+    """
+    if type(observed) is not type(genuine):
+        return False
+    if type(genuine) is float:
+        return (isfinite(observed) and isfinite(genuine) and
+                observed.hex() == genuine.hex())
+    if type(genuine) is int or type(genuine) is str:
+        return observed == genuine
+    if type(genuine) is tuple:
+        return (len(observed) == len(genuine) and
+                all(_same_native_comparison_value(a, b)
+                    for a, b in zip(observed, genuine)))
+    if type(genuine) is dict:
+        return (len(observed) == len(genuine) and
+                all(type(key) is str for key in observed) and
+                all(key in observed and
+                    _same_native_comparison_value(observed[key], value)
+                    for key, value in genuine.items()))
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class CoupledPhysicalEntry:
     index: int
@@ -234,7 +264,8 @@ class CoupledPhysicalRun:
                     parent_native.spec is not expected_parent.spec or
                     parent_native.termination not in ("duration", "source-guard")):
                 raise ValueError("coupled result lacks a valid native immediate-parent trajectory")
-            if entry.comparisons != tuple(_shared_rows(parent_native, entry.trajectory)):
+            if not _same_native_comparison_value(
+                    entry.comparisons, tuple(_shared_rows(parent_native, entry.trajectory))):
                 raise ValueError("coupled comparison rows disagree with genuine parent/child saved times")
 
     def as_dict(self):

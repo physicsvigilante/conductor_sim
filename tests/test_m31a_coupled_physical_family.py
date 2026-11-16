@@ -428,3 +428,77 @@ def test_f01_real_source_guard_remains_censored_and_joint_translation_still_pass
     assert child.trajectory.termination == "duration"
     assert len(child.comparisons) == len(child.trajectory.samples)
     assert translated.as_dict()["entries"][0]["exact_time_comparisons"]
+
+
+def test_f01r_boolean_zero_timestamp_rejected_at_construction_and_export():
+    # Python's ordinary False == 0.0 must not authenticate an SI timestamp
+    # or silently serialize a number as the JSON Boolean false.
+    run = _actual_complete_coupled_family()
+    real = run.entries[0]
+    assert type(real.comparisons[0]["time_s"]) is float
+    assert real.comparisons[0]["time_s"] == 0.0
+    assert False == 0.0  # characterize the historical validator bypass
+
+    doctored = dict(real.comparisons[0])
+    doctored["time_s"] = False
+    changed = replace(real, comparisons=(doctored, *real.comparisons[1:]))
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (changed,))
+
+    # Frozen container, mutable row: export must check AGAIN.
+    second = _actual_complete_coupled_family()
+    second.entries[0].comparisons[0]["time_s"] = False
+    with pytest.raises(ValueError, match="comparison rows"):
+        second.as_dict()
+
+
+def test_f01r_custom_equality_float_and_dict_subclasses_do_not_forge_comparisons():
+    run = _actual_complete_coupled_family()
+    good = run.entries[0]
+
+    class AlwaysEqualFloat(float):
+        def __eq__(self, _other):
+            return True
+
+    class AlwaysEqualDict(dict):
+        def __eq__(self, _other):
+            return True
+
+    doctored_time = dict(good.comparisons[0])
+    doctored_time["time_s"] = AlwaysEqualFloat(9999.0)
+    assert doctored_time == good.comparisons[0]  # original equality is unsafe
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (
+            replace(good, comparisons=(doctored_time, *good.comparisons[1:])),))
+
+    doctored_row = AlwaysEqualDict({"time_s": 9999.0})
+    assert doctored_row == good.comparisons[0]
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (
+            replace(good, comparisons=(doctored_row, *good.comparisons[1:])),))
+
+    # +0.0 and -0.0 have different representations in JSON.
+    doctored_sign = dict(good.comparisons[0])
+    doctored_sign["time_s"] = -0.0
+    assert doctored_sign == good.comparisons[0]
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (
+            replace(good, comparisons=(doctored_sign, *good.comparisons[1:])),))
+
+
+def test_f01r_native_literal_time_and_censored_controls_remain_accepted():
+    original = _actual_complete_coupled_family()
+    assert original.as_dict()["entries"][0]["exact_time_comparisons"][0]["time_s"] == 0.0
+    assert type(original.as_dict()["entries"][0]["exact_time_comparisons"][0]["time_s"]) is float
+
+    guard = run_coupled_physical_family(make(hypothesis(
+        "guard-literal", "attract-guard",
+        edit("point:attract", "charge_c", -2e-10),
+        edit("test-particle", "mass_kg", 2e-4)),
+        family=model("guard-and-refusal")))
+    row = guard.entries[0]
+    assert row.status == "censored"
+    assert row.trajectory.termination == "source-guard"
+    assert guard.as_dict()["entries"][0]["exact_time_comparisons"] == list(row.comparisons)
+    assert all(type(record["time_s"]) is float
+               for record in guard.as_dict()["entries"][0]["exact_time_comparisons"])
