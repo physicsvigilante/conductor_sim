@@ -142,10 +142,26 @@ svg{display:block;width:100%;height:auto;border:1px solid #d9e2e9;border-radius:
 button{font:inherit;padding:7px 11px;background:white;color:#173b55;border:1px solid #9db2c5;border-radius:5px;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:3px solid #276f9c;outline-offset:2px}
 input[type=range]{flex:1;min-width:115px}output{font:12px ui-monospace,monospace}
-.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:12px}
+.scroll{overflow-x:auto;max-width:100%;overscroll-behavior-inline:contain}
+table{border-collapse:collapse;width:100%;font-size:12px}
 th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #e0e7ee;overflow-wrap:anywhere}
 th{background:#eef3f8}.scenario-name{font-weight:600}
-@media(max-width:520px){h1{font-size:19px}main{padding:10px}section{padding:10px}th,td{padding:6px}}
+.mobile-table-hint{display:none}
+@media(max-width:520px){
+  h1{font-size:19px}main{padding:10px}section{padding:10px}th,td{padding:8px}
+  .mobile-table-hint{display:block}
+  .scroll table{min-width:1060px;table-layout:fixed;border-collapse:separate;border-spacing:0}
+  .scroll th:nth-child(1){width:170px}
+  .scroll th:nth-child(2){width:225px}
+  .scroll th:nth-child(3){width:190px}
+  .scroll th:nth-child(4){width:235px}
+  .scroll th:nth-child(5){width:240px}
+  .scroll th:first-child,.scroll td:first-child{
+    position:sticky;left:0;z-index:1;background:#fff;
+    box-shadow:2px 0 3px rgba(24,62,88,.15)
+  }
+  .scroll th:first-child{background:#eef3f8;z-index:2}
+}
 </style></head><body><header><h1>"""+escape(title)+"""</h1>
 <p>Actual native physical trajectories · independently reassembled source inventories · no browser physics</p>
 </header><main><section><h2>World-plane trajectory comparison</h2>
@@ -166,7 +182,10 @@ without interpolation or extrapolation. A source-guard-censored case is shown as
 unavailable beyond its final saved state, while a longer case can continue.
 For actual component geometry, use the existing qualified fixed-source viewer.</p>
 </section><section><h2>Author-bound source memberships and real states</h2>
-<div class="scroll"><table><thead><tr><th>Scenario</th><th>Physically assembled sources</th>
+<p class="muted mobile-table-hint" id="table-scroll-hint">Scroll this table horizontally
+to read each source's ID, name, type, structural change and measured state.
+The scenario column stays visible.</p>
+<div class="scroll" role="region" aria-label="Structural source inventory and native trajectory table; scroll horizontally to read all columns" tabindex="0"><table><thead><tr><th>Scenario</th><th>Physically assembled sources: ID, name, type</th>
 <th>Structural change from baseline</th><th>Native state or refusal</th>
 <th>Compared to baseline at the exact saved time</th></tr></thead>
 <tbody id="structural-states"></tbody></table></div>
@@ -212,7 +231,7 @@ function paint(frame){
     n.className='scenario-name';n.style.color=colors[i];
     const inv=track.source_inventory;
     row(tr,inv===null?'No qualified source inventory':
-      inv.map(s=>s.id+' ('+s.kind+')').join(', ')+(track.has_gravity?' · gravity':''));
+      inv.map(s=>s.id+' — '+s.label+' ('+s.kind+')').join('; ')+(track.has_gravity?' · gravity':''));
     row(tr,track.structural_changes.length?track.structural_changes.map(c=>c.operation+
       (c.before?' ['+(c.before.id||c.component_id)+']':'')+
       (c.after?' ['+(c.after.id||c.component_id)+']':'')).join('; '):'Original inventory');

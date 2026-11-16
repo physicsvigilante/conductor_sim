@@ -271,6 +271,11 @@ def test_p6_offline_html_source_provenance_rejects_forgery_and_escapes(tmp_path)
     assert "source_geometry_rendered" in html
     assert "TRAJECTORY SPACE ONLY" in html
     assert "window.m29aStructuralViewer=view;" in html
+    assert "inv.map(s=>s.id+' — '+s.label+' ('+s.kind+')')" in html
+    assert 'id="table-scroll-hint"' in html
+    assert 'aria-label="Structural source inventory and native trajectory table; scroll horizontally to read all columns"' in html
+    assert 'min-width:1060px' in html
+    assert 'position:sticky' in html
     assert "Workbook" not in html and "Q41" not in html
     with pytest.raises(TypeError,match="native"):
         render_structural_family(run.as_dict())
