@@ -291,15 +291,13 @@ Markers at very close times are combined into a compact event COUNT, not
 an interpolated physical event time; the original individual event times,
 signed directions and numerical brackets remain in the full table below.
 A red square marks a terminal/guard/unresolved observation. No field source
-moves during a run, and there is NO physical motion after a stop.</p>"""+
-chart+"""</section>
+moves during a run, and there is NO physical motion after a stop.</p>"""+chart+"""</section>
 <section><h2>Actual authored source inventories for each experiment</h2>
 <p class="tiny">These are separate hypothetical experiments, not changes
 to the apparatus during one particle trajectory. Source ID/name/type and
 M22a structural lineage refer to real native qualified models. The source
 provenance is an authored assertion, not independently authenticated PDF data.</p>
-<div class="inventory-grid" id="source-memberships">"""+
-"".join(cards)+"""</div></section>
+<div class="inventory-grid" id="source-memberships">"""+"".join(cards)+"""</div></section>
 <section><h2>Every event question, native root and time comparison</h2>
 <p class="tiny">A numerical root-time shift is eligible ONLY when exactly one
 resolved root with the same signed direction exists in both duration-complete
@@ -312,8 +310,7 @@ the physical scenario column stays visible.</p>
 <div class="scroll" role="region" tabindex="0" aria-label="Structural event-family numerical roots and scenario comparisons; scroll horizontally">
 <table><thead><tr><th>Scenario</th><th>Question ID</th><th>Outcome</th>
 <th>Original numerical root / bracket / direction</th><th>Comparison to baseline</th>
-<th>Observation ending</th></tr></thead><tbody id="event-rows">"""+
-"".join(event_tables)+"""</tbody></table></div>
+<th>Observation ending</th></tr></thead><tbody id="event-rows">"""+"".join(event_tables)+"""</tbody></table></div>
 </section>
 <section><h2>Scientific boundaries</h2>
 <p>These model changes add, remove or replace fixed prescribed physical
