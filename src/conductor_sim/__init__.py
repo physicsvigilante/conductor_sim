@@ -173,3 +173,10 @@ from .nested_event_family import (
 )
 __all__ += ["NestedEventPlan", "NestedVariationEvent", "NestedBranchEvent",
             "NestedEventRun", "run_nested_event_family"]
+
+from .coupled_physical_family import (
+    CoupledPropertyEdit, CoupledHypothesis, CoupledPhysicalPlan,
+    CoupledPhysicalEntry, CoupledPhysicalRun, run_coupled_physical_family,
+)
+__all__ += ["CoupledPropertyEdit", "CoupledHypothesis", "CoupledPhysicalPlan",
+            "CoupledPhysicalEntry", "CoupledPhysicalRun", "run_coupled_physical_family"]
