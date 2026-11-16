@@ -148,3 +148,14 @@ from .structural_family_viewer import (render_structural_family,
 __all__ += ["StructuralCase", "StructuralFamilyPlan", "StructuralFamilyEntry",
             "StructuralFamilyRun", "run_structural_family",
             "render_structural_family", "write_structural_family_html"]
+
+from .structural_event_family import (
+    StructuralEventFamilyPlan, StructuralEventEntry,
+    StructuralEventFamilyRun, run_structural_event_family,
+)
+from .structural_event_viewer import (
+    render_structural_event_family, write_structural_event_family_html,
+)
+__all__ += ["StructuralEventFamilyPlan", "StructuralEventEntry",
+            "StructuralEventFamilyRun", "run_structural_event_family",
+            "render_structural_event_family", "write_structural_event_family_html"]
