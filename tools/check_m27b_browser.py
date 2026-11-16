@@ -12,7 +12,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-from examples.m27b_offaxis_motion import run_case
+from examples.m27b_offaxis_motion import author, run_case
 
 
 def check(output: Path):
@@ -27,6 +27,13 @@ def check(output: Path):
             json.dumps(record,indent=2,allow_nan=False)+"\n",encoding="utf-8")
         paths[case]=path
         examples[case]=record
+
+    # The workbook gives probe q=+10 µC; only its mass/launch/time are
+    # teacher-defined for this free-motion demonstration.
+    workbook,_=author("workbook-xy")
+    assert workbook.spec.particle.charge_c==10e-6
+    assert "mass 0.01 kg" in workbook.provenance
+    assert "TEACHER HYPOTHESES" in workbook.provenance
 
     errors=[];consoles=[];requests=[]
     result={}
@@ -146,7 +153,7 @@ def check(output: Path):
     assert not errors and not consoles and not requests,(errors,consoles,requests)
     report=dict(status="pass",mode="Python-validated numerical physical time; browser saved-state playback only",
                 cases=result,errors=errors,console_errors=consoles,network_requests=requests,
-                source="Workbook ring geometry Q40–41; teacher-hypothetical charge/mass/launch/time")
+                source="Workbook p12 Q40–41: source-given probe charge +10 µC; teacher-hypothetical mass/launch/time/plane")
     (output/"m27b-browser.json").write_text(json.dumps(report,indent=2,allow_nan=False)+"\n",encoding="utf-8")
     return report
 
