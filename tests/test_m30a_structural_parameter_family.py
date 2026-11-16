@@ -285,3 +285,24 @@ def test_n2_branch_axis_no_op_and_gauge_not_silently_swept():
     wrong=_study(BranchSweep("add-E",SweepAxis("field:Enew","field_v_m",(3.0,))))
     response=run_structural_parameter_family(wrong)
     assert response.entries[0].status=="rejected-sweep-axis"
+
+
+def test_n3_reserved_baseline_case_and_branch_result_binding():
+    base_model=model("uniform-edits")
+    reserved=StructuralFamilyPlan("m30a:reserved",base_model.baseline,(
+        StructuralCase("baseline","M30a reserved selector collision.",
+            add_sources=(NamedSource("field:other","Additional held source",
+                UniformElectricField((30.,0.,0.))),)),))
+    with pytest.raises(ValueError,match="reserves baseline"):
+        StructuralParameterPlan("m30a:reserved",reserved,(
+            BranchSweep("baseline",SweepAxis("test-particle","mass_kg",(2e-5,))),))
+    # The reserved literal baseline selector remains a valid target of a
+    # genuine M28a property study, independent of sibling structural choices.
+    regular=StructuralParameterPlan("m30a:original",base_model,(
+        BranchSweep("baseline",SweepAxis("test-particle","mass_kg",(2e-5,))),))
+    study=run_structural_parameter_family(regular)
+    assert study.entries[0].status=="evaluated"
+    assert study.entries[0].structural_entry is None
+    assert study.entries[0].parent_scenario is base_model.baseline
+    assert study.entries[0].sweep_run.entries[0].scenario.parent_revision_id==(
+        base_model.baseline.revision_id)
