@@ -247,7 +247,7 @@ def test_n2_baseline_reuse_wrong_model_binding_and_bad_untrusted_input():
     assert run.as_dict()["branches"][0]["original_to_structural_event_comparisons"][0]["status"]==(
         "reference-baseline")
     bad_branch=replace(run.branches[0],event_run=run.branches[0].variations[0].event_run)
-    with pytest.raises(ValueError,match="single source of truth"):
+    with pytest.raises(ValueError,match="wrong physical parent"):
         NestedEventRun(study,run.physical_family,run.original_event_run,(bad_branch,))
     with pytest.raises((ValueError,TypeError)):
         run_nested_event_family({"payload":"untrusted"})
