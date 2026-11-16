@@ -287,7 +287,7 @@ def run_coupled_physical_family(plan: CoupledPhysicalPlan) -> CoupledPhysicalRun
         try:
             candidate = revise_scenario(
                 parent,scenario_id=f"{plan.plan_id}:{hypo.case_id}",
-                note="Atomic teacher coupled hypothesis: "+hypo.note,**patches)
+                note=hypo.note,**patches)
         except (UnsupportedProblem, TypeError, ValueError) as exc:
             entries.append(CoupledPhysicalEntry(
                 idx,hypo,branch,parent,None,None,
