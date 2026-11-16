@@ -204,7 +204,7 @@ def test_p5_p6_offline_html_displays_native_states_and_escaped_titles(tmp_path):
     assert '<script type="application/json" id="m28-sweep-data">' in html
     assert "no browser physics" in html
     assert "source-guard" in html
-    assert "source-given +10 µC" in html or "source-given +10 µC".replace("µ", "μ") in html
+    assert "probe q=+10 µC" in html
     assert 'window.m28SweepViewer=viewer;' in html
     assert "frame_times_s" in html
     assert "time_interpolation" in html
