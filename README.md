@@ -14,6 +14,32 @@ separate dimensions**. See the [evaluation contract](docs/evaluation_contract.md
 An honestly scoped partial simulation or justified refusal must not be
 misrepresented as a full question solution.
 
+## M28b — Compare genuine detected events across physical parameter changes
+
+One `EventSweepPlan` combines an unchanged M28a physical parameter sweep
+with a shared set of M24a typed detector-plane/velocity-reversal questions and
+one numerical event policy. Each independently qualified physical model gets
+a **fresh native M24a event integration**. The immutable output records all
+event roots/brackets, source identities, refusals, and genuinely guard-censored
+or terminal event histories.
+
+Unique resolved events can be compared using honest numerical root-time
+**bracket differences**; multiple crossings, unresolved events and truncated
+observations remain unpaired. A new offline HTML shows a source-agnostic
+event-time timeline and outcome table, not a fabricated ring apparatus or
+browser-side integration. The source ring values and probe charge are
+distinguished from teacher-authored mass, launch, detector and sweep values.
+
+```powershell
+python examples/m28b_event_sweep.py --case ring-detector --output output/m28b-rings.html
+Start-Process .\output\m28b-rings.html
+python examples/m28b_event_sweep.py --case uniform-mass --output output/m28b-analytic.html
+python -m pytest tests/test_m28b_event_sweep.py -q
+```
+
+Other `--case` choices are `multi-crossing` and `gravity-guard`.
+See [M28b numerical evidence and limits](docs/m28b.md).
+
 ## M28a — Independently solved parameter sweeps of real trajectories
 
 One reusable `PrescribedScenario` now supports bounded one-parameter sweeps
