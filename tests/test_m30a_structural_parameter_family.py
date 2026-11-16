@@ -254,7 +254,7 @@ def test_n1_invalid_branch_or_variations_and_unknown_lattice_path_rejected():
             BranchSweep("add-E",SweepAxis("test-particle","mass_kg",
                                           (2e-5,3e-5,4e-5,5e-5,6e-5))),
             BranchSweep("remove-Ey",SweepAxis("test-particle","mass_kg",
-                                              (2e-5,3e-5,4e-5,5e-5,6e-5))))))
+                                              (2e-5,3e-5,4e-5,5e-5,6e-5)))))
     with pytest.raises((TypeError,ValueError)):
         BranchSweep("baseline",object())
     with pytest.raises((TypeError,ValueError)):
