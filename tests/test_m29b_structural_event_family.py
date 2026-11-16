@@ -278,7 +278,7 @@ def test_n1_bad_plans_and_refused_structural_siblings():
     with pytest.raises(ValueError,match="1..16"):
         StructuralEventFamilyPlan(plan.family,(),plan.policy)
     with pytest.raises(TypeError,match="StructuralFamilyPlan"):
-        StructuralEventFamilyPlan(plan.family.as_dict(),plan.questions,plan.policy)
+        StructuralEventFamilyPlan({"not": "a native family"},plan.questions,plan.policy)
     with pytest.raises(Exception):
         StructuralEventFamilyPlan(plan.family,(
             VelocityReversal("not-physical",(0.,0.,1.),"normal only"),),plan.policy)
