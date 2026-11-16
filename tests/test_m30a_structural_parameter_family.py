@@ -276,9 +276,11 @@ def test_n2_branch_axis_no_op_and_gauge_not_silently_swept():
         "rejected-sweep-axis","rejected-sweep-axis"]
     assert "baseline value" in run.entries[0].reason
     assert "unknown physical source identity" in run.entries[1].reason
-    with pytest.raises(ValueError,match="gauge|physical"):
-        StructuralParameterPlan("m30a:x",model("uniform-edits"),(
-            BranchSweep("baseline",SweepAxis("field:E0","reference_potential_v",(1.,))),))
+    gauge=StructuralParameterPlan("m30a:gauge",model("uniform-edits"),(
+        BranchSweep("baseline",SweepAxis("field:E0","reference_potential_v",(1.,))),))
+    denied=run_structural_parameter_family(gauge)
+    assert denied.entries[0].status=="rejected-sweep-axis"
+    assert "unsupported physical sweep property" in denied.entries[0].reason
     # Physical shape errors detected by the existing M28a plan on the selected parent.
     wrong=_study(BranchSweep("add-E",SweepAxis("field:Enew","field_v_m",(3.0,))))
     response=run_structural_parameter_family(wrong)
