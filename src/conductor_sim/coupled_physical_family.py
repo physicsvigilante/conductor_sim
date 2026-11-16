@@ -211,6 +211,8 @@ class CoupledPhysicalRun:
                                             "rejected-coupled-edit", "rejected-physical-model")):
                     raise ValueError("unsolved coupled hypothesis has fabricated native evidence")
                 continue
+            if type(entry.scenario) is not PrescribedScenario:
+                raise TypeError("coupled physical revision must be native PrescribedScenario")
             if (entry.scenario.parent_revision_id != expected_parent.revision_id or
                     entry.scenario.source_annotations != expected_parent.source_annotations):
                 raise ValueError("coupled physical revision lost immediate source parent or membership")
@@ -218,12 +220,27 @@ class CoupledPhysicalRun:
                 if entry.status != "integration-failed" or entry.comparisons:
                     raise ValueError("coupled numerical failure mislabeled as accepted observation")
                 continue
+            if type(entry.trajectory) is not TestChargeMotionResult:
+                raise TypeError("coupled physical result requires native TestChargeMotionResult")
+            if entry.trajectory.termination not in ("duration", "source-guard"):
+                raise ValueError("unsupported native test-charge termination in coupled result")
             if (entry.trajectory.spec is not entry.scenario.spec or
                     entry.status != ("complete" if entry.trajectory.termination == "duration"
                                      else "censored")):
                 raise ValueError("coupled native trajectory does not match its physical revision")
+            parent_native = (self.structural_run.baseline_trajectory
+                             if expected_entry is None else expected_entry.trajectory)
+            if (type(parent_native) is not TestChargeMotionResult or
+                    parent_native.spec is not expected_parent.spec or
+                    parent_native.termination not in ("duration", "source-guard")):
+                raise ValueError("coupled result lacks a valid native immediate-parent trajectory")
+            if entry.comparisons != tuple(_shared_rows(parent_native, entry.trajectory)):
+                raise ValueError("coupled comparison rows disagree with genuine parent/child saved times")
 
     def as_dict(self):
+        # Tuple-stored dictionaries remain mutable inside a frozen dataclass.
+        # Revalidate before export so a later edit cannot forge saved-time rows.
+        self.__post_init__()
         record = dict(
             schema="conductor_sim.coupled_physical_family.v1",
             mode="Atomic full-system physical edits after qualified M22a source assembly",
@@ -303,8 +320,12 @@ def run_coupled_physical_family(plan: CoupledPhysicalPlan) -> CoupledPhysicalRun
                 idx,hypo,branch,parent,candidate,None,
                 "integration-failed",f"{type(exc).__name__}: {exc}",()))
             continue
+        if type(solved) is not TestChargeMotionResult:
+            raise TypeError("coupled integration must return native TestChargeMotionResult")
         if solved.spec is not candidate.spec:
             raise RuntimeError("coupled native integration returned another model's results")
+        if solved.termination not in ("duration", "source-guard"):
+            raise ValueError("unsupported native test-charge termination in coupled integration")
         status = "complete" if solved.termination == "duration" else "censored"
         aligned = tuple(_shared_rows(parent_native, solved))
         entries.append(CoupledPhysicalEntry(

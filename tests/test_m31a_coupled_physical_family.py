@@ -17,6 +17,7 @@ from conductor_sim.scenarios import PrescribedScenario, revise_scenario
 from conductor_sim.solver import UnsupportedProblem
 from conductor_sim.structural_family import StructuralCase, StructuralFamilyPlan
 from conductor_sim.structural_scenarios import NamedSource
+from conductor_sim.trajectory_sweep import _shared_rows
 from conductor_sim.coupled_physical_family import (
     CoupledPropertyEdit, CoupledHypothesis, CoupledPhysicalPlan,
     CoupledPhysicalRun, run_coupled_physical_family,
@@ -335,3 +336,95 @@ def test_n2_forged_trajectory_or_parent_result_binding_refused():
     bad=replace(run.entries[1],parent_scenario=run.plan.family.baseline)
     with pytest.raises(ValueError,match="wrong structural source world"):
         CoupledPhysicalRun(plan,run.structural_run,(run.entries[0],bad))
+
+
+
+def _actual_complete_coupled_family():
+    return run_coupled_physical_family(make(hypothesis(
+        "genuine-native", "add-E",
+        edit("field:Enew", "field_v_m", (150., 0., 0.)),
+        edit("test-particle", "mass_kg", 2e-5))))
+
+
+def test_f01_reject_non_native_trajectory_despite_matching_spec_and_fake_as_dict():
+    run = _actual_complete_coupled_family()
+    valid = run.entries[0]
+
+    class FakeTrajectory:
+        def __init__(self, spec):
+            self.spec = spec
+            self.termination = "duration"
+
+        def as_dict(self):
+            return {"schema": "forged", "samples": [{"time_s": 9999.}]}
+
+    imposter = replace(valid, trajectory=FakeTrajectory(valid.scenario.spec),
+                      comparisons=())
+    with pytest.raises(TypeError, match="native TestChargeMotionResult"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (imposter,))
+
+
+def test_f01_unknown_termination_is_not_renamed_to_censored_in_result_or_runner(monkeypatch):
+    import conductor_sim.coupled_physical_family as service
+
+    run = _actual_complete_coupled_family()
+    valid = run.entries[0]
+    invalid = replace(valid, trajectory=replace(valid.trajectory, termination="unknown"),
+                      status="censored", comparisons=())
+    with pytest.raises(ValueError, match="unsupported native test-charge termination"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (invalid,))
+
+    original_integrator = service.integrate_test_charge
+
+    def unsupported_integrator(spec):
+        return replace(original_integrator(spec), termination="unknown")
+
+    monkeypatch.setattr(service, "integrate_test_charge", unsupported_integrator)
+    with pytest.raises(ValueError, match="unsupported native test-charge termination"):
+        service.run_coupled_physical_family(run.plan)
+
+
+def test_f01_reject_invented_comparison_timestamps_and_missing_saved_time_rows():
+    run = _actual_complete_coupled_family()
+    valid = run.entries[0]
+    assert valid.comparisons
+    forged = replace(valid, comparisons=(
+        {"time_s": 9999., "delta_position_m": (999., 0., 0.)},))
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (forged,))
+    missing = replace(valid, comparisons=())
+    with pytest.raises(ValueError, match="comparison rows"):
+        CoupledPhysicalRun(run.plan, run.structural_run, (missing,))
+
+
+def test_f01_preexport_recheck_refuses_mutable_comparison_row_tampering():
+    run = _actual_complete_coupled_family()
+    assert run.as_dict()["entries"][0]["exact_time_comparisons"]
+    run.entries[0].comparisons[0]["time_s"] = 9999.
+    with pytest.raises(ValueError, match="comparison rows"):
+        run.as_dict()
+
+
+def test_f01_real_source_guard_remains_censored_and_joint_translation_still_passes():
+    guarded = run_coupled_physical_family(make(hypothesis(
+        "guard-ratio", "attract-guard",
+        edit("point:attract", "charge_c", -2e-10),
+        edit("test-particle", "mass_kg", 2e-4)),
+        family=model("guard-and-refusal")))
+    node = guarded.entries[0]
+    assert node.status == "censored"
+    assert node.trajectory.termination == "source-guard"
+    assert node.comparisons == tuple(_shared_rows(
+        node.structural_entry.trajectory, node.trajectory))
+    assert guarded.as_dict()["entries"][0]["physical_trajectory"]["termination"] == "source-guard"
+
+    translated = run_coupled_physical_family(make(hypothesis(
+        "translated-pair", "baseline",
+        edit("test-particle", "position_m", (0., .1, .05)),
+        edit("point:A", "position_m", (.2, 0., .05))),
+        family=model("point-replace")))
+    child = translated.entries[0]
+    assert child.status == "complete"
+    assert child.trajectory.termination == "duration"
+    assert len(child.comparisons) == len(child.trajectory.samples)
+    assert translated.as_dict()["entries"][0]["exact_time_comparisons"]
