@@ -76,6 +76,56 @@ def check(output: Path):
                 assert "post-stop motion" in page.locator("body").inner_text()
                 assert all(x["status"]=="unpaired" for item in evidence["entries"]
                            for x in item["event_time_comparisons"])
+            if case=="dense-terminal":
+                assert len(run.plan.questions)==16
+                native=[run.baseline_run]+[item.run for item in run.entries]
+                assert all(x.trajectory.termination=="terminal-event" for x in native)
+                assert [len(x.events) for x in native]==[16,16,16]
+                assert actual_roots==48
+                assert page.locator("#event-timeline circle").count()==48
+                assert page.locator("#event-rows tr").count()==48
+                assert page.locator('circle[data-boundary-alternative="true"]').count()>=20
+                assert all(item["status"]=="unpaired"
+                           for e in evidence["entries"]
+                           for item in e["event_time_comparisons"])
+                assert "decorative" in page.locator("body").inner_text().lower()
+                # Check actual SVG geometry and native stop boundary in each
+                # physical scenario; counting DOM nodes alone missed F-05.
+                geometry=page.evaluate("""() => {
+                    const svg=document.getElementById('event-timeline');
+                    const width=svg.viewBox.baseVal.width;
+                    const height=svg.viewBox.baseVal.height;
+                    return [...svg.querySelectorAll('circle')].map(el=>({
+                        id:el.dataset.eventId,
+                        lane:Number(el.dataset.laneIndex),
+                        laneY:Number(el.dataset.laneCentreY),
+                        stopX:Number(el.dataset.stopBoundaryX),
+                        x:Number(el.getAttribute('cx')),
+                        y:Number(el.getAttribute('cy')),
+                        r:Number(el.getAttribute('r')),
+                        alternative:el.dataset.boundaryAlternative==='true',
+                        width,height
+                    }));
+                }""")
+                assert len(geometry)==48
+                for index,track in enumerate(native):
+                    laneY=35+index*46
+                    expectedX=190+track.trajectory.samples[-1].time_s*722/(
+                        run.plan.sweep.baseline.spec.duration_s)
+                    marks=[p for p in geometry if p["lane"]==index]
+                    assert len(marks)==16,(index,len(marks))
+                    assert {p["id"] for p in marks}=={
+                        f"cluster:{n:02}" for n in range(16)}
+                    for marker in marks:
+                        assert marker["laneY"]==laneY
+                        assert abs(marker["stopX"]-expectedX)<1e-5
+                        assert 0<=marker["x"]-marker["r"]
+                        assert marker["x"]+marker["r"]<=marker["width"]
+                        assert 0<=marker["y"]-marker["r"]
+                        assert marker["y"]+marker["r"]<=marker["height"]
+                        assert abs(marker["y"]-laneY)+marker["r"]<23, marker
+                        if marker["alternative"]:
+                            assert expectedX-38<=marker["x"]<=expectedX
             if case=="gravity-guard":
                 assert evidence["baseline_termination"]=="source-guard"
                 assert evidence["entries"][0]["event_run"]["trajectory"]["termination"]=="duration"

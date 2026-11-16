@@ -21,10 +21,25 @@ from conductor_sim.event_sweep_viewer import write_event_sweep_html
 from conductor_sim.motion_events import EventPolicy, PlaneEvent, VelocityReversal
 from examples.m27b_offaxis_motion import author
 
-CASES = ("ring-detector", "uniform-mass", "multi-crossing", "gravity-guard", "coincident-terminal")
+CASES = ("ring-detector", "uniform-mass", "multi-crossing", "gravity-guard", "coincident-terminal", "dense-terminal")
 
 
 def make_plan(case="ring-detector"):
+    if case == "dense-terminal":
+        # Explicit independently reviewed upper-bound physical question card.
+        # Exactly 16 separately identified near-coincident terminal planes;
+        # the unchanged M24a service retains each original native event.
+        parent = make_plan("uniform-mass")
+        questions = tuple(
+            PlaneEvent(f"cluster:{i:02}", (.05 + i*1e-11, 0., 0.),
+                       (1., 0., 0.), f"Near terminal alternative {i:02}",
+                       direction=1, terminal=True, role="ideal-stop-surface")
+            for i in range(16)
+        )
+        return EventSweepPlan(
+            TrajectorySweepPlan("m28b:dense-terminal",
+                                parent.sweep.baseline, parent.sweep.axis),
+            questions, EventPolicy(.01, 1e-8, 1e-10, 1e-8))
     if case == "coincident-terminal":
         parent = make_plan("uniform-mass")
         questions = (

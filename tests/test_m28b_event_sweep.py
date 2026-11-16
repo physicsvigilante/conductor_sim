@@ -334,3 +334,62 @@ def test_r2_f04_generic_model_event_view_never_mentions_ring_charge():
     assert "not a time-dependent change of ring charge" not in page
     assert "not a time-dependent change of a model parameter" in page
     assert "Workbook" not in page
+
+
+def test_r2_f05_dense_16_terminal_events_remain_in_own_lanes():
+    """Independent reviewer F-05: no root may be shifted into a prior run lane."""
+    from xml.etree import ElementTree as ET
+    result = run_case("dense-terminal")
+    assert len(result.plan.questions) == 16
+    native = [result.baseline_run, *(e.run for e in result.entries)]
+    assert len(native) == 3
+    assert all(r.trajectory.termination == "terminal-event" for r in native)
+    assert all(len(r.events) == 16 for r in native)
+    assert len({e.event_id for e in native[0].events}) == 16
+    html = render_event_sweep(result)
+    svg = html[html.index('<svg id="event-timeline"') :
+               html.index("</svg>") + len("</svg>")]
+    root = ET.fromstring(svg)
+    w, h = (float(z) for z in root.attrib["viewBox"].split()[2:])
+    circles = root.findall(".//circle")
+    assert len(circles) == 48
+    assert sum(c.get("data-boundary-alternative") == "true" for c in circles) >= 20
+    assert html.count("coincident terminal alternative at stop boundary") >= 1
+    for i, run in enumerate(native):
+        lane_centre = 35 + i*46
+        markers = [c for c in circles if int(c.get("data-lane-index")) == i]
+        assert len(markers) == 16
+        event_ids = {c.get("data-event-id") for c in markers}
+        assert event_ids == {f"cluster:{k:02}" for k in range(16)}
+        actual_stop = run.trajectory.samples[-1].time_s
+        scale = (960-190-48)/result.plan.sweep.baseline.spec.duration_s
+        original_stop_x = 190 + actual_stop*scale
+        for c in markers:
+            cx = float(c.get("cx"))
+            cy = float(c.get("cy"))
+            rad = float(c.get("r"))
+            assert 0 <= cx-rad < cx+rad <= w, (i, cx, cy)
+            assert 0 <= cy-rad < cy+rad <= h, (i, cx, cy)
+            assert abs(cy - lane_centre) + rad < 23, (i, cy, lane_centre)
+            assert float(c.get("data-lane-centre-y")) == lane_centre
+            assert float(c.get("data-stop-boundary-x")) == pytest.approx(
+                original_stop_x, abs=1e-6)
+            if c.get("data-boundary-alternative") == "true":
+                # All decorative offsets stay before the genuine stop x;
+                # a shifted marker is NOT a later physical trajectory.
+                assert cx <= original_stop_x
+                assert cx >= original_stop_x-38
+        # Track's true observed horizon is still the actual native last time.
+        lines = [n for n in root.findall(".//line")
+                 if n.get("stroke") == (
+                     "#136b94", "#b45c39", "#397a4e")[i]]
+        assert len(lines) == 1
+        assert float(lines[0].get("x2")) == pytest.approx(original_stop_x, abs=1e-6)
+    evidence = result.as_dict()
+    assert sum(len(r.events) for r in native) == 48
+    assert len(evidence["baseline_event_run"]["events"]) == 16
+    assert all(len(v["event_run"]["events"]) == 16 for v in evidence["entries"])
+    assert all(p["status"] == "unpaired"
+               for e in evidence["entries"]
+               for p in e["event_time_comparisons"])
+    assert "decorative" in html

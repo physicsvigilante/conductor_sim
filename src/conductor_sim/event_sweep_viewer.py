@@ -96,25 +96,36 @@ def _timeline(rows, run):
                  f'y1="{y}" y2="{y}" stroke="{color}" stroke-width="3" '
                  'stroke-linecap="round"/>')
         alternative_count = 0
+        stop_x = left + last_t*scale
         for event in native.events:
             at = event.sample.time_s
             if not (0 <= at <= horizon):
                 raise ValueError("event sample lies outside authored duration")
             alternative = at > last_t
             if alternative:
-                # M24a may retain another terminal candidate with an
-                # overlapping bracket slightly later than the selected stop.
-                # Place its marker at the terminal BOUNDARY, never at the
-                # later candidate's t: there is NO post-stop physical path.
+                # M24a allows alternative numerical terminal candidates
+                # whose brackets overlap the actual terminal observation.
+                # Only the genuine last native state fixes the stop horizon.
+                # With 1..16 typed questions, a tall unbounded vertical
+                # stack can leave its own lane and even the SVG. Instead
+                # pack decorative dots in 4 bounded rows LEFT of stop_x.
+                # Their offsets are NEVER physical times; tooltips and the
+                # table preserve the original candidate sample/brackets.
                 if native.trajectory.termination != "terminal-event":
                     raise ValueError("post-horizon nonterminal event")
-                x = left + last_t*scale
-                cy = y-8-alternative_count*8
+                row_in_cluster = alternative_count % 4
+                column_in_cluster = alternative_count // 4
+                x = stop_x - 9 - column_in_cluster*7
+                cy = y + (row_in_cluster - 1.5)*7
                 alternative_count += 1
+                radius = 2.7
                 info = ('Overlapping terminal-boundary alternative, numerical '
-                        'sample only; no post-stop physical motion')
+                        'sample only; no post-stop physical motion; decorative '
+                        'marker offset is not event time; stop boundary anchored '
+                        f'at {_fmt(last_t)} s')
             else:
                 x, cy = left + at*scale, y
+                radius = 5
                 info = "Located numerical root in the observed horizon"
             label = (f"{event.event_id}: {info}; candidate time {_fmt(at)} s; "
                      f"signed direction {event.direction:+d}; "
@@ -122,9 +133,15 @@ def _timeline(rows, run):
                      f"{_fmt(event.time_bracket_s[1])}] s")
             alt_style = (' data-boundary-alternative="true" '
                          'stroke-dasharray="2 2"') if alternative else ''
-            s.append(f'<circle cx="{x:.7f}" cy="{cy}" r="5" '
+            if not (0 <= cy-radius and cy+radius <= height and
+                    0 <= x-radius and x+radius <= width and
+                    abs(cy-y)+radius < 23):
+                raise ValueError("event glyph exceeds its own scenario lane or SVG")
+            s.append(f'<circle cx="{x:.7f}" cy="{cy:.7f}" r="{radius}" '
                      f'data-event-id="{_h(event.event_id)}"'
-                     f'{alt_style} fill="{color}" stroke="#fff" stroke-width="1.5">'
+                     f' data-lane-index="{i}" data-lane-centre-y="{y}"'
+                     f' data-stop-boundary-x="{stop_x:.7f}"'
+                     f'{alt_style} fill="{color}" stroke="#fff" stroke-width="1.2">'
                      f'<title>{_h(label)}</title></circle>')
         terminal = native.trajectory.termination
         x = left + last_t*scale
@@ -219,8 +236,12 @@ table{min-width:720px}header{padding:14px}}
 <main><section><h2>Observed event horizon</h2>
 <p class="muted">Each line ends at its last native solved physical time.
 Circles are located numerical event roots; red squares indicate
-terminated or censored observation. Absence of a root marker is NOT proof
-that an event never occurs.</p>"""+_timeline(rows, run)+"""</section>
+terminated or censored observation. Closely overlapping terminal
+alternatives are packed in small markers WITHIN their own experiment
+lane, anchored just left of the true stop boundary. These decorative
+offsets are NOT event times: original times, signed directions and
+numerical brackets remain in the table. Absence of a root marker is
+NOT proof that an event never occurs.</p>"""+_timeline(rows, run)+"""</section>
 <section><h2>Model and provenance</h2><p id="provenance">"""+_h(source)+"""</p>
 <p class="muted" id="source-ids">"""+_h(details)+"""</p>
 <p>Every scenario is a separate teacher-authored physical hypothesis from
