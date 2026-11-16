@@ -12,10 +12,11 @@ import pytest
 from conductor_sim import (
     FixedPointField, PointCharge, PrescribedField, TestChargeMotionSpec,
     UniformElectricField, SweepAxis, TrajectorySweepPlan,
-    UniformRingField, render_trajectory_sweep, run_trajectory_sweep,
+    UniformRingField, UniformGravity, integrate_test_charge, render_trajectory_sweep, run_trajectory_sweep,
     write_trajectory_sweep_html,
 )
-from conductor_sim.scenarios import PrescribedScenario
+from conductor_sim.scenarios import PrescribedScenario, revise_scenario
+from examples.m28a_guard_transfer import run_case as reviewer_gravity_run
 from examples.m27b_offaxis_motion import author
 
 
@@ -204,7 +205,9 @@ def test_p5_p6_offline_html_displays_native_states_and_escaped_titles(tmp_path):
     assert '<script type="application/json" id="m28-sweep-data">' in html
     assert "no browser physics" in html
     assert "source-guard" in html
-    assert "probe q=+10 µC" in html
+    assert "Workbook physical p12 Q40" in html
+    assert "not independently source-verified" in html
+    assert "baseline_provenance" in html
     assert 'window.m28SweepViewer=viewer;' in html
     assert "frame_times_s" in html
     assert "time_interpolation" in html
@@ -289,3 +292,155 @@ def test_n4_parallel_but_distinct_valid_planes_refused_by_plot_not_by_physics():
         SweepAxis("test-particle", "position_m", ((.01, 0., 0.),))))
     assert in_plane.entries[0].status == "complete"
     assert "m28-sweep-data" in render_trajectory_sweep(in_plane)
+
+
+
+def test_r2_f01_reusable_viewer_provenance_comes_from_actual_model_only():
+    """No unqualified workbook attribution in an unrelated generic experiment."""
+    uniform = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:uniform-source", uniform_base(),
+        SweepAxis("field:E", "field_v_m", ((0., 450., 0.),))))
+    html = render_trajectory_sweep(uniform)
+    assert "Authored baseline" in html
+    assert "baseline_origin" in html and "baseline_provenance" in html
+    assert "Teacher scenario; analytic constant acceleration reference." in html
+    assert "field:E" in html
+    assert "Workbook" not in html and "Q40" not in html
+    assert "ring A/B" not in html and "probe q=+10" not in html
+    point = PrescribedScenario(
+        "m28:point-origin", TestChargeMotionSpec(
+            PrescribedField((FixedPointField(1e-10, (.3, 0., 0.)),)),
+            PointCharge(-1e-9, (0., 0., 0.)), 1e-4,
+            (0., 0., 0.), .02, .01, plane_normal=(0., 0., 1.)),
+        (("point:held", "Teacher-chosen static point"),),
+        "Teacher hypothetical: positive held point and negative test particle.")
+    p = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:point-only", point, SweepAxis("point:held", "charge_c", (2e-10,))))
+    assert p.entries[0].status == "complete"
+    page = render_trajectory_sweep(p)
+    assert "Teacher hypothetical: positive held point" in page
+    assert "point:held" in page
+    assert "Workbook" not in page and "Q40" not in page
+    assert "probe q=+10" not in page
+
+
+def test_r2_f02_gauge_only_changes_remain_m20b_edits_not_physical_sweep_axes():
+    """Gauge affects qV but cannot be advertised as a physical trajectory change."""
+    base = PrescribedScenario(
+        "m28:gauge-baseline", TestChargeMotionSpec(
+            PrescribedField((UniformElectricField((40., 0., 0.)),)),
+            PointCharge(1e-9, (0., 0., 0.)), 1e-5,
+            (0., 0., 0.), .05, .01, plane_normal=(0., 0., 1.)),
+        (("field:E", "Uniform E"),),
+        "Teacher hypothetical: source-potential reference check.")
+    revised = revise_scenario(
+        base, scenario_id="m28:gauge-changed", note="Potential gauge only.",
+        source_changes={"field:E": {"reference_potential_v": 75.}})
+    old = integrate_test_charge(base.spec)
+    new = integrate_test_charge(revised.spec)
+    assert old.termination == new.termination == "duration"
+    for o, n in zip(old.samples, new.samples):
+        assert o.time_s == n.time_s
+        assert n.position_m == pytest.approx(o.position_m, abs=1e-12)
+        assert n.velocity_m_s == pytest.approx(o.velocity_m_s, abs=1e-12)
+        assert n.force_n == pytest.approx(o.force_n, abs=1e-16)
+        assert n.electric_potential_energy_j is None and o.electric_potential_energy_j is None
+        assert n.potential_energy_j - o.potential_energy_j == pytest.approx(
+            75.*base.spec.particle.charge_c, abs=1e-15)
+    for property_name, values in (
+            ("reference_potential_v", (75.,)),
+            ("reference_point_m", ((.02, 0., 0.),))):
+        with pytest.raises(ValueError, match="gauge|reference|physical"):
+            TrajectorySweepPlan("m28:reject-gauge", base,
+                                SweepAxis("field:E", property_name, values))
+    with pytest.raises(ValueError, match="reference|gauge"):
+        TrajectorySweepPlan("m28:reject-gravity-gauge",
+                            PrescribedScenario(
+                                "m28:gravity-gauge", replace(
+                                    base.spec, gravity=UniformGravity((0., -.1, 0.))),
+                                base.source_annotations,
+                                "Teacher hypothetical: gravity reference test."),
+                            SweepAxis("gravity", "reference_position_m",
+                                      ((0., 1., 0.),)))
+    assert "reference_potential_v" in revised.as_dict()["changes"][0]["property"]
+
+
+def test_r2_f03_high_world_offset_rejects_representable_parallel_plane_delta():
+    """64 world ULPs may hide 3 mm in the presence of 10**12 m coordinates."""
+    z = 1e12
+    displaced = z + .003
+    delta = displaced-z
+    assert delta > .003 and delta < .004
+    source = PrescribedScenario(
+        "m28:huge-offset", TestChargeMotionSpec(
+            PrescribedField((UniformElectricField((20., 0., 0.)),)),
+            PointCharge(1e-9, (0., 0., z)), 1e-5,
+            (.1, 0., 0.), .015, .005, plane_normal=(0., 0., 1.)),
+        (("field:E", "Held E in x"),),
+        "Teacher hypothetical: deliberately very large world position.")
+    run = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:large-shift", source, SweepAxis(
+            "test-particle", "position_m", ((0., 0., displaced),))))
+    assert run.entries[0].status == "complete"
+    assert run.as_dict()["entries"][0]["comparisons"][0]["delta_position_m"][2] == delta
+    with pytest.raises(ValueError, match="different physical planes"):
+        render_trajectory_sweep(run)
+    in_plane = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:large-in-plane", source, SweepAxis(
+            "test-particle", "position_m", ((.05, 0., z),))))
+    assert in_plane.entries[0].status == "complete"
+    assert "m28-sweep-data" in render_trajectory_sweep(in_plane)
+
+
+def test_r2_held_out_gravity_transfer_baseline_censors_child_completes():
+    """Reviewer-proposed new native execution plus alternate Coulomb reference."""
+    run = reviewer_gravity_run()
+    assert run.baseline_trajectory.termination == "source-guard"
+    assert run.entries[0].status == "complete"
+    assert run.entries[0].trajectory.termination == "duration"
+    end = run.baseline_trajectory.samples[-1]
+    assert .20 < end.time_s < .235
+    assert run.entries[0].trajectory.samples[-1].time_s == pytest.approx(.3, abs=1e-14)
+    assert run.plan.baseline.spec.gravity.acceleration_m_s2 == (0., 0., 0.)
+    assert run.entries[0].scenario.spec.gravity.acceleration_m_s2 == (-4., 0., -2/3)
+    def at_time(rows, target):
+        return next(s for s in rows if abs(s.time_s-target) < 1e-11)
+    baseline_at_02 = at_time(run.baseline_trajectory.samples, .20)
+    varied_at_02 = at_time(run.entries[0].trajectory.samples, .20)
+    # Reviewer independently computed direct Coulomb+DOP853 states;
+    # tolerances are explicit and much smaller than the state differences.
+    assert baseline_at_02.position_m == pytest.approx(
+        (.160017636988, 0., .026669606165), abs=3e-5)
+    assert varied_at_02.position_m == pytest.approx(
+        (.080009584389, 0., .013334930732), abs=3e-5)
+    record = run.as_dict()
+    comparisons = record["entries"][0]["comparisons"]
+    assert comparisons
+    assert max(x["time_s"] for x in comparisons) <= end.time_s
+    assert not any(x["time_s"] > end.time_s for x in comparisons)
+    assert all(x["time_s"] in {s.time_s for s in run.baseline_trajectory.samples}
+               for x in comparisons)
+    html = render_trajectory_sweep(run)
+    header = '<script type="application/json" id="m28-sweep-data">'
+    start = html.index(header) + len(header)
+    data = json.loads(html[start:html.index("</script>", start)])
+    assert data["frame_times_s"][-1] == pytest.approx(.30, abs=1e-14)
+    assert data["frame_times_s"][-1] not in [
+        s["time_s"] for s in data["tracks"][0]["samples"]]
+    assert data["frame_times_s"][-1] in [
+        s["time_s"] for s in data["tracks"][1]["samples"]]
+    assert data["baseline_provenance"] == run.plan.baseline.provenance
+    assert "Workbook" not in html and "Q40" not in html
+
+
+def test_r2_provenance_html_escapes_embedded_author_text():
+    base = uniform_base()
+    spoof = PrescribedScenario(
+        "m28:html-escape", base.spec, base.source_annotations,
+        "Teacher note <img src=x onerror=alert(1)> & not a PDF fact.")
+    run = run_trajectory_sweep(TrajectorySweepPlan(
+        "m28:escape", spoof, SweepAxis("test-particle", "mass_kg", (.002,))))
+    html = render_trajectory_sweep(run)
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "Teacher note " in html
+    assert r"\u003cimg" in html
