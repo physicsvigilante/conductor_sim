@@ -198,8 +198,7 @@ crossings, unresolved roots, stop-surface observations and source guards are
 not silently reduced to a single arbitrary time or assumed contact.</p>
 <div class="viewport"><table><thead><tr><th>Scenario / value</th>
 <th>Physical question ID</th><th>Finite-resolution outcome</th><th>Actual roots and brackets</th>
-<th>Eligible root-time shift</th><th>Run termination</th></tr></thead><tbody id="event-rows">"""+
-"".join(table)+"""</tbody></table></div></section>
+<th>Eligible root-time shift</th><th>Run termination</th></tr></thead><tbody id="event-rows">"""+ "".join(table)+"""</tbody></table></div></section>
 <section><h2>Interpretation limits</h2>
 <p>One parameter was changed per separate model, retaining the original
 source identities and numerical event policy. The chart is an event-time
