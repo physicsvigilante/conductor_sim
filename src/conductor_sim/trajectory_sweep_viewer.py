@@ -157,7 +157,7 @@ from the unchanged baseline; they are not intermediate particle states or litera
 experimental transitions. An admissible revised model can still fail or terminate at
 a source guard. Comparison of absolute potential energies is intentionally omitted
 because electrostatic reference choices can differ between scenarios.</p>
-<p class="notice">Source workbook p12 Q40–41 gives ring A/B geometry, E, and probe q=+10 µC.
+<p class="notice">Source workbook p12 Q40–41 gives ring A/B geometry, E, and source-given probe q=+10 µC.
 The M27b numeric mass, shifted launch, elapsed time and these revisions are teacher choices.
 The simulator does not solve the source's original symbolic axial Q41 as written.</p>
 </section></main><script type="application/json" id="m28-sweep-data">"""+safe+"""</script>
