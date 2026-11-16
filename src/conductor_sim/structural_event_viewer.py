@@ -128,7 +128,10 @@ def _chart(rows, horizon):
             else:
                 # One bounded per-lane count badge instead of unbounded
                 # vertical alternatives (the old M28b F-05 defect).
-                bx=max(left+2,min(x-12,width-right-28))
+                # Keep the whole decorative count badge on/before the
+                # actually observed root/stop boundary. In particular a
+                # dense terminal cluster must not LOOK like post-stop motion.
+                bx=max(2,min(x-28,width-right-28))
                 out.append(f'<rect data-lane-index="{i}" data-root-count="{count}" '
                            f'data-stop-x="{stop_x:.7f}" x="{bx:.7f}" y="{y-9}" '
                            f'width="28" height="18" rx="5" fill="{color}">'

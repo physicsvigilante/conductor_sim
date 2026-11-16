@@ -155,7 +155,9 @@ def check(output: Path):
                     stop:Number(el.dataset.stopX),
                     x:Number(el.getAttribute(el.tagName.toLowerCase()==='circle'?'cx':'x')),
                     y:Number(el.getAttribute(el.tagName.toLowerCase()==='circle'?'cy':'y')),
-                    shape:el.tagName.toLowerCase()
+                    shape:el.tagName.toLowerCase(),
+                    width:el.tagName.toLowerCase()==='rect'?
+                      Number(el.getAttribute('width')):null
                 }));
                 const lines=[...svg.querySelectorAll('[data-observed-lane]')].map(el=>({
                     lane:Number(el.dataset.observedLane),
@@ -182,6 +184,9 @@ def check(output: Path):
                     assert abs(mark["stop"]-end)<1e-5
                     assert 0<=mark["x"]<=plot["width"]
                     assert abs(mark["y"]-y)<26
+                    if mark["shape"]=="rect":
+                        assert mark["x"]+mark["width"] <= end+1e-5,(
+                            kind,i,mark,end)
             if kind=="uniform-detector":
                 assert all(e.status=="complete" for e in run.entries)
                 assert all(e["event_time_comparisons"][0]["status"]=="one-resolved-pair"

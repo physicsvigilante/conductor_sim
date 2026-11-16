@@ -203,6 +203,7 @@ def test_p5_dense_16_terminal_candidates_preserved_but_only_count_glyphs():
             else:
                 x,ypos,rx=float(el.get("x")),float(el.get("y")),float(el.get("width"))
                 assert 0<=x and x+rx<=w
+                assert x+rx <= float(el.get("data-stop-x"))+1e-6
                 assert abs((ypos+9)-y)+9<26
             assert float(el.get("data-stop-x"))==pytest.approx(stop_x,abs=1e-6)
     assert html.count('data-event-id="terminal:')>=48
