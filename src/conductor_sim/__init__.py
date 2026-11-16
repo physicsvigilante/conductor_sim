@@ -139,3 +139,12 @@ from .event_sweep import (EventSweepPlan, EventSweepEntry,
 from .event_sweep_viewer import render_event_sweep, write_event_sweep_html
 __all__ += ["EventSweepPlan", "EventSweepEntry", "EventSweepRun",
             "run_event_sweep", "render_event_sweep", "write_event_sweep_html"]
+
+from .structural_family import (StructuralCase, StructuralFamilyPlan,
+                                StructuralFamilyEntry, StructuralFamilyRun,
+                                run_structural_family)
+from .structural_family_viewer import (render_structural_family,
+                                       write_structural_family_html)
+__all__ += ["StructuralCase", "StructuralFamilyPlan", "StructuralFamilyEntry",
+            "StructuralFamilyRun", "run_structural_family",
+            "render_structural_family", "write_structural_family_html"]
