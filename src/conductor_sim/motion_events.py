@@ -121,7 +121,43 @@ class EventStudy:
             numerical_policy=asdict(self.policy)))
 
 
+def validate_event_requests(questions, policy):
+    """Recheck authored native requests without renormalizing caller objects.
+
+    This checks input contracts, not event-study physical admissibility.
+    Physical ideal-stop and plane qualification remain in _validate_questions.
+    """
+    if type(policy) is not EventPolicy:
+        raise TypeError('require a native EventPolicy')
+    policy.__post_init__()  # Pure scalar/type checks, no mutation.
+    if type(questions) not in (tuple, list) or not 1 <= len(questions) <= 16:
+        raise ValueError('require 1..16 typed event questions')
+    for question in questions:
+        if type(question) not in (PlaneEvent, VelocityReversal):
+            raise TypeError('unsupported event kind; arbitrary callbacks are not accepted')
+        _common(question)
+        axis = question.normal if type(question) is PlaneEvent else question.axis
+        if type(axis) is not tuple:
+            raise TypeError('native event direction must retain its immutable tuple')
+        vector = _vector(axis, 'native event direction')
+        if abs(hypot(*vector) - 1.) > 8*ulp(1.):
+            raise ValueError('native event direction must be unit length')
+        if type(question) is PlaneEvent:
+            if type(question.point_m) is not tuple:
+                raise TypeError('native event point must retain its immutable tuple')
+            _vector(question.point_m, 'native event point')
+            if type(question.role) is not str or question.role not in (
+                    'passive-detector', 'ideal-stop-surface'):
+                raise ValueError('unsupported surface role')
+            if question.role == 'ideal-stop-surface' and (
+                    not question.terminal or question.direction == 0):
+                raise ValueError('an ideal stop surface needs a signed terminal direction')
+    if len({q.event_id for q in questions}) != len(questions):
+        raise ValueError('duplicate event identity')
+
+
 def _validate_questions(spec, questions, policy, *, initial_force=None):
+    validate_event_requests(questions, policy)
     if type(questions) not in (list,tuple) or not 1 <= len(questions) <= 16:
         raise ValueError('require 1..16 typed event questions')
     questions=tuple(questions)

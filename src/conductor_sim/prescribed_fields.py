@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from math import copysign, fsum, hypot, inf, isfinite, log1p, pi, sqrt, ulp
 from typing import Protocol
+from sys import float_info
 
 from .model import EPSILON_0, Vector3
 from .solver import SingularField, UnsupportedProblem
@@ -46,6 +47,14 @@ def _unit(value, name):
     length = hypot(*v)
     if not isfinite(length) or length == 0:
         raise ValueError(f'{name} must have finite nonzero length')
+    # Subnormal hypot can lose most relative precision: e.g. hypot(ulp(0),
+    # ulp(0), 0) rounds to ulp(0), incorrectly producing (1, 1, 0).
+    # Ratios to the largest component remain representable and preserve the
+    # direction. Keep ordinary input arithmetic byte-identical.
+    if length < float_info.min:
+        scale = max(abs(x) for x in v)
+        v = tuple(x/scale for x in v)
+        length = hypot(*v)
     return tuple(x/length for x in v)
 
 
