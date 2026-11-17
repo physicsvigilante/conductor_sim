@@ -212,3 +212,101 @@ def test_genuine_two_axis_field_difference_not_projected_into_x():
         assert row["delta_position_m"] == pytest.approx(expected, abs=1e-8)
         assert row["delta_position_m"][1] != 0 or t == 0
         assert row["delta_position_m"][2] == pytest.approx(0., abs=1e-10)
+
+
+def test_cross_branch_source_guard_does_not_fabricate_complete_event_pair():
+    from examples.m29b_structural_events import make_plan
+    authored = make_plan("guard-detector")
+    attr = next(c for c in authored.family.cases if c.case_id == "attract-guard")
+    proposed = UnifiedObservationPlan(
+        "m33a:guard", authored.family.baseline,
+        (StructuralWorldNode("attract-guard", "baseline", attr, "events"),),
+        "events", authored.questions, authored.policy,
+        retain_source_ancestry=True,
+        comparisons=(WorldComparison("guard", "baseline", "attract-guard"),))
+    run = run_unified_observation_graph(proposed)
+    assert run.entries[0].status == "censored-source-guard"
+    comp = run.as_dict()["cross_world_comparisons"][0]
+    assert comp["status"] == "compared"
+    assert comp["exact_time_trajectory_comparisons"]
+    assert all(row["time_s"] <= run.entries[0].native.trajectory.samples[-1].time_s
+               for row in comp["exact_time_trajectory_comparisons"])
+    assert all(e["status"] == "unpaired" and
+               "estimated_numerical_shift_s" not in e
+               for e in comp["event_time_comparisons"])
+
+
+def test_cross_branch_admitted_but_event_refused_keeps_model_and_no_fake_observation():
+    from examples.m29b_structural_events import make_plan
+    old = make_plan("terminal-refusal")
+    bad_study = StructuralWorldNode(
+        "reversed-force", "baseline", old.family.cases[0], "events")
+    correction = PhysicalWorldNode(
+        "correct-stop", "reversed-force", "Real physical correction",
+        (CoupledPropertyEdit("field:Eplus", "field_v_m", (500., 0., 0.)),
+         CoupledPropertyEdit("test-particle", "mass_kg", 2e-6)), "events")
+    proposed = UnifiedObservationPlan(
+        "m33a:study-refusal", old.family.baseline,
+        (bad_study, correction), "events", old.questions, old.policy,
+        retain_source_ancestry=True,
+        comparisons=(WorldComparison("refusal", "reversed-force", "correct-stop"),))
+    run = run_unified_observation_graph(proposed)
+    assert run.entries[0].status == "rejected-event-study"
+    assert run.entries[0].scenario is not None
+    assert run.entries[0].native is None
+    assert run.entries[1].status == "complete"
+    record = run.as_dict()["cross_world_comparisons"][0]
+    assert record["status"] == "unpaired"
+    assert "no native observation" in record["reason"]
+    assert record["left_revision_id"] == run.entries[0].scenario.revision_id
+    assert record["left_source_ancestry"]["world_id"] == "reversed-force"
+    assert record["right_source_ancestry"]["world_id"] == "correct-stop"
+    assert record["event_time_comparisons"][0]["status"] == "unpaired"
+    assert record["exact_time_trajectory_comparisons"] == []
+
+
+def test_cross_branch_two_real_opposite_signed_roots_never_unique_event_pair():
+    from examples.m29b_structural_events import make_plan
+    old = make_plan("double-crossing")
+    p = UnifiedObservationPlan(
+        "m33a:bidirectional", old.family.baseline,
+        (StructuralWorldNode("extra-retarding", "baseline",
+                             old.family.cases[0], "events"),),
+        "events", old.questions, old.policy,
+        retain_source_ancestry=True,
+        comparisons=(WorldComparison("two-roots", "baseline", "extra-retarding"),))
+    run = run_unified_observation_graph(p)
+    comp = run.as_dict()["cross_world_comparisons"][0]
+    assert comp["status"] == "compared"
+    assert comp["event_time_comparisons"][0]["status"] == "unpaired"
+    assert "multiple crossings" in comp["event_time_comparisons"][0]["reason"]
+    assert all(len([e for e in native.events if e.event_id == "x:two-crossings"]) == 2
+               for native in (run.baseline_native, run.entries[0].native))
+
+
+def test_cross_branch_single_opposite_direction_events_are_distinct():
+    original = model("uniform-edits").baseline
+    question = PlaneEvent("x:both", (.006, 0., 0.), (1., 0., 0.),
+                          "Bidirectional crossing of the same physical plane",
+                          direction=0)
+    p = UnifiedObservationPlan(
+        "m33a:opposite", original,
+        (PhysicalWorldNode("reverse", "baseline",
+            "Real changed initial position and velocity", (
+                CoupledPropertyEdit("test-particle", "position_m", (.012, 0., 0.)),
+                CoupledPropertyEdit("test-particle", "initial_velocity_m_s",
+                                    (-.1, 0., 0.))), "events"),),
+        "events", (question,), EventPolicy(.003, 1e-8, 1e-8, 1e-6),
+        retain_source_ancestry=True,
+        comparisons=(WorldComparison("opposite", "baseline", "reverse"),))
+    run = run_unified_observation_graph(p)
+    assert run.entries[0].status == "complete"
+    assert len(run.baseline_native.events) == 1
+    assert len(run.entries[0].native.events) == 1
+    assert run.baseline_native.events[0].direction == 1
+    assert run.entries[0].native.events[0].direction == -1
+    pair = run.as_dict()["cross_world_comparisons"][0]
+    assert pair["status"] == "compared"
+    assert pair["event_time_comparisons"][0]["status"] == "unpaired"
+    assert "opposite signed" in pair["event_time_comparisons"][0]["reason"]
+    assert "estimated_numerical_shift_s" not in pair["event_time_comparisons"][0]
