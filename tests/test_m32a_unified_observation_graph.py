@@ -387,3 +387,87 @@ def test_graph_depth_and_node_count_limits_are_enforced():
                for i in range(9))
     with pytest.raises(ValueError,match="1..8"):
         UnifiedObservationPlan("m32a:too-many",original,many)
+
+
+def test_p9_unfamiliar_tilted_rod_signed_points_gravity_and_new_held_source_transfer():
+    """Independent test-side Coulomb quadrature, not production rod field callbacks."""
+    from math import pi, hypot
+    from conductor_sim import (
+        EPSILON_0, FixedPointField, PointCharge, PrescribedField,
+        TestChargeMotionSpec, UniformGravity, UniformRodField,
+    )
+    from conductor_sim.scenarios import PrescribedScenario
+    from conductor_sim.structural_scenarios import NamedSource
+
+    start=(.090,-.090,0.)
+    end=(.135,.105,0.)
+    rod_charge=2.6e-9
+    sources=(
+        UniformRodField(rod_charge,start,end),
+        FixedPointField(1.2e-9,(.18,.13,0.)),
+        FixedPointField(-.8e-9,(-.17,.07,0.)),
+    )
+    original=PrescribedScenario(
+        "m32a:unfamiliar-root",
+        TestChargeMotionSpec(
+            PrescribedField(sources),
+            PointCharge(.9e-9,(0.,0.,0.)),
+            1e-5,(.048,.012,0.), .42,.0042,
+            plane_normal=(0.,0.,1.),source_guard_m=.001,
+            relative_tolerance=2e-9,
+            gravity=UniformGravity((0.,-.075,0.))),
+        (("rod:slanted","Teacher tilted uniform rod"),
+         ("point:pos","Held positive point"),
+         ("point:neg","Held negative point")),
+        "Unfamiliar teacher hypothetical charged rod, two signed point sources and gravity.")
+    before=original.as_dict()
+    new_point=NamedSource(
+        "point:added","New independent held point at lower right",
+        FixedPointField(1.2e-9,(.18,-.08,0.)))
+    plan=UnifiedObservationPlan("m32a:unknown",original,(
+        StructuralWorldNode("new-point","baseline",StructuralCase(
+            "new-point","Introduce another real held positive source.",
+            add_sources=(new_point,))),
+        physical("new-q-mass","new-point",
+                 ("point:added","charge_c",2.1e-9),
+                 ("test-particle","mass_kg",1.3e-5)),
+    ))
+    result=run_unified_observation_graph(plan)
+    parent,child=result.entries
+    assert result.baseline_status==parent.status==child.status=="complete"
+    assert child.scenario.parent_revision_id==parent.scenario.revision_id
+    assert parent.assembly.parent is original
+    assert child.scenario.source_annotations[-1][0]=="point:added"
+    assert parent.scenario.spec.field.sources[-1].charge_c==1.2e-9
+    assert child.scenario.spec.field.sources[-1].charge_c==2.1e-9
+    assert child.scenario.spec.mass_kg==1.3e-5
+    assert len(result.as_dict()["nodes"][1]["exact_time_parent_comparisons"])>10
+
+    # Genuine separate 3D SI Coulomb midpoint quadrature on the original
+    # uniform charged rod, not UniformRodField._values or production RK.
+    k=1/(4*pi*EPSILON_0)
+    electric=[0.,0.,0.]
+    steps=3200
+    for j in range(steps):
+        u=(j+.5)/steps
+        site=tuple(start[i]+u*(end[i]-start[i]) for i in range(3))
+        d=tuple(-site[i] for i in range(3))
+        radius=hypot(*d)
+        for i in range(3):
+            electric[i] += k*rod_charge*d[i]/(steps*radius**3)
+    for charge,site in ((1.2e-9,(.18,.13,0.)),
+                        (-.8e-9,(-.17,.07,0.)),
+                        (2.1e-9,(.18,-.08,0.))):
+        d=tuple(-x for x in site)
+        radius=hypot(*d)
+        for i in range(3):
+            electric[i] += k*charge*d[i]/radius**3
+    q=.9e-9
+    mass=1.3e-5
+    direct_force=(q*electric[0], q*electric[1]-mass*.075, q*electric[2])
+    measured=child.trajectory.samples[0].force_n
+    assert measured==pytest.approx(direct_force,abs=2e-12)
+    assert abs(measured[0])+abs(measured[1])>1e-9
+    assert all(len(row.position_m)==3 and len(row.velocity_m_s)==3
+               for row in child.trajectory.samples)
+    assert original.as_dict()==before
