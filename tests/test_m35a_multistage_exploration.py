@@ -248,7 +248,7 @@ def test_cumulative_physical_depth_twelve_is_not_reset_between_stages():
         for i in range(count):
             name = f'd{stage}n{i}'
             nodes.append(PhysicalWorldNode(name, parent, 'True new mass', (
-                CoupledPropertyEdit('test-particle', 'mass_kg', (stage+3)*1e-6),)))
+                CoupledPropertyEdit('test-particle', 'mass_kg', (stage*5+i+3)*1e-6),)))
             parent = name
         previous = run_graph_world_fork(GraphWorldForkPlan(
             previous, f'depth:stage{stage}', tuple(nodes)))
