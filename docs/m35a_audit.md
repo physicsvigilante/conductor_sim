@@ -21,7 +21,7 @@ The original local non-FEMM suite passed **1,991 tests**, with 97 real-FEMM-only
 Reproduce the targeted numerical and authoring audit with:
 
 ```sh
-python tools/m35a_audit.py --expect candidate --output output/m35a-audit.json
+python -m tools.m35a_audit --expect candidate --output output/m35a-audit.json
 ```
 
 The report deliberately ends with `AUDIT_COMPLETE_WITH_DOCUMENTED_OPEN_FINDINGS`, not a blanket all-clear. Running the identical audit script against released source with `--expect released` preserves red-before/green-after evidence.
@@ -104,6 +104,16 @@ Independent midpoint Coulomb quadrature with 16,000 source elements checked the 
 
 These checks found **no additional field-law defect in the tested cases**. They are finite developer-authored transfers, not an exhaustive proof of all geometries, new conductor-induced dynamics, point/rod near-singularity guarantees or a separate-context reviewer verdict. Real FEMM and Chromium coverage must be verified through actual CI.
 
+### A-08 — Clean-checkout audit entry points failed in CI
+
+**Priority: medium; reproduced in the first M35a aggregate CI run; fixed in the candidate correction.**
+
+The initial [aggregate run #44120203390](https://github.com/physicsvigilante/conductor_sim/actions/runs/44120203390) passed all 39 focused tests and the first fourteen native/reference commands, then failed to import the checkout-only `examples` namespace in the audit command. The editable package install exposes `src`, not every directory in the checkout. Earlier local runs had a `PYTHONPATH` that concealed this invocation error. The candidate legacy-snapshot invocation had the same latent dependency.
+
+Invoke both checkout tools as Python modules from the repository root (`python -m tools.m35a_audit` and `python -m tools.m35a_legacy_snapshot`), instead of relying on an inherited search path. The aggregate launcher and candidate CI invocation are corrected; baseline runs still explicitly select the pinned baseline's source and examples. New subprocess tests remove `PYTHONPATH` and execute the audit and five-file legacy snapshot in a fresh interpreter. The audit now asserts that both the imported production module and example originate from the intended source root.
+
+The resumed evidence check also found the malformed-mode *audit probe* originally supplied an event policy and reached the wrong earlier rejection gate on released source. The probe now omits that policy, reproduces the actual old malformed-mode acceptance, and asserts each red/green result separately rather than using a conjunction. This changes validation code, not a field law or numerical integrator. The failed original run, its artifact and the incomplete local timeout remain retained; neither is counted as a passing run.
+
 ## M35a deliverable and honest boundary
 
 M35a permits a new physical fork to use an authentic previously completed fork as its source, then permits fresh typed event inquiries over any world in that retained history. Only newly admitted physical worlds are integrated during forking. The executable example uses three stages with structural/physical/replacement/removal operations, a refused retired-ID resurrection and an unaffected sibling, then four genuinely new event inquiries.
@@ -128,7 +138,7 @@ python -m pytest tests/test_m35a_audit_corrections.py tests/test_m35a_multistage
 python -m examples.m35a_multistage_exploration --output output/m35a
 python tools/m35a_independent_multistage.py --input output/m35a --output output/m35a-independent.json
 python tools/check_m35a_references.py --output output/m35a-references
-python tools/m35a_legacy_snapshot.py --output output/legacy-candidate
+python -m tools.m35a_legacy_snapshot --output output/legacy-candidate
 ```
 
 The standalone M35a numerical checker imports no `conductor_sim`; it validates ten admitted worlds, 210 actual saved 3D samples, 126 exact-time comparison rows, four fresh native inquiries and seven altered-evidence controls. The native execution/example imports production as expected. The audit tool imports production to obtain actual values but uses separate gradient/quadrature/orbit equations for expectations. These distinctions should remain explicit in reviewer and release reports.

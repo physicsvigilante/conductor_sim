@@ -11,6 +11,9 @@ from dataclasses import replace
 import json
 from math import cos, sin, sqrt, pi, hypot, fsum, ulp
 from pathlib import Path
+from inspect import getfile
+
+import conductor_sim
 from sys import version
 
 from conductor_sim import (
@@ -64,7 +67,9 @@ def corrections():
         self_pair=dict(rejected=True,error=str(error))
     object.__setattr__(node,'observation','typo-event')
     try:
-        plan=GraphWorldForkPlan(source,'audit:mode',(node,),source.plan.questions,source.plan.policy)
+        # Supply no event policy: the malformed mode must reach the mode guard,
+        # not be rejected earlier for a policy on a non-event request.
+        plan=GraphWorldForkPlan(source,'audit:mode',(node,))
         malformed=dict(rejected=False,status=run_graph_world_fork(plan).entries[0].status)
     except (ValueError,TypeError) as error:
         malformed=dict(rejected=True,error=str(error))
@@ -176,12 +181,23 @@ def main():
     parser.add_argument('--source-root', type=Path, default=Path(__file__).resolve().parents[1],
                         help='Repository whose source inventory is being audited')
     args=parser.parse_args()
+    source_root=args.source_root.resolve()
+    package_root=Path(conductor_sim.__file__).resolve().parent
+    example_path=Path(getfile(build_source_graph)).resolve()
+    assert package_root == source_root/'src/conductor_sim', (package_root,source_root)
+    assert example_path.is_relative_to(source_root/'examples'), example_path
     findings=corrections()
-    fixed=(findings['mutated_self_pair']['rejected'] and findings['malformed_observation']['rejected']
-           and findings['subnormal_normal']['unit_within_ulp'])
-    assert fixed == (args.expect=='candidate'),findings
+    expected_fixed=args.expect=='candidate'
+    # Every red-before/green-after probe must hit its intended boundary.
+    # A single conjunction could hide one falsely green released-source probe.
+    for probe,flag in (('mutated_self_pair','rejected'),
+                       ('malformed_observation','rejected'),
+                       ('subnormal_normal','unit_within_ulp')):
+        assert findings[probe][flag] is expected_fixed, (probe,findings[probe])
     report=dict(interpreter=version,expected_source_behavior=args.expect,
-        inventory=inventory(args.source_root.resolve()),
+        imported_production_root=str(package_root),
+        imported_example_path=str(example_path),
+        inventory=inventory(source_root),
         reproduced_corrections=findings,physics=physics_transfers(),
         open_legacy_findings=legacy_export_findings(),
         audit_scope='Complete source inventory and targeted native numerical/validation probes; not exhaustive proof or separate-context review.',

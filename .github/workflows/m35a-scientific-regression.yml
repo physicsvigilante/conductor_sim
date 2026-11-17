@@ -46,7 +46,7 @@ jobs:
           PYTHONPATH="$PWD/src:$PWD" python ../candidate/tools/m35a_audit.py --expect released --source-root . --output ../evidence/audit-released.json | tee ../evidence/audit-released.log
       - name: Audit correction and multistage physical/integrity regressions
         run: |
-          python -m pytest tests/test_m35a_audit_corrections.py tests/test_m35a_multistage_exploration.py -q --junitxml=../evidence/m35a-focused.xml | tee ../evidence/m35a-focused.log
+          python -m pytest tests/test_m35a_audit_corrections.py tests/test_m35a_multistage_exploration.py tests/test_m35a_cli.py -q --junitxml=../evidence/m35a-focused.xml | tee ../evidence/m35a-focused.log
       - name: Existing M32a through M34b and new M35a independently expressed references
         run: python tools/check_m35a_references.py --output ../evidence/references
       - name: Actual released legacy graph, direct fork and inquiry outputs
@@ -55,7 +55,7 @@ jobs:
           PYTHONPATH="$PWD/src:$PWD" python ../candidate/tools/m35a_legacy_snapshot.py --output ../evidence/legacy-base | tee ../evidence/legacy-base.log
       - name: Candidate legacy outputs must be byte-identical
         run: |
-          python tools/m35a_legacy_snapshot.py --output ../evidence/legacy-candidate | tee ../evidence/legacy-candidate.log
+          python -m tools.m35a_legacy_snapshot --output ../evidence/legacy-candidate | tee ../evidence/legacy-candidate.log
           for name in graph-v1 graph-v2 graph-v3 fork-v1 inquiry-v1; do
             cmp "../evidence/legacy-base/$name.json" "../evidence/legacy-candidate/$name.json"
           done

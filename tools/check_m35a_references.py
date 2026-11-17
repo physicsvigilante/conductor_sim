@@ -29,7 +29,7 @@ def commands(out):
         ['tools/m34b_independent_forks.py', '--original', path('m34b-source.json'), '--fork', path('m34b-fork.json'), '--output', path('m34b-reference.json')],
         ['-m', 'examples.m35a_multistage_exploration', '--output', path('m35a')],
         ['tools/m35a_independent_multistage.py', '--input', path('m35a'), '--output', path('m35a-reference.json')],
-        ['tools/m35a_audit.py', '--expect', 'candidate', '--output', path('audit-with-open-findings.json')],
+        ['-m', 'tools.m35a_audit', '--expect', 'candidate', '--output', path('audit-with-open-findings.json')],
     ]
     return pairs
 
