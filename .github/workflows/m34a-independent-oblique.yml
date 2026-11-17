@@ -1,0 +1,49 @@
+name: M34a oblique physical plane independent Newtonian and identity reference
+
+on:
+  pull_request:
+    paths:
+      - "src/conductor_sim/prescribed_motion.py"
+      - "tests/test_m34a_plane_normal_idempotence.py"
+      - "examples/m34a_oblique_worlds.py"
+      - "tools/m34a_independent_oblique.py"
+      - ".github/workflows/m34a-independent-oblique.yml"
+      - "docs/m34a.md"
+  workflow_dispatch:
+
+jobs:
+  true-oblique-source-world-and-independent-SI:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Identify exact source commit and Git tree under test
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install actual source code
+        run: python -m pip install -e .
+      - name: Genuine oblique fully qualified M22a M20b M22a event-world graph
+        run: python -m examples.m34a_oblique_worlds --output output/m34a-native.json
+      - name: Independently recompute signed event, 3D SI force/position/velocity and source ancestry
+        run: |
+          python tools/m34a_independent_oblique.py \
+            --native output/m34a-native.json \
+            --output output/m34a-independent.json
+      - name: Seal both original native and separate numerical evidence
+        run: |
+          sha256sum output/m34a-native.json output/m34a-independent.json > output/m34a-sha256.txt
+          cat output/m34a-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m34a-oblique-native-and-independent-three-component-si
+          path: |
+            output/m34a-native.json
+            output/m34a-independent.json
+            output/m34a-sha256.txt
+          if-no-files-found: error
