@@ -24,6 +24,10 @@ from .motion_events import (
 )
 from .prescribed_motion import TestChargeMotionResult, integrate_test_charge
 from .scenarios import PrescribedScenario, revise_scenario, _text
+from .source_world_ancestry import (
+    SourceWorldAncestry, source_ancestry_root, advance_source_ancestry,
+    require_fresh_structural_ids,
+)
 from .solver import UnsupportedProblem
 from .structural_family import StructuralCase
 from .structural_scenarios import ScenarioReassembly, reassemble_scenario
@@ -112,12 +116,15 @@ class UnifiedObservationPlan:
     baseline_observation: str = "trajectory"
     questions: tuple[PlaneEvent | VelocityReversal, ...] = ()
     policy: EventPolicy | None = None
+    retain_source_ancestry: bool = False
 
     def __post_init__(self):
         if type(self.plan_id) is not str or _ID.fullmatch(self.plan_id) is None:
             raise ValueError("graph plan ID must be stable ASCII and at most 36 characters")
         if type(self.original) is not PrescribedScenario:
             raise TypeError("graph must be rooted at one native PrescribedScenario")
+        if type(self.retain_source_ancestry) is not bool:
+            raise TypeError("retain_source_ancestry requires an exact native Boolean")
         if type(self.baseline_observation) is not str or self.baseline_observation not in _MODES:
             raise ValueError("baseline observation must be trajectory or events")
         if type(self.nodes) is not tuple or not 1 <= len(self.nodes) <= 8:
@@ -135,7 +142,8 @@ class UnifiedObservationPlan:
             if depth + 1 > 4:
                 raise ValueError("graph physical provenance depth exceeds four revisions")
             if (type(node) is StructuralWorldNode and node.parent_id != "baseline" and
-                    parent_type is not StructuralWorldNode):
+                    parent_type is not StructuralWorldNode and
+                    not self.retain_source_ancestry):
                 raise ValueError("structural-after-physical is unsupported: retain M22a source ancestry")
             if f"{self.plan_id}:{node.node_id}" == self.original.scenario_id:
                 raise ValueError("graph world must not reuse original source-model identity")
@@ -162,7 +170,7 @@ class UnifiedObservationPlan:
 
     def as_dict(self):
         from dataclasses import asdict
-        return dict(
+        record = dict(
             schema="conductor_sim.unified_observation_plan.v1",
             plan_id=self.plan_id, original=self.original.as_dict(),
             original_revision_id=self.original.revision_id,
@@ -172,6 +180,10 @@ class UnifiedObservationPlan:
                        for q in self.questions],
             numerical_event_policy=(None if self.policy is None else asdict(self.policy)),
         )
+        if self.retain_source_ancestry:
+            record["schema"] = "conductor_sim.unified_observation_plan.v2"
+            record["retain_source_ancestry"] = True
+        return record
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +196,7 @@ class UnifiedObservationEntry:
     native: TestChargeMotionResult | EventRun | None
     status: str
     reason: str
+    source_ancestry: SourceWorldAncestry | None = None
 
     @property
     def trajectory(self):
@@ -267,11 +280,13 @@ def _time_and_event_pairs(parent_native, parent_mode, child_native, child_mode,
 
 def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
     original = plan.original
-    observations = {"baseline": (original, baseline_native, plan.baseline_observation)}
+    root_ancestry = source_ancestry_root(original) if plan.retain_source_ancestry else None
+    observations = {"baseline": (
+        original, baseline_native, plan.baseline_observation, root_ancestry)}
     output = []
     for entry in entries:
         parent_id = entry.node.parent_id
-        parent_model, parent_native, parent_mode = observations[parent_id]
+        parent_model, parent_native, parent_mode, parent_ancestry = observations[parent_id]
         current_mode = entry.node.observation
         exact, pairings = _time_and_event_pairs(
             parent_native, parent_mode, entry.native, current_mode, plan.questions)
@@ -281,7 +296,7 @@ def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
                      reason="physical source model was not admitted")
                 for q in plan.questions
             ] if current_mode == "events" else []
-        output.append(dict(
+        record = dict(
             index=entry.index,
             node=entry.node.as_dict(),
             parent_id=parent_id,
@@ -299,10 +314,17 @@ def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
                                    else entry.native.as_dict()["outcomes"]),
             exact_time_parent_comparisons=exact,
             parent_event_time_comparisons=pairings,
-        ))
+        )
+        if plan.retain_source_ancestry:
+            record["parent_source_ancestry"] = (
+                None if parent_ancestry is None else parent_ancestry.as_dict())
+            record["source_ancestry"] = (
+                None if entry.source_ancestry is None
+                else entry.source_ancestry.as_dict())
+        output.append(record)
         observations[entry.node.node_id] = (
-            entry.scenario, entry.native, current_mode)
-    return dict(
+            entry.scenario, entry.native, current_mode, entry.source_ancestry)
+    result = dict(
         schema="conductor_sim.unified_observation_graph.v1",
         mode=("One genuine physical world per node, reusing original M22a "
               "reassembly, M20b atomic physical revisions, M19/M27 motion "
@@ -327,6 +349,14 @@ def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
                        "no postguard path, physical source response, free-3D "
                        "or cross-inventory energy-as-work is inferred."),
     )
+    if plan.retain_source_ancestry:
+        result["schema"] = "conductor_sim.unified_observation_graph.v2"
+        result["source_ancestry_policy"] = (
+            "Graph-rooted, branch-local history of ALL ever-used source IDs "
+            "across both structural and physical revisions; forbid retirement "
+            "resurrection and retain exact immediate native source parents.")
+        result["original_source_ancestry"] = root_ancestry.as_dict()
+    return result
 
 
 def _receipt(record):
@@ -358,13 +388,16 @@ class UnifiedObservationRun:
                 self.baseline_native, self.plan.original,
                 self.plan.baseline_observation, self.plan.questions, self.plan.policy):
             raise ValueError("graph original observation status mismatches actual native termination")
-        indexed = {"baseline": (self.plan.original, None)}
+        indexed = {"baseline": (
+            self.plan.original, None,
+            source_ancestry_root(self.plan.original)
+            if self.plan.retain_source_ancestry else None)}
         for index, (node, entry) in enumerate(zip(self.plan.nodes, self.entries), 1):
             if (type(entry) is not UnifiedObservationEntry or entry.index != index or
                     entry.node is not node or type(entry.status) is not str or
                     type(entry.reason) is not str):
                 raise ValueError("graph result altered its original ordered node identity")
-            parent_model, parent_assembly = indexed[node.parent_id]
+            parent_model, parent_assembly, parent_ancestry = indexed[node.parent_id]
             if entry.parent_scenario is not parent_model:
                 raise ValueError("graph result lost exact immediate source world")
             if parent_model is None:
@@ -377,8 +410,9 @@ class UnifiedObservationRun:
                             entry.status != "rejected-structural-model"):
                         raise ValueError("refused structural world has forged native evidence")
                 else:
-                    expected = (self.plan.original if node.parent_id == "baseline"
-                                else parent_assembly)
+                    expected = (
+                        parent_assembly if parent_assembly is not None
+                        else parent_model)
                     if (type(entry.assembly) is not ScenarioReassembly or
                             entry.assembly.parent is not expected or
                             entry.scenario is not entry.assembly.scenario):
@@ -406,7 +440,26 @@ class UnifiedObservationRun:
                         entry.native, entry.scenario, node.observation,
                         self.plan.questions, self.plan.policy):
                     raise ValueError("native graph observation status disagrees with termination")
-            indexed[node.node_id] = (entry.scenario, entry.assembly)
+            if self.plan.retain_source_ancestry:
+                expected_ancestry = (
+                    None if entry.scenario is None else
+                    advance_source_ancestry(
+                        parent_ancestry, world_id=node.node_id,
+                        parent_id=node.parent_id, child=entry.scenario,
+                        operation=("structural" if type(node) is StructuralWorldNode
+                                   else "physical")))
+                if (entry.source_ancestry is not None and
+                        type(entry.source_ancestry) is not SourceWorldAncestry):
+                    raise TypeError("graph ancestry requires native source certificate")
+                if (entry.source_ancestry is None) != (expected_ancestry is None) or (
+                        expected_ancestry is not None and
+                        entry.source_ancestry != expected_ancestry):
+                    raise ValueError(
+                        "mixed-order graph ancestry disagrees with real immediate source history")
+            elif entry.source_ancestry is not None:
+                raise ValueError("legacy v1 graph must not claim v2 ancestry evidence")
+            indexed[node.node_id] = (
+                entry.scenario, entry.assembly, entry.source_ancestry)
         if (self._issuer is not _ISSUER or
                 type(self._issued_digest) is not str or
                 not compare_digest(self._issued_digest,
@@ -432,11 +485,15 @@ def run_unified_observation_graph(plan: UnifiedObservationPlan) -> UnifiedObserv
     sha = plan.original.revision_id
     initial, status, reason = _observe(
         plan.original, plan.baseline_observation, plan.questions, plan.policy)
-    source = {"baseline": (plan.original, None)}
+    source = {"baseline": (
+        plan.original, None,
+        source_ancestry_root(plan.original)
+        if plan.retain_source_ancestry else None)}
     rows = []
     for index, node in enumerate(plan.nodes, 1):
-        parent, parent_assembly = source[node.parent_id]
+        parent, parent_assembly, parent_ancestry = source[node.parent_id]
         assembly = None
+        ancestry = None
         if parent is None:
             world, native, state, why = (
                 None, None, "skipped-parent-model",
@@ -453,9 +510,12 @@ def run_unified_observation_graph(plan: UnifiedObservationPlan) -> UnifiedObserv
                     kw["gravity"] = node.case.gravity
                 elif node.case.gravity_action == "remove":
                     kw["gravity"] = None
-                native_parent = (plan.original if node.parent_id == "baseline"
-                                 else parent_assembly)
+                native_parent = (
+                    parent_assembly if parent_assembly is not None
+                    else parent)
                 try:
+                    if plan.retain_source_ancestry:
+                        require_fresh_structural_ids(parent_ancestry, node.case)
                     assembly = reassemble_scenario(native_parent, **kw)
                 except (UnsupportedProblem, ValueError, TypeError) as exc:
                     world, native, state, why = (
@@ -486,11 +546,17 @@ def run_unified_observation_graph(plan: UnifiedObservationPlan) -> UnifiedObserv
                 if (type(node) is StructuralWorldNode and
                         assembly.as_dict()["parent_revision_id"] != parent.revision_id):
                     raise RuntimeError("graph source structure lost real M22a immediate parent")
+                if plan.retain_source_ancestry:
+                    ancestry = advance_source_ancestry(
+                        parent_ancestry, world_id=node.node_id,
+                        parent_id=node.parent_id, child=world,
+                        operation=("structural" if type(node) is StructuralWorldNode
+                                   else "physical"))
                 native, state, why = _observe(
                     world, node.observation, plan.questions, plan.policy)
         rows.append(UnifiedObservationEntry(
-            index, node, parent, world, assembly, native, state, why))
-        source[node.node_id] = (world, assembly)
+            index, node, parent, world, assembly, native, state, why, ancestry))
+        source[node.node_id] = (world, assembly, ancestry)
     if plan.original.revision_id != sha or plan.original.as_dict() != before:
         raise RuntimeError("original physical world mutated during graph exploration")
     entries = tuple(rows)
