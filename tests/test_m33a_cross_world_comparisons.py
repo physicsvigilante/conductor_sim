@@ -310,3 +310,107 @@ def test_cross_branch_single_opposite_direction_events_are_distinct():
     assert pair["event_time_comparisons"][0]["status"] == "unpaired"
     assert "opposite signed" in pair["event_time_comparisons"][0]["reason"]
     assert "estimated_numerical_shift_s" not in pair["event_time_comparisons"][0]
+
+
+def test_unfamiliar_xz_world_3d_native_forces_and_cross_branch_event_roots():
+    """Independent new x-z qE+mg reference; no production force callback oracle."""
+    from conductor_sim import (
+        PointCharge, PrescribedField, TestChargeMotionSpec, UniformGravity,
+    )
+    from conductor_sim.scenarios import PrescribedScenario
+
+    original = PrescribedScenario(
+        "m33a:xz-root",
+        TestChargeMotionSpec(
+            PrescribedField((UniformElectricField((210., 0., -70.)),)),
+            PointCharge(1.3e-9, (0., 0., .05)),
+            1.2e-6, (.11, 0., .24), .5, .005,
+            plane_normal=(0., 1., 0.),
+            gravity=UniformGravity((0., 0., -.16))),
+        (("field:base", "Original tilted x-z electric field"),),
+        "Teacher-authored physical x-z launch with held field and uniform gravity.")
+    nodes = (
+        StructuralWorldNode("tilted-a", "baseline", StructuralCase(
+            "tilted-a", "Introduce first independent x-z field hypothesis.",
+            add_sources=(NamedSource("field:tilt", "New first tilted field",
+                UniformElectricField((80., 0., 40.))),)), "events"),
+        StructuralWorldNode("tilted-b", "baseline", StructuralCase(
+            "tilted-b", "Introduce second independent x-z field hypothesis.",
+            add_sources=(NamedSource("field:tilt", "New second tilted field",
+                UniformElectricField((-60., 0., 110.))),)), "events"),
+        PhysicalWorldNode("more-mass", "tilted-a", "Independently qualified heavy probe",
+            (CoupledPropertyEdit("test-particle", "mass_kg", 2e-6),), "events"),
+    )
+    p = UnifiedObservationPlan(
+        "m33a:xz", original, nodes, "events",
+        (PlaneEvent("x:positive", (.06, 0., 0.), (1., 0., 0.),
+                    "Passive signed x-z plane crossing", direction=1),),
+        EventPolicy(.005, 1e-8, 1e-8, 1e-6),
+        retain_source_ancestry=True,
+        comparisons=(
+            WorldComparison("xz-siblings", "tilted-a", "tilted-b"),
+            WorldComparison("xz-cousins", "tilted-b", "more-mass"),
+        ))
+    before = original.as_dict()
+    result = run_unified_observation_graph(p)
+    assert result.baseline_status == "complete"
+    assert all(entry.status == "complete" for entry in result.entries)
+    worlds = {"baseline": (original, result.baseline_native)}
+    worlds.update((x.node.node_id, (x.scenario, x.native)) for x in result.entries)
+    def exact_state(spec, t):
+        electric = tuple(sum(source.field_v_m[k] for source in spec.field.sources)
+                         for k in range(3))
+        gravity = spec.gravity.acceleration_m_s2
+        q, mass = spec.particle.charge_c, spec.mass_kg
+        a = tuple(q*electric[k]/mass+gravity[k] for k in range(3))
+        pos = tuple(spec.particle.position_m[k]+spec.initial_velocity_m_s[k]*t+
+                    .5*a[k]*t*t for k in range(3))
+        vel = tuple(spec.initial_velocity_m_s[k]+a[k]*t for k in range(3))
+        force = tuple(q*electric[k]+mass*gravity[k] for k in range(3))
+        return pos,vel,force
+    def analytic_root(spec):
+        electric_x = sum(source.field_v_m[0] for source in spec.field.sources)
+        ax = spec.particle.charge_c*electric_x/spec.mass_kg
+        vx = spec.initial_velocity_m_s[0]
+        d = .06-spec.particle.position_m[0]
+        return 2*d/(vx+sqrt(vx*vx+2*ax*d))
+    for name, (scenario, native) in worlds.items():
+        assert native.trajectory.termination == "duration", name
+        assert native.events[0].direction == 1
+        assert native.events[0].sample.time_s == pytest.approx(
+            analytic_root(scenario.spec), abs=2e-6)
+        assert native.trajectory.samples[-1].position_m[2] != 0
+        for sample in native.trajectory.samples:
+            pos,vel,force=exact_state(scenario.spec,sample.time_s)
+            assert sample.position_m == pytest.approx(pos,abs=2e-7)
+            assert sample.velocity_m_s == pytest.approx(vel,abs=2e-7)
+            assert sample.force_n == pytest.approx(force,abs=2e-12)
+            assert sample.position_m[1] == pytest.approx(0.,abs=1e-10)
+    output = result.as_dict()
+    assert [x["status"] for x in output["cross_world_comparisons"]] == [
+        "compared","compared"]
+    for comparison in output["cross_world_comparisons"]:
+        left = worlds[comparison["left_world_id"]][0].spec
+        right = worlds[comparison["right_world_id"]][0].spec
+        rows = comparison["exact_time_trajectory_comparisons"]
+        assert rows
+        assert any(abs(row["delta_position_m"][2])>1e-8
+                   for row in rows if row["time_s"]>0)
+        for row in rows:
+            t = row["time_s"]
+            lp,lv,_ = exact_state(left,t)
+            rp,rv,_ = exact_state(right,t)
+            assert row["delta_position_m"] == pytest.approx(
+                tuple(rp[k]-lp[k] for k in range(3)),abs=4e-7)
+            assert row["delta_velocity_m_s"] == pytest.approx(
+                tuple(rv[k]-lv[k] for k in range(3)),abs=4e-7)
+        signed = comparison["event_time_comparisons"][0]
+        assert signed["status"] == "one-resolved-pair"
+        assert signed["direction"] == 1
+        assert signed["estimated_numerical_shift_s"] == pytest.approx(
+            analytic_root(right)-analytic_root(left),abs=4e-6)
+    assert output["cross_world_comparisons"][0]["left_source_ancestry"][
+        "introduced_source_ids"] == ["field:tilt"]
+    assert output["cross_world_comparisons"][0]["right_source_ancestry"][
+        "introduced_source_ids"] == ["field:tilt"]
+    assert original.as_dict() == before
