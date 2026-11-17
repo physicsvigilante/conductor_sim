@@ -107,6 +107,30 @@ GraphNode = StructuralWorldNode | PhysicalWorldNode
 
 
 @dataclass(frozen=True, slots=True)
+class WorldComparison:
+    """Explicit ordered alternatives: numerical differences mean right minus left."""
+
+    comparison_id: str
+    left_world_id: str
+    right_world_id: str
+
+    def __post_init__(self):
+        if type(self.comparison_id) is not str or _NODE_ID.fullmatch(self.comparison_id) is None:
+            raise ValueError("comparison needs a bounded native ASCII ID")
+        for world_id in (self.left_world_id, self.right_world_id):
+            if (type(world_id) is not str or
+                    (world_id != "baseline" and _NODE_ID.fullmatch(world_id) is None)):
+                raise ValueError("comparison needs exact bounded native world IDs")
+        if self.left_world_id == self.right_world_id:
+            raise ValueError("comparison requires two different physical worlds")
+
+    def as_dict(self):
+        return dict(comparison_id=self.comparison_id,
+                    left_world_id=self.left_world_id,
+                    right_world_id=self.right_world_id)
+
+
+@dataclass(frozen=True, slots=True)
 class UnifiedObservationPlan:
     """An original model and 1..8 topologically ordered native worlds."""
 
@@ -117,6 +141,7 @@ class UnifiedObservationPlan:
     questions: tuple[PlaneEvent | VelocityReversal, ...] = ()
     policy: EventPolicy | None = None
     retain_source_ancestry: bool = False
+    comparisons: tuple[WorldComparison, ...] = ()
 
     def __post_init__(self):
         if type(self.plan_id) is not str or _ID.fullmatch(self.plan_id) is None:
@@ -150,6 +175,23 @@ class UnifiedObservationPlan:
             if type(node) is PhysicalWorldNode:
                 n_edits += len(node.edits)
             seen[node.node_id] = (type(node), depth + 1)
+        if type(self.comparisons) is not tuple or len(self.comparisons) > 8:
+            raise ValueError("graph comparisons require at most eight immutable requests")
+        if self.comparisons and not self.retain_source_ancestry:
+            raise ValueError("cross-world comparisons require retained source ancestry")
+        comparison_ids = set()
+        pairs = set()
+        for comparison in self.comparisons:
+            if type(comparison) is not WorldComparison:
+                raise TypeError("comparison must be an exact native WorldComparison")
+            if (comparison.left_world_id not in seen or
+                    comparison.right_world_id not in seen):
+                raise ValueError("comparison references an unknown graph world")
+            pair = frozenset((comparison.left_world_id, comparison.right_world_id))
+            if comparison.comparison_id in comparison_ids or pair in pairs:
+                raise ValueError("duplicate comparison identity or unordered world pair")
+            comparison_ids.add(comparison.comparison_id)
+            pairs.add(pair)
         if n_edits > 20:
             raise ValueError("graph has more than 20 requested physical edits")
 
@@ -183,6 +225,9 @@ class UnifiedObservationPlan:
         if self.retain_source_ancestry:
             record["schema"] = "conductor_sim.unified_observation_plan.v2"
             record["retain_source_ancestry"] = True
+        if self.comparisons:
+            record["schema"] = "conductor_sim.unified_observation_plan.v3"
+            record["comparisons"] = [c.as_dict() for c in self.comparisons]
         return record
 
 
@@ -278,6 +323,55 @@ def _time_and_event_pairs(parent_native, parent_mode, child_native, child_mode,
     return rows, comparisons
 
 
+def _cross_world_records(plan, baseline_native, baseline_status, entries):
+    """Actual independent native worlds, never a fabricated graph edge or solve."""
+    if not plan.comparisons:
+        return []
+    root = source_ancestry_root(plan.original)
+    by_id = {"baseline": (plan.original, baseline_native,
+                           plan.baseline_observation, baseline_status, root)}
+    for entry in entries:
+        by_id[entry.node.node_id] = (entry.scenario, entry.native,
+            entry.node.observation, entry.status, entry.source_ancestry)
+    output = []
+    for request in plan.comparisons:
+        lmodel, lnative, lmode, lstatus, lanc = by_id[request.left_world_id]
+        rmodel, rnative, rmode, rstatus, ranc = by_id[request.right_world_id]
+        record = dict(**request.as_dict(),
+            left_revision_id=None if lmodel is None else lmodel.revision_id,
+            right_revision_id=None if rmodel is None else rmodel.revision_id,
+            left_source_ancestry=None if lanc is None else lanc.as_dict(),
+            right_source_ancestry=None if ranc is None else ranc.as_dict(),
+            left_observation_mode=lmode, right_observation_mode=rmode,
+            left_status=lstatus, right_status=rstatus,
+            numerical_orientation="right minus left",
+            exact_time_trajectory_comparisons=[], event_time_comparisons=[])
+        if lmodel is None or rmodel is None:
+            reason = "at least one physical source model was not admitted"
+        elif lnative is None or rnative is None:
+            reason = "at least one admitted model has no native observation"
+        elif lmode != rmode:
+            reason = "different native trajectory/event observation modes"
+        else:
+            rows, pairings = _time_and_event_pairs(
+                lnative, lmode, rnative, rmode, plan.questions)
+            record["exact_time_trajectory_comparisons"] = rows
+            record["event_time_comparisons"] = pairings
+            reason = "" if rows else "no identical actually saved SI timestamps"
+        if reason:
+            record["status"] = "unpaired"
+            record["reason"] = reason
+            if lmode == rmode == "events" and not record["event_time_comparisons"]:
+                record["event_time_comparisons"] = [
+                    dict(event_id=q.event_id, status="unpaired", reason=reason)
+                    for q in plan.questions]
+        else:
+            record["status"] = "compared"
+            record["reason"] = "native shared-time observations; event pairs independently qualified"
+        output.append(record)
+    return output
+
+
 def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
     original = plan.original
     root_ancestry = source_ancestry_root(original) if plan.retain_source_ancestry else None
@@ -356,6 +450,14 @@ def _record(plan, baseline_native, baseline_status, baseline_reason, entries):
             "across both structural and physical revisions; forbid retirement "
             "resurrection and retain exact immediate native source parents.")
         result["original_source_ancestry"] = root_ancestry.as_dict()
+    if plan.comparisons:
+        result["schema"] = "conductor_sim.unified_observation_graph.v3"
+        result["cross_world_comparisons"] = _cross_world_records(
+            plan, baseline_native, baseline_status, entries)
+        result["cross_world_comparison_rule"] = (
+            "Independent qualified worlds; right minus left; literal shared native "
+            "SI timestamps only; same-direction unique duration-complete M24a roots "
+            "only; no cross-inventory energy-as-work or simulated source motion")
     return result
 
 
