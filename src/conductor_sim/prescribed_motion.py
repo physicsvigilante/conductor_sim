@@ -6,7 +6,7 @@ in the field inventory, solve conductor induction, or project away forces.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import hypot, inf, isfinite
+from math import hypot, inf, isfinite, ulp
 
 from ._motion_time import output_times
 from .model import PointCharge, Vector3
@@ -146,7 +146,17 @@ class TestChargeMotionSpec:
         normal = self.plane_normal
         if normal is None:
             normal = _perpendicular(self.axis) if self.axis is not None else (0.,1.,0.)
-        normal = _unit(normal,'motion-plane normal')
+        # A genuinely qualified oblique unit plane can have hypot(norm) one
+        # binary64 ULP away from 1.0 after its FIRST division. Re-dividing
+        # that native already-qualified vector when a source model is revised
+        # changes its exact bits and fabricates an M22a analysis-property edit.
+        # Preserve only machine-precision unit representations; non-unit
+        # authored normals still take the original complete _unit path.
+        native_normal = _vector(normal, 'motion-plane normal')
+        if abs(hypot(*native_normal) - 1.0) <= ulp(1.0):
+            normal = native_normal
+        else:
+            normal = _unit(native_normal, 'motion-plane normal')
         object.__setattr__(self,'plane_normal',normal)
         if self.axis is not None and abs(_dot(self.axis,normal)) > 1e-11:
             raise UnsupportedProblem('axis-only source axis must belong to the motion plane')
