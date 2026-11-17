@@ -416,3 +416,112 @@ def test_13_no_legacy_source_graph_mutation_or_export_leakage():
     assert run.as_dict()["nodes"][0]["source_ancestry"]["world_path"] != ["FABRICATED"]
     assert type(run.as_dict()["nodes"][0]["native_observation"]["trajectory"]["samples"][0]["time_s"]) is float
     assert graph.as_dict()==snapshot
+
+
+def test_14_only_NEW_physical_worlds_are_integrated(monkeypatch):
+    """Spy on the adapter's actual solve function, not a detached export."""
+    import conductor_sim.graph_world_fork as fork_module
+    graph = build_source_graph()
+    snapshot = graph.as_dict()
+    old_models = {graph.plan.original.scenario_id}
+    old_models.update(e.scenario.scenario_id for e in graph.entries)
+    invoked = []
+    original = fork_module._observe
+
+    def checked_observe(scenario, mode, questions, policy):
+        assert scenario.scenario_id not in old_models, "fork reran old native source world"
+        invoked.append(scenario.scenario_id)
+        return original(scenario, mode, questions, policy)
+
+    monkeypatch.setattr(fork_module, "_observe", checked_observe)
+    run = run_graph_world_fork(make_fork(graph))
+    expected = {e.scenario.scenario_id for e in run.entries if e.scenario is not None}
+    assert set(invoked) == expected
+    assert len(invoked) == len(expected) == 4
+    assert graph.as_dict() == snapshot
+    assert [e.status for e in run.entries].count("complete") == 4
+
+
+def test_15_old_m33a_v3_cross_world_graph_stays_unchanged_after_fork():
+    graph = build_source_graph()
+    from dataclasses import replace as dc_replace
+    source_plan = dc_replace(graph.plan, comparisons=(
+        WorldComparison("old", "old-a", "old-b"),))
+    source = run_unified_observation_graph(source_plan)
+    assert source.as_dict()["schema"] == "conductor_sim.unified_observation_graph.v3"
+    previous = source.as_dict()
+    fork = run_graph_world_fork(make_fork(source))
+    assert fork.as_dict()["plan"]["source_graph_schema"] == (
+        "conductor_sim.unified_observation_graph.v3")
+    assert fork.entries[1].source_ancestry.retired_source_ids == ("field:alt",)
+    assert source.as_dict() == previous
+    assert source.as_dict()["cross_world_comparisons"][0]["status"] == "compared"
+
+
+def test_16_fork_preserves_two_real_roots_unpaired_even_when_saved_positions_compared():
+    old = event_family("double-crossing")
+    graph = run_unified_observation_graph(UnifiedObservationPlan(
+        "m34b:two-old", old.family.baseline,
+        (StructuralWorldNode("extra-retarding", "baseline",
+                             old.family.cases[0], "events"),),
+        "events", old.questions, old.policy, retain_source_ancestry=True))
+    fork = run_graph_world_fork(GraphWorldForkPlan(
+        graph, "m34b:two-new",
+        (PhysicalWorldNode("slightly-lighter", "extra-retarding",
+                           "A genuine changed physical probe mass",
+                           (CoupledPropertyEdit("test-particle", "mass_kg", 0.9e-6),),
+                           "events"),),
+        old.questions, old.policy,
+        (WorldComparison("two", "extra-retarding", "slightly-lighter"),)))
+    assert fork.entries[0].status == "complete"
+    assert len([e for e in fork.entries[0].native.events
+                if e.event_id == "x:two-crossings"]) == 2
+    comparison = fork.as_dict()["cross_world_comparisons"][0]
+    assert comparison["status"] == "compared"
+    assert comparison["exact_time_trajectory_comparisons"]
+    assert comparison["event_time_comparisons"][0]["status"] == "unpaired"
+    assert "estimated_numerical_shift_s" not in comparison["event_time_comparisons"][0]
+
+
+def test_17_in_process_postconstruction_reason_forgery_detected_on_export():
+    graph = build_source_graph()
+    run = run_graph_world_fork(make_fork(graph))
+    clone = replace(run.entries[0], reason="Invented initial condition and native result")
+    object.__setattr__(run, "entries", (clone,) + run.entries[1:])
+    with pytest.raises(ValueError, match="receipt"):
+        run.as_dict()
+
+
+def test_18_native_fork_depth_is_bounded_without_global_source_id_registry():
+    graph = build_source_graph()
+    edits = (CoupledPropertyEdit("test-particle", "mass_kg", 2e-5),)
+    nodes = (
+        PhysicalWorldNode("n1", "old-a", "New mass from old world", edits),
+        PhysicalWorldNode("n2", "n1", "New mass from previous fork", edits),
+        PhysicalWorldNode("n3", "n2", "New mass from previous fork", edits),
+        PhysicalWorldNode("n4", "n3", "New mass from previous fork", edits),
+        PhysicalWorldNode("n5", "n4", "New mass from previous fork", edits),
+    )
+    # old-a is at depth 1, n5 is depth 6: last admissible.
+    GraphWorldForkPlan(graph, "m34b:depth-six", nodes)
+    too_deep_graph = run_unified_observation_graph(UnifiedObservationPlan(
+        "m34b:depth-old", graph.plan.original,
+        (PhysicalWorldNode("first", "baseline", "True mass",
+             (CoupledPropertyEdit("test-particle", "mass_kg", 2e-5),)),
+         PhysicalWorldNode("second", "first", "Mass change again",
+             (CoupledPropertyEdit("test-particle", "mass_kg", 3e-5),)),
+         PhysicalWorldNode("third", "second", "Mass change once more",
+             (CoupledPropertyEdit("test-particle", "mass_kg", 4e-5),)),
+         PhysicalWorldNode("fourth", "third", "Fourth generation",
+             (CoupledPropertyEdit("test-particle", "mass_kg", 5e-5),))),
+        retain_source_ancestry=True))
+    nodes2 = (
+        PhysicalWorldNode("fifth", "fourth", "Fifth-generation mass",
+            (CoupledPropertyEdit("test-particle", "mass_kg", 6e-5),)),
+        PhysicalWorldNode("sixth", "fifth", "Sixth-generation mass",
+            (CoupledPropertyEdit("test-particle", "mass_kg", 7e-5),)),
+        PhysicalWorldNode("seventh", "sixth", "Unsupported seventh generation",
+            (CoupledPropertyEdit("test-particle", "mass_kg", 8e-5),)),
+    )
+    with pytest.raises(ValueError, match="depth"):
+        GraphWorldForkPlan(too_deep_graph, "m34b:seven", nodes2)

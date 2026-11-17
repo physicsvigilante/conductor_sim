@@ -1,0 +1,52 @@
+name: M34b independent certified incremental world fork physics
+
+on:
+  pull_request:
+    paths:
+      - "src/conductor_sim/graph_world_fork.py"
+      - "src/conductor_sim/__init__.py"
+      - "tests/test_m34b_incremental_world_forks.py"
+      - "examples/m34b_incremental_forks.py"
+      - "tools/m34b_independent_forks.py"
+      - ".github/workflows/m34b-independent-forks.yml"
+      - "docs/m34b.md"
+  workflow_dispatch:
+
+jobs:
+  source-pinned-native-and-independent-newtonian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record literal current source HEAD and Git tree
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install original native solver and test package
+        run: python -m pip install -e ".[test]"
+      - name: Execute all new native incremental graph and evidence tests
+        run: python -m pytest tests/test_m34b_incremental_world_forks.py -q
+      - name: Export actual old source graph and only freshly integrated child worlds
+        run: |
+          python -m examples.m34b_incremental_forks --original-output output/m34b-source.json --output output/m34b-fork.json
+      - name: Independently recompute all genuine saved three-component SI states and events
+        run: |
+          python tools/m34b_independent_forks.py --original output/m34b-source.json --fork output/m34b-fork.json --output output/m34b-independent.json
+      - name: SHA256-seal original source, incremental child and separate physics evidence
+        run: |
+          sha256sum output/m34b-source.json output/m34b-fork.json output/m34b-independent.json > output/m34b-sha256.txt
+          cat output/m34b-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m34b-incremental-native-and-independent-si
+          path: |
+            output/m34b-source.json
+            output/m34b-fork.json
+            output/m34b-independent.json
+            output/m34b-sha256.txt
+          if-no-files-found: error
