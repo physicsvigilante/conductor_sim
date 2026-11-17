@@ -303,7 +303,7 @@ def test_negative_typed_graph_bounds_and_unsupported_properties_refuse():
             physical("late","not-yet",("test-particle","mass_kg",2e-5)),))
     with pytest.raises(ValueError,match="graph requires"):
         UnifiedObservationPlan("m32a:empty",family.baseline,())
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError,match="immutable physical worlds"):
         UnifiedObservationPlan("m32a:wrong",family.baseline,([good]))
     with pytest.raises(TypeError):
         run_unified_observation_graph({"untrusted":"JSON"})
@@ -317,7 +317,7 @@ def test_negative_typed_graph_bounds_and_unsupported_properties_refuse():
         PhysicalWorldNode("twice","baseline","duplicate edits",(
             CoupledPropertyEdit("test-particle","mass_kg",2e-5),
             CoupledPropertyEdit("test-particle","mass_kg",3e-5)))
-    with pytest.raises(ValueError,match="event questions"):
+    with pytest.raises(TypeError,match="event worlds require"):
         UnifiedObservationPlan("m32a:noq",family.baseline,(
             physical("mass","baseline",("test-particle","mass_kg",2e-5),
                      observation="events"),))
@@ -379,7 +379,7 @@ def test_graph_source_and_native_result_forgery_rejected_without_runner_receipt(
 def test_graph_depth_and_node_count_limits_are_enforced():
     original=model("uniform-edits").baseline
     items=[physical("p"+str(i),"baseline" if i==1 else "p"+str(i-1),
-                    ("test-particle","mass_kg",(i+1)*1e-5)) for i in range(5)]
+                    ("test-particle","mass_kg",(i+1)*1e-5)) for i in range(1,6)]
     with pytest.raises(ValueError,match="depth exceeds"):
         UnifiedObservationPlan("m32a:deep",original,tuple(items))
     many=tuple(physical("n"+str(i),"baseline",

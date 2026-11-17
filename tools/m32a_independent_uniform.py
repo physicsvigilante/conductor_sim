@@ -7,7 +7,7 @@ authored model fields and mass recorded in the detached JSON. It validates one
 finite teacher-authored transfer case, not universal correctness or PDF input.
 
 Run:
-    python examples/m32a_unified_observations.py --case uniform-events --output output/m32a-graph.json
+    python -m examples.m32a_unified_observations --case uniform-events --output output/m32a-graph.json
     python tools/m32a_independent_uniform.py --native output/m32a-graph.json
 """
 from __future__ import annotations

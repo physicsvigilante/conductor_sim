@@ -31,7 +31,7 @@ jobs:
         run: python -m pip install -e .
       - name: Create genuine new M32a original-source-to-world graph
         run: |
-          python examples/m32a_unified_observations.py --case uniform-events --output output/m32a-native-worlds.json
+          python -m examples.m32a_unified_observations --case uniform-events --output output/m32a-native-worlds.json
       - name: Independently compute SI trajectories and detector roots
         run: |
           python tools/m32a_independent_uniform.py --native output/m32a-native-worlds.json --output output/m32a-analytic-evidence.json
