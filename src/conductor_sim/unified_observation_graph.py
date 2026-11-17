@@ -340,6 +340,8 @@ def _cross_world_records(plan, baseline_native, baseline_status, entries):
         record = dict(**request.as_dict(),
             left_revision_id=None if lmodel is None else lmodel.revision_id,
             right_revision_id=None if rmodel is None else rmodel.revision_id,
+            left_source_inventory=_inventory(lmodel),
+            right_source_inventory=_inventory(rmodel),
             left_source_ancestry=None if lanc is None else lanc.as_dict(),
             right_source_ancestry=None if ranc is None else ranc.as_dict(),
             left_observation_mode=lmode, right_observation_mode=rmode,
