@@ -59,7 +59,10 @@ def _native_trajectory(trajectory, scenario):
         raise ValueError("native trajectory energy-drift summary is invalid")
     previous = None
     for row in rows:
-        if type(row) is not TestChargeSample or type(row.time_s) is not float:
+        # A source-given integer duration may be retained as an exact integer
+        # at the genuine final saved time by the unchanged native controller.
+        # Accept it while refusing Python's Boolean alias False == 0.0.
+        if type(row) is not TestChargeSample or type(row.time_s) not in (int, float):
             raise ValueError("saved native SI samples and times must have exact genuine types")
         t = row.time_s
         if (not isfinite(t) or t < 0 or t > scenario.spec.duration_s or

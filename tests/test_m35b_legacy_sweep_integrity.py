@@ -248,3 +248,30 @@ def test_19_historical_valid_run_serialization_preserves_v1_schema(events,motion
     assert td["schema"]=="conductor_sim.trajectory_sweep.v1"
     assert [row["status"] for row in ed["entries"]]==["complete","complete"]
     assert [row["status"] for row in td["entries"]]==["complete","complete"]
+
+
+def test_20_valid_integer_duration_native_endpoint_remains_admissible():
+    """Real M28a/M28b native outputs can contain int endpoint, never Boolean."""
+    old = make_plan("uniform-mass")
+    old_baseline = old.sweep.baseline
+    baseline = replace(old_baseline, spec=replace(old_baseline.spec, duration_s=1))
+    assert type(baseline.spec.duration_s) is int
+    physical = TrajectorySweepPlan(
+        "m35b:integer-duration", baseline,
+        SweepAxis("test-particle", "mass_kg", (.0005,)))
+    m = run_trajectory_sweep(physical)
+    e = run_event_sweep(EventSweepPlan(physical, old.questions, old.policy))
+    for result in (m.baseline_trajectory, m.entries[0].trajectory,
+                   e.baseline_run.trajectory, e.entries[0].run.trajectory):
+        assert result.termination == "duration"
+        assert type(result.samples[0].time_s) is float
+        assert type(result.samples[-1].time_s) is int
+        assert result.samples[-1].time_s == 1
+    assert m.as_dict()["entries"][0]["status"] == "complete"
+    assert e.as_dict()["entries"][0]["status"] == "complete"
+    # The identical native source now must still refuse a changed Boolean zero.
+    bad = replace(m.baseline_trajectory, samples=(
+        replace(m.baseline_trajectory.samples[0], time_s=False),
+    ) + m.baseline_trajectory.samples[1:])
+    with pytest.raises(ValueError):
+        replace(m, baseline_trajectory=bad)
