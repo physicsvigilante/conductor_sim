@@ -412,3 +412,47 @@ def test_13_new_inquiry_oblique_xz_genuine_three_component_science():
         assert any(abs(row["delta_position_m"][2])>1e-8
                    for row in item["exact_time_trajectory_comparisons"]
                    if row["time_s"]>0.)
+
+
+def test_14_new_question_itself_refuses_on_physically_admitted_world():
+    old=make_plan("terminal-refusal")
+    graph=run_unified_observation_graph(UnifiedObservationPlan(
+        "m33b:old-trajectory",old.family.baseline,
+        (StructuralWorldNode("reversed-force","baseline",old.family.cases[0]),),
+        retain_source_ancestry=True))
+    assert graph.entries[0].status=="complete"
+    assert graph.entries[0].scenario is not None
+    p=GraphEventInquiryPlan(graph,"m33b:new-stop",
+        ("baseline","reversed-force"),old.questions,old.policy,
+        (WorldComparison("new-stop-pair","baseline","reversed-force"),))
+    result=run_graph_event_inquiry(p)
+    assert result.entries[0].status=="complete"
+    assert result.entries[1].status=="rejected-event-study"
+    assert result.entries[1].native is None
+    assert result.entries[1].scenario is graph.entries[0].scenario
+    assert result.entries[1].source_ancestry is graph.entries[0].source_ancestry
+    rec=result.as_dict()
+    assert rec["nodes"][1]["model_revision_id"]==graph.entries[0].scenario.revision_id
+    assert rec["nodes"][1]["source_ancestry"]["world_id"]=="reversed-force"
+    assert rec["nodes"][1]["native_event_run"] is None
+    assert rec["cross_world_comparisons"][0]["status"]=="unpaired"
+    assert rec["cross_world_comparisons"][0]["event_time_comparisons"][0]["status"]=="unpaired"
+
+
+def test_15_new_questions_preserve_and_accept_old_m33a_v3_graph():
+    prior=make_graph()
+    graph_plan=replace(prior.plan,comparisons=(
+        WorldComparison("old-sibling-pair","alpha","beta"),))
+    original=run_unified_observation_graph(graph_plan)
+    before=original.as_dict()
+    assert before["schema"]=="conductor_sim.unified_observation_graph.v3"
+    inquiry=GraphEventInquiryPlan(original,"m33b:from-v3",
+        ("baseline","alpha","beta"),(xquestion(),),policy(),
+        (WorldComparison("fresh-event-pair","alpha","beta"),))
+    result=run_graph_event_inquiry(inquiry)
+    assert all(e.status=="complete" for e in result.entries)
+    data=result.as_dict()
+    assert data["plan"]["source_graph_schema"]=="conductor_sim.unified_observation_graph.v3"
+    assert data["cross_world_comparisons"][0]["event_time_comparisons"][0][
+        "status"]=="one-resolved-pair"
+    assert original.as_dict()==before
