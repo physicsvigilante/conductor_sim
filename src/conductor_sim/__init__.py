@@ -189,11 +189,11 @@ __all__ += ["CoupledEventPlan", "CoupledParentEvent", "CoupledChildEvent",
             "CoupledEventRun", "run_coupled_event_family"]
 
 from .unified_observation_graph import (
-    StructuralWorldNode, PhysicalWorldNode, UnifiedObservationPlan,
+    StructuralWorldNode, PhysicalWorldNode, WorldComparison, UnifiedObservationPlan,
     UnifiedObservationEntry, UnifiedObservationRun,
     run_unified_observation_graph,
 )
-__all__ += ["StructuralWorldNode", "PhysicalWorldNode", "UnifiedObservationPlan",
+__all__ += ["StructuralWorldNode", "PhysicalWorldNode", "WorldComparison", "UnifiedObservationPlan",
             "UnifiedObservationEntry", "UnifiedObservationRun",
             "run_unified_observation_graph"]
 

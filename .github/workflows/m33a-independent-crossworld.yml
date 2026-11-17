@@ -1,0 +1,50 @@
+name: M33a independent cross-branch physical SI comparison reference
+
+on:
+  pull_request:
+    paths:
+      - "src/conductor_sim/unified_observation_graph.py"
+      - "src/conductor_sim/source_world_ancestry.py"
+      - "tests/test_m33a_cross_world_comparisons.py"
+      - "examples/m33a_cross_world.py"
+      - "tools/m33a_independent_crossworld.py"
+      - ".github/workflows/m33a-independent-crossworld.yml"
+      - "docs/m33a.md"
+  workflow_dispatch:
+
+jobs:
+  independently-computed-3d-newtonian-and-event-pairs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pin actual candidate commit and source tree
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install native production package only
+        run: python -m pip install -e .
+      - name: Execute actual M33a alternative physical and native event graph
+        run: python -m examples.m33a_cross_world --output output/m33a-native.json
+      - name: Independently recompute Newtonian states, events, cross-branch deltas and provenance
+        run: |
+          python tools/m33a_independent_crossworld.py \
+            --native output/m33a-native.json \
+            --output output/m33a-independent.json
+      - name: Seal native data and independent reference results
+        run: |
+          sha256sum output/m33a-native.json output/m33a-independent.json > output/m33a-sha256.txt
+          cat output/m33a-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m33a-native-and-independent-crossbranch-si
+          path: |
+            output/m33a-native.json
+            output/m33a-independent.json
+            output/m33a-sha256.txt
+          if-no-files-found: error
