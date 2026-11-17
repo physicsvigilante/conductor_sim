@@ -358,3 +358,94 @@ def test_10_root_ancestry_scope_and_explicit_retirement_type_guards():
         replace(ancestor,gravity_present=0)
     with pytest.raises((TypeError,ValueError)):
         replace(ancestor,active_source_ids=("field:E0",False))
+
+
+def test_11_unfamiliar_rod_signed_points_gravity_and_structural_after_physical_si_force():
+    """Independent midpoint Coulomb qE+mg after genuine physical→structural edits."""
+    from math import pi,hypot
+    from conductor_sim import (
+        EPSILON_0, FixedPointField, PointCharge, PrescribedField,
+        TestChargeMotionSpec, UniformGravity, UniformRodField,
+    )
+    from conductor_sim.scenarios import PrescribedScenario
+
+    start=(.09,-.09,0.)
+    end=(.135,.105,0.)
+    rod_charge=2.6e-9
+    initial=PrescribedScenario(
+        "m32b:rod-original",
+        TestChargeMotionSpec(
+            PrescribedField((
+                UniformRodField(rod_charge,start,end),
+                FixedPointField(1.2e-9,(.18,.13,0.)),
+                FixedPointField(-.8e-9,(-.17,.07,0.)),
+            )),
+            PointCharge(.9e-9,(0.,0.,0.)),
+            1e-5,(.048,.012,0.),.42,.0042,
+            plane_normal=(0.,0.,1.),source_guard_m=.001,
+            relative_tolerance=2e-9,
+            gravity=UniformGravity((0.,-.075,0.))),
+        (("rod:slanted","Held tilted uniform rod"),
+         ("point:plus","Original positive point"),
+         ("point:minus","Original negative point")),
+        "Unfamiliar charged rod, signed points and real gravity.")
+    original=initial.as_dict()
+    added=StructuralCase("new-point","Add a new held positive source after physical change.",
+        add_sources=(NamedSource("point:added","New held lower-right point",
+            FixedPointField(2.1e-9,(.18,-.08,0.))),))
+    plan=UnifiedObservationPlan("m32b:rod-case",initial,(
+        physical("changed","baseline",
+                 ("point:plus","charge_c",1.5e-9),
+                 ("test-particle","mass_kg",1.3e-5),
+                 observation="trajectory"),
+        StructuralWorldNode("new-point","changed",added,"trajectory"),
+        physical("revised","new-point",
+                 ("point:added","charge_c",2.3e-9),
+                 ("test-particle","initial_velocity_m_s",(.05,.015,0.)),
+                 observation="trajectory"),
+    ),retain_source_ancestry=True)
+    run=run_unified_observation_graph(plan)
+    first,source,last=run.entries
+    assert [e.status for e in run.entries]==["complete"]*3
+    assert source.assembly.parent is first.scenario
+    assert source.source_ancestry.parent_revision_id==first.scenario.revision_id
+    assert source.source_ancestry.introduced_source_ids==("point:added",)
+    assert last.scenario.parent_revision_id==source.scenario.revision_id
+    assert last.source_ancestry.active_source_ids == (
+        "rod:slanted","point:plus","point:minus","point:added")
+    assert last.source_ancestry.gravity_present is True
+    assert last.scenario.spec.field.sources[-1].charge_c == 2.3e-9
+    assert last.scenario.spec.mass_kg == 1.3e-5
+    assert last.scenario.spec.initial_velocity_m_s == (.05,.015,0.)
+    assert all(row.position_m[2]==0 for row in last.trajectory.samples)
+
+    # Separate force oracle: 3300-element uniform finite-rod midpoint
+    # quadrature plus exact SI point Coulomb sums and independently added mg.
+    k=1/(4*pi*EPSILON_0)
+    E=[0.,0.,0.]
+    n=3300
+    for j in range(n):
+        u=(j+.5)/n
+        site=tuple(start[i]+u*(end[i]-start[i]) for i in range(3))
+        d=tuple(-site[i] for i in range(3))
+        r=hypot(*d)
+        for i in range(3):
+            E[i] += k*rod_charge*d[i]/(n*r**3)
+    for charge,site in ((1.5e-9,(.18,.13,0.)),
+                        (-.8e-9,(-.17,.07,0.)),
+                        (2.3e-9,(.18,-.08,0.))):
+        d=tuple(-v for v in site)
+        r=hypot(*d)
+        for i in range(3):
+            E[i] += k*charge*d[i]/r**3
+    q=.9e-9
+    mass=1.3e-5
+    reference=(q*E[0], q*E[1]-mass*.075, q*E[2])
+    observed=last.trajectory.samples[0].force_n
+    assert observed==pytest.approx(reference,abs=2e-12)
+    assert abs(observed[0])+abs(observed[1])>1e-9
+    assert initial.as_dict()==original
+    report=run.as_dict()
+    assert report["nodes"][1]["source_ancestry"]["world_path"] == [
+        "baseline","changed","new-point"]
+    assert report["nodes"][2]["exact_time_parent_comparisons"]
