@@ -199,3 +199,12 @@ __all__ += ["StructuralWorldNode", "PhysicalWorldNode", "WorldComparison", "Unif
 
 from .source_world_ancestry import SourceWorldAncestry
 __all__ += ["SourceWorldAncestry"]
+
+from .graph_event_inquiry import (
+    GraphEventInquiryPlan, GraphEventInquiryEntry, GraphEventInquiryRun,
+    run_graph_event_inquiry,
+)
+__all__ += [
+    "GraphEventInquiryPlan", "GraphEventInquiryEntry", "GraphEventInquiryRun",
+    "run_graph_event_inquiry",
+]

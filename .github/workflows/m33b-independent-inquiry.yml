@@ -1,0 +1,56 @@
+name: M33b new native graph-world event inquiries and independent SI
+
+on:
+  pull_request:
+    paths:
+      - "src/conductor_sim/graph_event_inquiry.py"
+      - "src/conductor_sim/unified_observation_graph.py"
+      - "src/conductor_sim/__init__.py"
+      - "tests/test_m33b_graph_event_inquiry.py"
+      - "examples/m33b_event_inquiry.py"
+      - "tools/m33b_independent_inquiry.py"
+      - ".github/workflows/m33b-independent-inquiry.yml"
+      - "docs/m33b.md"
+  workflow_dispatch:
+
+jobs:
+  reasked-real-m24a-and-independent-newtonian-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Print actual candidate source SHA and Git tree
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install production package for real native event solves
+        run: python -m pip install -e .
+      - name: New M24a signed detector event studies on existing qualified source graph
+        run: |
+          python -m examples.m33b_event_inquiry \
+            --source-graph-output output/m33b-source-graph.json \
+            --output output/m33b-inquiry.json
+      - name: Independent saved SI states, source hash, root times and hostile evidence controls
+        run: |
+          python tools/m33b_independent_inquiry.py \
+            --source-graph output/m33b-source-graph.json \
+            --inquiry output/m33b-inquiry.json \
+            --output output/m33b-independent.json
+      - name: Seal all source-head numeric evidence
+        run: |
+          sha256sum output/m33b-source-graph.json output/m33b-inquiry.json output/m33b-independent.json > output/m33b-sha256.txt
+          cat output/m33b-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m33b-new-event-inquiry-native-and-independent-si
+          path: |
+            output/m33b-source-graph.json
+            output/m33b-inquiry.json
+            output/m33b-independent.json
+            output/m33b-sha256.txt
+          if-no-files-found: error
