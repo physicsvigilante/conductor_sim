@@ -6,7 +6,8 @@ brackets localize the numerical trajectory's roots, not exact-ODE uncertainty.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
+from ._legacy_sweep_evidence import ISSUER, digest, verify_receipt, validate_native_trajectory, validate_axis_value
 import json
 from math import isfinite
 
@@ -17,6 +18,7 @@ from .motion_events import (
 )
 from .solver import UnsupportedProblem
 from .trajectory_sweep import TrajectorySweepPlan, _revision, _shared_rows
+from .scenarios import PrescribedScenario
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +106,32 @@ class EventSweepEntry:
     status: str
     reason: str
 
+    def __post_init__(self):
+        if type(self.index) is not int or self.index < 1:
+            raise ValueError("legacy event sweep entry has invalid index")
+        if type(self.status) is not str or self.status not in (
+                "complete", "censored", "rejected-physical-model",
+                "rejected-event-study", "integration-failed"):
+            raise ValueError("legacy event sweep entry has unsupported status")
+        if type(self.reason) is not str or not self.reason:
+            raise ValueError("legacy event sweep needs genuine reason/termination")
+        if self.status in ("complete", "censored"):
+            if type(self.scenario) is not PrescribedScenario or type(self.run) is not EventRun:
+                raise ValueError("completed/censored event sweep needs admitted model/native run")
+            correct = self.run.trajectory.termination
+            if (self.status == "complete") != (correct == "duration"):
+                raise ValueError("legacy event sweep status contradicts actual trajectory")
+            if self.reason != correct:
+                raise ValueError("legacy event sweep reason contradicts actual native termination")
+            validate_event_run(self.run)
+        elif self.status == "rejected-physical-model":
+            if self.scenario is not None or self.run is not None:
+                raise ValueError("physically refused event sweep cannot invent source or run")
+        elif type(self.scenario) is not PrescribedScenario or self.run is not None:
+            raise ValueError("rejected event study/integration must retain model, never fake native")
+
     def as_dict(self, baseline: EventRun, questions: tuple):
+        self.__post_init__()
         data = dict(index=self.index, requested_value=self.requested_value,
                     status=self.status, reason=self.reason,
                     scenario=None if self.scenario is None else self.scenario.as_dict(),
@@ -121,27 +148,41 @@ class EventSweepRun:
     plan: EventSweepPlan
     baseline_run: EventRun
     entries: tuple[EventSweepEntry, ...]
+    _issued_digest: str = field(default="", repr=False, compare=False)
+    _issuer: object = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if (type(self.plan) is not EventSweepPlan or
                 type(self.baseline_run) is not EventRun or
                 type(self.entries) is not tuple):
             raise TypeError("native event sweep requires typed plan and M24a run")
-        if self.baseline_run.study.scenario is not self.plan.sweep.baseline:
-            raise ValueError("baseline event study is not bound to the sweep's baseline")
+        self.plan.__post_init__()
+        if (self.baseline_run.study.scenario is not self.plan.sweep.baseline or
+                self.baseline_run.study.questions != self.plan.questions or
+                self.baseline_run.study.policy != self.plan.policy):
+            raise ValueError("baseline event study is not bound to original model/questions/policy")
+        validate_event_run(self.baseline_run)
         if len(self.entries) != len(self.plan.sweep.axis.values):
             raise ValueError("missing event sweep variants")
         for index, entry in enumerate(self.entries, 1):
             if type(entry) is not EventSweepEntry or entry.index != index:
                 raise ValueError("invalid event sweep entry identity/order")
-            if entry.requested_value != self.plan.sweep.axis.values[index-1]:
-                raise ValueError("event sweep lost requested axis values")
-            if entry.run is not None and (entry.scenario is None or
-                                          entry.run.study.scenario is not entry.scenario):
-                raise ValueError("event run and physical model differ")
+            validate_axis_value(entry.requested_value, self.plan.sweep.axis.values[index-1])
+            entry.__post_init__()
+            if entry.scenario is not None:
+                expected = _revision(self.plan.sweep, index, entry.requested_value)
+                if entry.scenario.as_dict() != expected.as_dict():
+                    raise ValueError("event sweep source revision is not original M20b scenario")
+                if entry.run is not None and (
+                        entry.run.study.scenario is not entry.scenario or
+                        entry.run.trajectory.spec is not entry.scenario.spec or
+                        entry.run.study.questions != self.plan.questions or
+                        entry.run.study.policy != self.plan.policy):
+                    raise ValueError("event sweep native study differs from source questions/policy")
+        verify_receipt(self._issuer, self._issued_digest, self._record())
 
-    def as_dict(self):
-        """Detach typed event evidence into finite JSON; never accept it back as physics."""
+    def _record(self):
+        """Compose unchanged native legacy record; only genuine issued runs may export."""
         base = self.baseline_run.as_dict()
         result = dict(
             schema="conductor_sim.event_sweep.v1",
@@ -170,6 +211,11 @@ class EventSweepRun:
                            "No unlocated event is asserted absent; no terminal collision law."),
         )
         return json.loads(json.dumps(result, allow_nan=False))
+
+    def as_dict(self):
+        """Revalidate issued event history, including status/native, at each export."""
+        self.__post_init__()
+        return self._record()
 
 
 def run_event_sweep(plan: EventSweepPlan) -> EventSweepRun:
@@ -217,4 +263,9 @@ def run_event_sweep(plan: EventSweepPlan) -> EventSweepRun:
                                     status, observed.trajectory.termination))
     if plan.sweep.baseline.revision_id != baseline_sha:
         raise RuntimeError("baseline physical model was mutated")
-    return EventSweepRun(plan, baseline, tuple(rows))
+    issued = tuple(rows)
+    pre = object.__new__(EventSweepRun)
+    object.__setattr__(pre, "plan", plan)
+    object.__setattr__(pre, "baseline_run", baseline)
+    object.__setattr__(pre, "entries", issued)
+    return EventSweepRun(plan, baseline, issued, digest(pre._record()), ISSUER)

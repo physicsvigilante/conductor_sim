@@ -6,7 +6,8 @@ not a proof of the exact ODE or an authenticated transcription of a workbook.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from ._legacy_sweep_evidence import ISSUER, digest, verify_receipt, validate_native_trajectory, validate_axis_value
 import json
 from math import dist, isfinite
 import re
@@ -182,7 +183,31 @@ class SweepEntry:
     status: str
     explanation: str
 
+    def __post_init__(self):
+        if type(self.index) is not int or self.index < 1:
+            raise ValueError("legacy sweep entry has invalid physical index")
+        if type(self.status) is not str or self.status not in (
+                "complete", "censored", "rejected-physical-model", "integration-failed"):
+            raise ValueError("legacy sweep entry has invalid native status")
+        if type(self.explanation) is not str or not self.explanation:
+            raise ValueError("legacy sweep entry requires truthful failure/termination")
+        if self.status in ("complete", "censored"):
+            if type(self.scenario) is not PrescribedScenario or (
+                    type(self.trajectory) is not TestChargeMotionResult):
+                raise ValueError("complete/censored sweep requires actual model and native trajectory")
+            expected = ("duration" if self.status == "complete" else "source-guard")
+            if self.trajectory.termination != expected or self.explanation != expected:
+                raise ValueError("legacy sweep status conflicts with real native termination")
+            validate_native_trajectory(self.trajectory, self.scenario)
+        elif self.status == "rejected-physical-model":
+            if self.scenario is not None or self.trajectory is not None:
+                raise ValueError("physically rejected legacy sweep has fictitious source evidence")
+        elif (type(self.scenario) is not PrescribedScenario or
+              self.trajectory is not None):
+            raise ValueError("integration failure must retain admitted model but no fake trajectory")
+
     def as_dict(self, baseline_trajectory):
+        self.__post_init__()
         return dict(index=self.index, requested_value=self.requested_value,
                     status=self.status, explanation=self.explanation,
                     scenario=None if self.scenario is None else self.scenario.as_dict(),
@@ -196,9 +221,32 @@ class TrajectorySweepRun:
     plan: TrajectorySweepPlan
     baseline_trajectory: TestChargeMotionResult
     entries: tuple[SweepEntry, ...]
+    _issued_digest: str = field(default="", repr=False, compare=False)
+    _issuer: object = field(default=None, repr=False, compare=False)
 
-    def as_dict(self):
-        """Detached SI audit JSON, with all actual samples and explicit refusals."""
+    def __post_init__(self):
+        if type(self.plan) is not TrajectorySweepPlan or type(self.entries) is not tuple:
+            raise TypeError("legacy sweep requires a genuinely issued native plan/tuple")
+        self.plan.__post_init__()
+        validate_native_trajectory(self.baseline_trajectory, self.plan.baseline)
+        if len(self.entries) != len(self.plan.axis.values):
+            raise ValueError("legacy sweep missing actual physical variants")
+        for n, (value, entry) in enumerate(zip(self.plan.axis.values, self.entries), 1):
+            if type(entry) is not SweepEntry or entry.index != n:
+                raise ValueError("legacy sweep entry identity/order changed")
+            validate_axis_value(entry.requested_value, value)
+            entry.__post_init__()
+            if entry.scenario is not None:
+                # A real admitted variation must be the exact old M20b source
+                # revision on the true old baseline. No new trajectory solve.
+                expected = _revision(self.plan, n, value)
+                if entry.scenario.as_dict() != expected.as_dict():
+                    raise ValueError("legacy sweep scenario differs from authored physical revision")
+                if entry.trajectory is not None and entry.trajectory.spec is not entry.scenario.spec:
+                    raise ValueError("legacy sweep native trajectory is from another source object")
+        verify_receipt(self._issuer, self._issued_digest, self._record())
+
+    def _record(self):
         result = dict(schema="conductor_sim.trajectory_sweep.v1",
                       mode="Independently requalified physical scenarios; original RK results",
                       provenance="Parameter revisions are teacher hypotheticals; "
@@ -217,6 +265,11 @@ class TrajectorySweepRun:
                                     "later trajectory is inferred; cross-scenario potential "
                                     "energies may use different reference gauges.")
         return json.loads(json.dumps(result, allow_nan=False))
+
+    def as_dict(self):
+        """Fail-closed original native result; historically byte-identical valid JSON."""
+        self.__post_init__()
+        return self._record()
 
 
 def run_trajectory_sweep(plan: TrajectorySweepPlan) -> TrajectorySweepRun:
@@ -254,4 +307,10 @@ def run_trajectory_sweep(plan: TrajectorySweepPlan) -> TrajectorySweepRun:
         entries.append(SweepEntry(i, value, child, result, status, result.termination))
     if plan.baseline.revision_id != baseline_revision:
         raise RuntimeError("baseline was mutated during the sweep")
-    return TrajectorySweepRun(plan, baseline_run, tuple(entries))
+    issued = tuple(entries)
+    # Issue only after genuine native M20b revisions and integrations finished.
+    pre = object.__new__(TrajectorySweepRun)
+    object.__setattr__(pre, "plan", plan)
+    object.__setattr__(pre, "baseline_trajectory", baseline_run)
+    object.__setattr__(pre, "entries", issued)
+    return TrajectorySweepRun(plan, baseline_run, issued, digest(pre._record()), ISSUER)
