@@ -1,0 +1,75 @@
+name: M35a audit and dependency-aware scientific regression
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', 'tools/**', 'examples/**', 'pyproject.toml', 'docs/m35a*', '.github/workflows/m35a-scientific-regression.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'tools/**', 'examples/**', 'pyproject.toml', 'docs/m35a*', '.github/workflows/m35a-scientific-regression.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: m35a-science-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  audited-native-history-and-nonuniform-references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: candidate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          ref: a5113fa4cc924ac10cbb35b2f2d7ac80e11f1bde
+          path: baseline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retain exact candidate and released baseline identities
+        run: |
+          mkdir -p ../evidence
+          git rev-parse HEAD HEAD^{tree} | tee ../evidence/candidate-identity.txt
+          git -C ../baseline rev-parse HEAD HEAD^{tree} | tee ../evidence/baseline-identity.txt
+          test "$(git -C ../baseline rev-parse HEAD^{tree})" = d0646c9e4d518008784c42c1fec1c48c81901a09
+          git ls-tree -r HEAD > ../evidence/candidate-tree.txt
+      - name: Install real native package and test requirements
+        run: python -m pip install -e '.[test]'
+      - name: Red-before released-code audit and documented open legacy findings
+        working-directory: baseline
+        run: |
+          PYTHONPATH="$PWD/src:$PWD" python ../candidate/tools/m35a_audit.py --expect released --source-root . --output ../evidence/audit-released.json | tee ../evidence/audit-released.log
+      - name: Audit correction and multistage physical/integrity regressions
+        run: |
+          python -m pytest tests/test_m35a_audit_corrections.py tests/test_m35a_multistage_exploration.py -q --junitxml=../evidence/m35a-focused.xml | tee ../evidence/m35a-focused.log
+      - name: Existing M32a through M34b and new M35a independently expressed references
+        run: python tools/check_m35a_references.py --output ../evidence/references
+      - name: Actual released legacy graph, direct fork and inquiry outputs
+        working-directory: baseline
+        run: |
+          PYTHONPATH="$PWD/src:$PWD" python ../candidate/tools/m35a_legacy_snapshot.py --output ../evidence/legacy-base | tee ../evidence/legacy-base.log
+      - name: Candidate legacy outputs must be byte-identical
+        run: |
+          python tools/m35a_legacy_snapshot.py --output ../evidence/legacy-candidate | tee ../evidence/legacy-candidate.log
+          for name in graph-v1 graph-v2 graph-v3 fork-v1 inquiry-v1; do
+            cmp "../evidence/legacy-base/$name.json" "../evidence/legacy-candidate/$name.json"
+          done
+          echo 'PASS: five complete native legacy output files byte-identical' | tee ../evidence/legacy-result.txt
+      - name: Preserve exact source archive and seal all original evidence
+        if: always()
+        run: |
+          mkdir -p ../evidence
+          git archive --format=tar HEAD | gzip -n > ../evidence/candidate-source.tar.gz
+          cd ../evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m35a-source-pinned-audit-native-and-independent-science
+          path: evidence/
+          if-no-files-found: error
