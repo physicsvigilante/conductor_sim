@@ -20,7 +20,7 @@ from .event_sweep import _root_pair
 from .motion_1d import MotionIntegrationError
 from .motion_events import (
     EventPolicy, EventRun, EventStudy, PlaneEvent, VelocityReversal,
-    investigate_motion, validate_event_run,
+    investigate_motion, validate_event_run, validate_event_requests,
 )
 from .prescribed_motion import TestChargeMotionResult, integrate_test_charge
 from .scenarios import PrescribedScenario, revise_scenario, _text
@@ -68,6 +68,12 @@ class StructuralWorldNode:
         _node_common(self.node_id, self.parent_id, self.observation)
         if type(self.case) is not StructuralCase or self.case.case_id != self.node_id:
             raise TypeError("structural node must bind same-ID native StructuralCase")
+        self.case.__post_init__()
+        for source in self.case.add_sources:
+            source.__post_init__()
+        for replacement in self.case.replace_sources:
+            replacement.__post_init__()
+            replacement.new.__post_init__()
 
     def as_dict(self):
         return dict(node_id=self.node_id, parent_id=self.parent_id,
@@ -92,6 +98,8 @@ class PhysicalWorldNode:
             raise ValueError("graph physical revision needs 1..4 immutable edits")
         if any(type(e) is not CoupledPropertyEdit for e in self.edits):
             raise TypeError("graph physical edits must be native CoupledPropertyEdit")
+        for edit in self.edits:
+            edit.__post_init__()
         targets = [(e.component_id, e.property_name) for e in self.edits]
         if len(targets) != len(set(targets)):
             raise ValueError("graph physical node repeats a component-property target")
@@ -159,6 +167,7 @@ class UnifiedObservationPlan:
         for node in self.nodes:
             if type(node) not in (StructuralWorldNode, PhysicalWorldNode):
                 raise TypeError("graph requires exact native structural or physical nodes")
+            node.__post_init__()
             if node.node_id in seen:
                 raise ValueError("graph contains duplicate world IDs")
             if node.parent_id not in seen:
@@ -184,6 +193,7 @@ class UnifiedObservationPlan:
         for comparison in self.comparisons:
             if type(comparison) is not WorldComparison:
                 raise TypeError("comparison must be an exact native WorldComparison")
+            comparison.__post_init__()
             if (comparison.left_world_id not in seen or
                     comparison.right_world_id not in seen):
                 raise ValueError("comparison references an unknown graph world")
@@ -207,6 +217,7 @@ class UnifiedObservationPlan:
                 raise TypeError("event worlds require 1..16 existing M24a questions and policy")
             if len({q.event_id for q in self.questions}) != len(self.questions):
                 raise ValueError("duplicate event identity")
+            validate_event_requests(self.questions, self.policy)
         elif self.questions or self.policy is not None:
             raise ValueError("event questions/policy without any event observation")
 
@@ -485,6 +496,7 @@ class UnifiedObservationRun:
                 type(self.baseline_status) is not str or
                 type(self.baseline_reason) is not str):
             raise ValueError("graph result must be bound to its native original plan")
+        self.plan.__post_init__()
         if self.baseline_native is None:
             if self.baseline_status not in ("rejected-event-study", "integration-failed"):
                 raise ValueError("graph original lacks a recorded genuine observation stage")
@@ -585,6 +597,7 @@ def run_unified_observation_graph(plan: UnifiedObservationPlan) -> UnifiedObserv
     """Independently qualify and observe every world without source motion."""
     if type(plan) is not UnifiedObservationPlan:
         raise TypeError("require native UnifiedObservationPlan, not imported JSON")
+    plan.__post_init__()
     before = plan.original.as_dict()
     sha = plan.original.revision_id
     initial, status, reason = _observe(

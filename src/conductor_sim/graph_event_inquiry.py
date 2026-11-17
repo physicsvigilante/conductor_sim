@@ -15,7 +15,8 @@ import re
 
 from .coupled_physical_family import _inventory
 from .event_sweep import _root_pair
-from .motion_events import EventPolicy, EventRun, PlaneEvent, VelocityReversal
+from .motion_events import (EventPolicy, EventRun, PlaneEvent, VelocityReversal,
+                            validate_event_requests)
 from .scenarios import PrescribedScenario
 from .source_world_ancestry import SourceWorldAncestry, source_ancestry_root
 from .trajectory_sweep import _shared_rows
@@ -101,12 +102,14 @@ class GraphEventInquiryPlan:
             raise ValueError("duplicate event question identities")
         if type(self.policy) is not EventPolicy:
             raise TypeError("event inquiry requires an exact native EventPolicy")
+        validate_event_requests(self.questions, self.policy)
         if type(self.comparisons) is not tuple or len(self.comparisons) > 8:
             raise ValueError("event inquiry allows at most 8 native pair requests")
         pairs, pair_ids = set(), set()
         for pair in self.comparisons:
             if type(pair) is not WorldComparison:
                 raise TypeError("event inquiry comparison requires WorldComparison")
+            pair.__post_init__()
             if pair.left_world_id not in self.world_ids or pair.right_world_id not in self.world_ids:
                 raise ValueError("event inquiry comparison references an unselected world")
             edge = frozenset((pair.left_world_id, pair.right_world_id))

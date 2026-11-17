@@ -14,7 +14,8 @@ import json
 from .coupled_physical_family import _inventory, _physical_changes
 from .event_sweep import _root_pair
 from .motion_1d import MotionIntegrationError
-from .motion_events import EventPolicy, EventRun, PlaneEvent, VelocityReversal
+from .motion_events import (EventPolicy, EventRun, PlaneEvent, VelocityReversal,
+                            validate_event_requests)
 from .prescribed_motion import TestChargeMotionResult
 from .scenarios import PrescribedScenario, revise_scenario
 from .solver import UnsupportedProblem
@@ -104,6 +105,7 @@ class GraphWorldForkPlan:
         for node in self.nodes:
             if type(node) not in (PhysicalWorldNode, StructuralWorldNode):
                 raise TypeError("fork nodes must be exact native physical/structural nodes")
+            node.__post_init__()
             if node.node_id in known or node.node_id in fresh:
                 raise ValueError("fork cannot reuse original or earlier world IDs")
             if node.parent_id not in known:
@@ -130,6 +132,7 @@ class GraphWorldForkPlan:
                 raise TypeError("new event fork worlds require native M24a questions/policy")
             if len({q.event_id for q in self.questions}) != len(self.questions):
                 raise ValueError("duplicate event question IDs")
+            validate_event_requests(self.questions, self.policy)
         elif self.questions or self.policy is not None:
             raise ValueError("fork has event policy without a new M24a event world")
         if type(self.comparisons) is not tuple or len(self.comparisons) > 8:
@@ -138,6 +141,7 @@ class GraphWorldForkPlan:
         for pair in self.comparisons:
             if type(pair) is not WorldComparison:
                 raise TypeError("fork pair must be genuine native WorldComparison")
+            pair.__post_init__()
             if pair.left_world_id not in known or pair.right_world_id not in known:
                 raise ValueError("fork comparison references unknown physical world")
             if not ({pair.left_world_id, pair.right_world_id} & fresh):
