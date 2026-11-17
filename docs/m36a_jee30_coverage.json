@@ -1,0 +1,761 @@
+{
+  "schema": "conductor_sim.m36a_jee30_candidate_coverage.v1",
+  "status": "PROVISIONAL DOCUMENT-BASED TRIAGE ONLY; zero source-specific M36a native replays; NOT an achieved JEE coverage score",
+  "frozen_baseline": {
+    "source_commit": "73e076cf7eaf7fefbae2b24afc1f54ff8f0b6fc6",
+    "source_git_tree": "89363a917e3862d663d934501a1b5cd8a22a84c0",
+    "historical_inventory": "docs/m21a_coverage.json",
+    "historical_anchor_count": 29,
+    "original_pdf_sha256": {
+      "02_conductors_half_size.pdf": "9dff3c02a9f1848d2c3d99cb1a6e7a44dc7f5a51f7a3a2b8cc92d10ce1fbca5d",
+      "POTENTIAL_CONDUCTORS1.pdf": "8d0d9b5cf821219058cfc4b7685a39b777e460944df44c3f9cffcb68157a60e5"
+    }
+  },
+  "cohort_rule": "Exactly the original 29 M21a source anchors in original order plus ONE official 2021 Paper 1 Q9-Q10 two-charge system counted as a single apparatus.",
+  "old_tiers_m20c_only": {
+    "A": "Existing qualified physics and suitable representation for the requested observables; authoring might still be manual",
+    "B": "Partial existing physics; requires a small qualified reusable observer/authoring/view/analysis improvement for source-fidelity",
+    "C": "Needs a genuinely new physical model relationship, qualified regime, or solver; partial theorems may still be true",
+    "D": "Outside intended project regime or source too unclear to interpret"
+  },
+  "candidate_route_legend": {
+    "supported_scoped": "Documentation supports a qualified physics/observation route; NOT an M36a verified original-problem simulation.",
+    "partial": "Only a faithfully bounded subset or teacher-authored continuation is currently represented.",
+    "unsupported": "Requested local physics remains unqualified; explicit refusal is required."
+  },
+  "candidate_route_totals_PROVISIONAL_NOT_A_SCORE": {
+    "supported_scoped": 24,
+    "partial": 3,
+    "unsupported": 3
+  },
+  "case_execution_evidence": {
+    "independently_replayed_in_m36a": 0,
+    "physically_verified_in_m36a": 0,
+    "viewer_checked_in_m36a": 0,
+    "source_documents_newly_reinspected_in_m36a": 0
+  },
+  "evaluation_contract": "docs/evaluation_contract.md",
+  "cases": [
+    {
+      "id": "p01-single-08",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 1,
+      "printed_anchor": "Single Correct Q8",
+      "problem_family": "uniform-field work",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Static uniform-field endpoint potential work; no particle path required.",
+      "exclusions": "A potential difference is not a timed trajectory.",
+      "document_basis": [
+        "docs/m21b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p02-single-15",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 2,
+      "printed_anchor": "Single Correct Q15",
+      "problem_family": "far-separated wired spheres",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "C",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Leading self-capacitance connection of genuinely distant conductors with separate identities.",
+      "exclusions": "Not finite-separation induction, a concentric-shell substitute, or wire-current dynamics.",
+      "document_basis": [
+        "docs/m21d.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p02-single-19",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 2,
+      "printed_anchor": "Single Correct Q19",
+      "problem_family": "electron stopping near charged sheet",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "B",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "One-sided ideal metal-sheet field and numerical electron reversal under the source's idealized field.",
+      "exclusions": "No induced conductor response, microscopic contact, or fringe field.",
+      "document_basis": [
+        "docs/m24a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p03-single-27",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 3,
+      "printed_anchor": "Single Correct Q27",
+      "problem_family": "wired solid sphere and shell released energy",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Mixed radial conductor backend supports field-energy before and after concentric connection.",
+      "exclusions": "Static release energy is not a current or heat-rate waveform.",
+      "document_basis": [
+        "docs/m14b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p03-single-29",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 3,
+      "printed_anchor": "Single Correct Q29",
+      "problem_family": "grounded concentric conductors",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Grounded concentric conductors with specified metal regions and charges.",
+      "exclusions": "No nonconcentric irregular-conductor surface-density claim.",
+      "document_basis": [
+        "docs/m14b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p03-single-30",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 3,
+      "printed_anchor": "Single Correct Q30",
+      "problem_family": "electron transit between voltage-biased plates",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "B",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "True uniform-gap electron transit and terminal ideal stop-surface event.",
+      "exclusions": "No self-consistent plate-induced dynamics or collision after the terminal event.",
+      "document_basis": [
+        "docs/m24a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p05-single-47",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 5,
+      "printed_anchor": "Single Correct Q47",
+      "problem_family": "rigid dipole angle and energy",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "C",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Finite rigid-dipole static energy/orientation ranking in a uniform field.",
+      "exclusions": "Do not infer actual angular trajectory without inertia and initial angular state.",
+      "document_basis": [
+        "docs/m23a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p07-multiple-13",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 7,
+      "printed_anchor": "Multiple Correct Q13",
+      "problem_family": "cavity charge and exterior potential",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Concentric cavity induced-charge and exterior static potential models.",
+      "exclusions": "Not time-resolved charge transfer or arbitrary displaced cavity geometry.",
+      "document_basis": [
+        "docs/m15.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p08-multiple-21",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 8,
+      "printed_anchor": "Multiple Correct Q21",
+      "problem_family": "charge approaching grounded sphere",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "B",
+      "candidate_route": "partial",
+      "qualified_route": "Static induced charge/force snapshots near grounded sphere are qualified.",
+      "exclusions": "The requested induced-current time behavior needs a physical approach protocol and derivative of genuine conductor response; not solved by static position sweep.",
+      "document_basis": [
+        "docs/m13b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p09-multiple-27",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 9,
+      "printed_anchor": "Multiple Correct Q27",
+      "problem_family": "neutral sphere tangent charge geometry",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Single neutral/isolated sphere with external point source and source-given geometry.",
+      "exclusions": "Static image charge model, not a moving conductor or dielectric.",
+      "document_basis": [
+        "docs/m13c.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p10-linked-13",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 10,
+      "printed_anchor": "Linked Comprehension Q13",
+      "problem_family": "stored field energy of concentric shells",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Concentric connected-shell radial field-energy ledger.",
+      "exclusions": "Do not omit outer radial field regions or assert transient release.",
+      "document_basis": [
+        "docs/m14b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p10-linked-14",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 10,
+      "printed_anchor": "Linked Comprehension Q14",
+      "problem_family": "connected concentric shells and heat",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Concentric before/after connection and released electrostatic energy.",
+      "exclusions": "No circuit resistance or time-domain heating law.",
+      "document_basis": [
+        "docs/m14b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p11-linked-28",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 11,
+      "printed_anchor": "Linked Comprehension Q28",
+      "problem_family": "irregular conductor with two nonconcentric cavities",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "C",
+      "candidate_route": "unsupported",
+      "qualified_route": "Gauss-law totals remain possible; local nonconcentric multicavity induced densities and fields are not certified.",
+      "exclusions": "Requires genuinely qualified 3D conductor-boundary treatment.",
+      "document_basis": [
+        "docs/m21a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p12-linked-40",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 12,
+      "printed_anchor": "Linked Comprehension Q40",
+      "problem_family": "two charged rings and transverse applied E: axial work",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "B",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Source-given two-ring endpoint work with transverse applied field retained in force ledger.",
+      "exclusions": "No fictitious free axial path or numerical mass for symbolic follow-up.",
+      "document_basis": [
+        "docs/m21b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p13-matrix-05",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 13,
+      "printed_anchor": "Matrix Matching Q5",
+      "problem_family": "mixed separated and concentric wired shells",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "C",
+      "candidate_route": "partial",
+      "qualified_route": "Separate concentric and far-separated conductor regimes are represented independently.",
+      "exclusions": "Arbitrary diagram rows mixing close separated and concentric connected shells need specific topology/physics admission; cannot conflate models.",
+      "document_basis": [
+        "docs/m14b.md",
+        "docs/m21d.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p14-numerical-07",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 14,
+      "printed_anchor": "Numerical Value Q7",
+      "problem_family": "wired concentric shells change potential",
+      "source_provenance": "workbook exercise; not claimed official JEE exam",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Concentric connected-shell before/after potentials under charge conservation.",
+      "exclusions": "No elapsed-time connection process.",
+      "document_basis": [
+        "docs/m14b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p15-archive-02",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 15,
+      "printed_anchor": "Archive IIT-JEE 2012 Q2",
+      "problem_family": "proton starts between vertical plates: 45-degree acceleration",
+      "source_provenance": "IIT-JEE 2012 printed archive, externally corroborated",
+      "original_m21a_tier": "C",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Uniform prescribed electric field and genuine gravity jointly yield the initial 45-degree acceleration.",
+      "exclusions": "Ideal plate-gap field only; no proton-induced plate response or impacts.",
+      "document_basis": [
+        "docs/m21e.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p16-archive-numerical-01",
+      "source": "02_conductors_half_size.pdf",
+      "pdf_page": 16,
+      "printed_anchor": "Archive JEE Advanced 2020 Numerical Q1",
+      "problem_family": "oil-drop equilibrium after switched disc field",
+      "source_provenance": "JEE Advanced 2020 printed archive, official source not independently checked",
+      "original_m21a_tier": "C",
+      "candidate_route": "partial",
+      "qualified_route": "Actual equilibrium electron-count observable is addressed and a clearly teacher-specified switched-field/drag example exists.",
+      "exclusions": "Original problem supplies no drag constant, switch time or complete initial state, so no unique source-faithful transient can be claimed.",
+      "document_basis": [
+        "docs/m24b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p13-projected-charge",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 13,
+      "printed_anchor": "Illustration 7",
+      "problem_family": "negative particle between two equal fixed point charges",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "B",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Reflection-certified fixed-point source inventory and real invariant-plane negative-charge motion.",
+      "exclusions": "No fake force projection; only actually symmetric source geometry passes.",
+      "document_basis": [
+        "docs/m21c.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p20-ring-axis",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 20,
+      "printed_anchor": "Ring-potential derivation",
+      "problem_family": "uniform fixed charge ring on symmetry axis",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Full ideal fixed charged-ring field is now available in addition to earlier axial qualification.",
+      "exclusions": "Ring is nonresponding prescribed charge, not a metal conductor; wire singularities are guarded.",
+      "document_basis": [
+        "docs/m27a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p25-insulating-sphere",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 25,
+      "printed_anchor": "Nonconducting sphere",
+      "problem_family": "uniform volume charge potential and field",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Uniform volume-charge sphere field and actual particle motion in certified domain.",
+      "exclusions": "Insulating distributed volume charge is not a metal conductor.",
+      "document_basis": [
+        "docs/m19a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p26-conductor-potential",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 26,
+      "printed_anchor": "Illustration 1",
+      "problem_family": "conducting spherical shell radial V/E",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Radial field and potential of concentric conducting shell with surface boundaries.",
+      "exclusions": "Static radial observation, not time evolution.",
+      "document_basis": [
+        "docs/m5.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p27-cavity-two-shells",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 27,
+      "printed_anchor": "Illustration 4",
+      "problem_family": "charge inside two concentric shells",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Concentric shell and source analytical/FEMM-qualified geometry.",
+      "exclusions": "No off-centre general multicavity 3D claim.",
+      "document_basis": [
+        "docs/m4b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p29-outer-charge-change",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 29,
+      "printed_anchor": "Illustration 11",
+      "problem_family": "outer shell net charge varied",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Distinct static radial equilibria for changed outer conductor net charge.",
+      "exclusions": "Electric field jump/surface and metal thickness remain physical.",
+      "document_basis": [
+        "docs/m4b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p61-external-grounded-sphere",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 61,
+      "printed_anchor": "Illustration 1",
+      "problem_family": "external charge near grounded conducting sphere",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Kelvin image-charge induced force for charge near grounded sphere.",
+      "exclusions": "Static force/energy curve is not a freely moving charged body.",
+      "document_basis": [
+        "docs/m7.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p68-connected-separated-spheres",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 68,
+      "printed_anchor": "Illustration 4",
+      "problem_family": "two very distant thin spheres joined by wire",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "C",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Leading far-separated linked-sphere approximation and conserved group charge.",
+      "exclusions": "No mutual polarization/finite-wire energy beyond admitted asymptotic order.",
+      "document_basis": [
+        "docs/m21d.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p69-cavity-central-vs-shifted",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 69,
+      "printed_anchor": "Illustration 7",
+      "problem_family": "central versus displaced cavity point charge",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "A",
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Exact Kelvin image model captures displaced cavity source's nonuniform inner induced density.",
+      "exclusions": "Only a supported spherical cavity, not an irregular multihole conductor.",
+      "document_basis": [
+        "docs/m3.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p70-cavity-offset",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 70,
+      "printed_anchor": "Illustration 8(i)/(ii)",
+      "problem_family": "irregular cavity or irregular conductor exterior",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "C",
+      "candidate_route": "unsupported",
+      "qualified_route": "Only Gauss-law total induced charges are presently justified.",
+      "exclusions": "Local surface-density and field map for arbitrary displaced/irregular cavities need new solver.",
+      "document_basis": [
+        "docs/m21a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "p70-three-cavities",
+      "source": "POTENTIAL_CONDUCTORS1.pdf",
+      "pdf_page": 70,
+      "printed_anchor": "Illustration 9",
+      "problem_family": "three nonconcentric cavities in one conductor",
+      "source_provenance": "teaching illustration, not an official JEE paper",
+      "original_m21a_tier": "C",
+      "candidate_route": "unsupported",
+      "qualified_route": "Gauss-law totals can be explained, but exact multi-cavity local field/sigma is unsupported.",
+      "exclusions": "Do not render three irregular cavities as concentric shells.",
+      "document_basis": [
+        "docs/m21a.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    },
+    {
+      "id": "jee2021-p1-q09-q10-equipotential",
+      "source": "JEE Advanced 2021 Paper 1 English; archive apparatus also transcribed in 02_conductors_half_size.pdf",
+      "pdf_page": 16,
+      "printed_anchor": "Paper 1 Questions 9–10 (one two-charge apparatus)",
+      "problem_family": "two unlike fixed charges: V=0 circle",
+      "source_provenance": "official JEE Advanced 2021 Paper 1; documented in M21b",
+      "original_m21a_tier": null,
+      "candidate_route": "supported_scoped",
+      "qualified_route": "Two fixed charges -Q at x=0 and +Q/sqrt(3) at x=2 m admit an actual sampled V=0 circle with centre (3,0) and radius sqrt(3) m.",
+      "exclusions": "Teacher-selected Q=1 nC for visualization is not an original given; mask singularities and do not treat two questions as two distinct physical systems.",
+      "document_basis": [
+        "docs/m21b.md"
+      ],
+      "case_replay_status": "pending",
+      "independent_source_reinspection": "not_performed_in_m36a",
+      "verification": {
+        "interpretation_fidelity": "not_evaluated",
+        "physical_correctness": "not_evaluated",
+        "simulation_coverage": "not_evaluated",
+        "educational_usefulness": "not_evaluated",
+        "textbook_answer_completeness": "not_attempted"
+      }
+    }
+  ]
+}
