@@ -449,3 +449,82 @@ def test_review01_novel_y_gravity_field_two_property_case_matches_analytic_cross
         "not-found-at-requested-resolution")
     assert actual.as_dict()["coupled_events"][0]["parent_event_time_comparisons"][0]["status"] == (
         "one-resolved-pair")
+
+
+def test_review02_f04_physical_hypothesis_edit_values_cannot_rebind_authentic_events():
+    """Chat B's exact F-04: alter both authored SI values but reuse true M24a results."""
+    from examples.m31b_coupled_events import example
+
+    genuine = run_coupled_event_family(example("added-mass"))
+    h = genuine.plan.physical_plan.hypotheses[0]
+    assert h.edits[0].value == (150., 0., 0.) and h.edits[1].value == 2e-5
+
+    wrong = replace(h, edits=(
+        replace(h.edits[0], value=(175., 0., 0.)),
+        replace(h.edits[1], value=3e-5),
+    ))
+    changed_plan = replace(genuine.plan.physical_plan, hypotheses=(wrong,))
+    changed_entry = replace(genuine.physical_family.entries[0], hypothesis=wrong)
+    changed_family = replace(genuine.physical_family, plan=changed_plan,
+                             entries=(changed_entry,))
+    changed_ask = replace(genuine.plan, physical_plan=changed_plan)
+    changed_child = replace(genuine.children[0], physical_entry=changed_entry)
+
+    # The child scenario is still the genuine original 150 V/m, 2e-5kg model.
+    assert changed_entry.scenario is genuine.children[0].physical_entry.scenario
+    assert changed_entry.scenario.spec.mass_kg == 2e-5
+    assert changed_entry.scenario.spec.field.sources[-1].field_v_m == (150., 0., 0.)
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(genuine, plan=changed_ask, physical_family=changed_family,
+                children=(changed_child,))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        CoupledEventRun(
+            changed_ask, changed_family, genuine.original_event_run,
+            genuine.parents, (changed_child,),
+            genuine._observation_digest, genuine._issuer)
+    assert genuine.as_dict()["physical_model_family"]["entries"][0]["hypothesis"]["edits"][0]["value"] == [
+        150., 0., 0.]
+
+
+def test_review02_f04_plan_id_and_hypothesis_note_cannot_be_relabeled():
+    """Even a coherent plan/result dataclass replacement keeps its original seal."""
+    from examples.m31b_coupled_events import example
+
+    genuine = run_coupled_event_family(example("added-mass"))
+    changed_plan = replace(genuine.plan.physical_plan,
+                           plan_id="review02:foreign-plan")
+    changed_family = replace(genuine.physical_family, plan=changed_plan)
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(genuine,
+                plan=replace(genuine.plan, physical_plan=changed_plan),
+                physical_family=changed_family)
+
+    current = genuine.plan.physical_plan.hypotheses[0]
+    retitled = replace(current, note="Invented explanation of physical source values.")
+    alt_plan = replace(genuine.plan.physical_plan, hypotheses=(retitled,))
+    alt_entry = replace(genuine.physical_family.entries[0], hypothesis=retitled)
+    alt_family = replace(genuine.physical_family, plan=alt_plan,
+                         entries=(alt_entry,))
+    retitled_child = replace(genuine.children[0], physical_entry=alt_entry)
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(genuine, plan=replace(genuine.plan, physical_plan=alt_plan),
+                physical_family=alt_family, children=(retitled_child,))
+
+
+def test_review02_f04_revalidates_full_physical_provenance_before_json_export():
+    from examples.m31b_coupled_events import example
+
+    legitimate = run_coupled_event_family(example("added-mass"))
+    expected = legitimate.as_dict()
+    assert expected["plan_id"] == legitimate.plan.physical_plan.plan_id
+    assert expected["coupled_events"][0]["event_status"] == "complete"
+    original_plan = legitimate.plan.physical_plan
+    changed_plan = replace(original_plan, plan_id="review02:changed-after-issuance")
+    # Frozen result attributes are not a cryptographic security boundary.
+    # Pre-export must nevertheless reject ordinary post-issuance dataclass replacement.
+    object.__setattr__(legitimate, "plan",
+                       replace(legitimate.plan, physical_plan=changed_plan))
+    object.__setattr__(legitimate, "physical_family",
+                       replace(legitimate.physical_family, plan=changed_plan))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        legitimate.as_dict()

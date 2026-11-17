@@ -110,13 +110,21 @@ class CoupledChildEvent:
     reason: str
 
 
-def _observation_receipt(original, parents, children):
-    """Snapshot genuine native event states, root clocks and exception stages.
+def _observation_receipt(physical_family, original, parents, children):
+    """Snapshot the actual physical family AND genuine native event outcomes.
 
-    Hashing only detects post-observation alterations; the receipt must be
-    minted in the trusted runner, never from a supplied typed result.
+    M31b's typed result claims not merely a native root, but WHICH immutable
+    M31a plan, source world, atomic physical edits and resulting trajectory
+    produced that root. Bind its entire already-qualified M31a detached record
+    to the original in-process runner receipt. A dataclass copy that replaces
+    the plan ID or hypothesis values without re-solving cannot inherit the
+    original issued observation.
+
+    Hashing detects post-observation changes at the declared Python result
+    boundary, not malicious modification of private module internals.
     """
     record = dict(
+        physical_family=physical_family.as_dict(),
         original=original.as_dict(),
         parents=[dict(
             branch_id=p.branch_id, status=p.status, reason=p.reason,
@@ -221,7 +229,8 @@ class CoupledEventRun:
                 not compare_digest(
                     self._observation_digest,
                     _observation_receipt(
-                        self.original_event_run, self.parents, self.children))):
+                        self.physical_family, self.original_event_run,
+                        self.parents, self.children))):
             raise ValueError("coupled event differs from runner-issued observation receipt")
 
     def as_dict(self):
@@ -338,4 +347,5 @@ def run_coupled_event_family(plan: CoupledEventPlan) -> CoupledEventRun:
     parents, children = tuple(parents_by_id.values()), tuple(children)
     return CoupledEventRun(
         plan, physical, original_run, parents, children,
-        _observation_receipt(original_run, parents, children), _RUNNER_ISSUER)
+        _observation_receipt(physical, original_run, parents, children),
+        _RUNNER_ISSUER)
