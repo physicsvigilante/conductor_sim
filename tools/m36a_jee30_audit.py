@@ -91,7 +91,8 @@ def audit_inventory(
     extra = cases[-1]
     _assert(extra.get("id") == NEW_ANCHOR, "new apparatus ID")
     _assert(extra.get("original_m21a_tier") is None, "do not invent a 2024 M21a tier for new source")
-    _assert(extra.get("pdf_page") == 16 and "2021" in extra.get("printed_anchor", ""), "2021 source anchor")
+    _assert(extra.get("pdf_page") == 16 and "Questions 9" in extra.get("printed_anchor", "")
+            and "2021" in extra.get("source_provenance", ""), "2021 source anchor")
     _assert("official JEE Advanced 2021" in extra.get("source_provenance", ""), "official source provenance")
     _assert(candidate.get("evaluation_contract") == "docs/evaluation_contract.md", "evaluation rubric")
     _assert(type(candidate.get("status")) is str and "PROVISIONAL" in candidate["status"], "candidate warning")
