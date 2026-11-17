@@ -184,3 +184,31 @@ def test_native_result_and_request_tampering_refused():
             WorldComparison("reverse", "right", "left"),)))
     with pytest.raises((ValueError, TypeError)):
         replace(run, entries=(replace(run.entries[0], status="forged"),)+run.entries[1:])
+
+
+def test_genuine_two_axis_field_difference_not_projected_into_x():
+    original = model("uniform-edits").baseline
+    nodes = tuple(StructuralWorldNode(
+        name, "baseline", StructuralCase(name, "Independent planar vector field",
+            add_sources=(NamedSource("field:vector", "Held planar vector",
+                UniformElectricField(vector)),)), "trajectory")
+        for name, vector in (
+            ("planar-a", (25., 17., 0.)),
+            ("planar-b", (-15., -23., 0.))))
+    p = UnifiedObservationPlan("m33a:planar", original, nodes,
+        retain_source_ancestry=True,
+        comparisons=(WorldComparison("planar", "planar-a", "planar-b"),))
+    run = run_unified_observation_graph(p)
+    assert [e.status for e in run.entries] == ["complete", "complete"]
+    pair = run.as_dict()["cross_world_comparisons"][0]
+    assert pair["status"] == "compared"
+    assert pair["event_time_comparisons"] == []
+    for row in pair["exact_time_trajectory_comparisons"]:
+        t = row["time_s"]
+        expected = tuple(
+            .5 * original.spec.particle.charge_c / original.spec.mass_kg *
+            (delta) * t * t
+            for delta in (-40., -40., 0.))
+        assert row["delta_position_m"] == pytest.approx(expected, abs=1e-8)
+        assert row["delta_position_m"][1] != 0 or t == 0
+        assert row["delta_position_m"][2] == pytest.approx(0., abs=1e-10)
