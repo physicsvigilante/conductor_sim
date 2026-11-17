@@ -27,7 +27,7 @@ def make_plan():
         "replace-after","Retire edited source Enew, introduce genuinely NEW Eafter.",
         replace_sources=(SourceReplacement(
             "field:Enew",NamedSource(
-                "field:Eafter","New stationary x-field source after physical edit",
+                "field:Eafter","New x-field after physical edit",
                 UniformElectricField((130.,0.,0.)))),))
     nodes=(
         StructuralWorldNode("add-E","baseline",initial_add,"events"),
