@@ -1,5 +1,11 @@
 # conductor_sim
 
+> **Current release and navigation:** [capability/verification map](docs/current_capabilities.md).
+> Released baseline: M34b. Draft next work: [M35a multi-stage exploration](docs/m35a.md)
+> and [project audit/corrections](docs/m35a_audit.md). Historical milestone sections below
+> describe their original scope; they do not replace the source-pinned release record.
+
+
 **Project objective:** a scientifically faithful **teaching accompaniment** to
 JEE electrostatics questions—not a textbook-answer reproduction engine.
 The priority is correct physical interpretation, independently verified

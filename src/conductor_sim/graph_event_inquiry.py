@@ -18,6 +18,7 @@ from .event_sweep import _root_pair
 from .motion_events import (EventPolicy, EventRun, PlaneEvent, VelocityReversal,
                             validate_event_requests)
 from .scenarios import PrescribedScenario
+from .graph_world_fork import GraphWorldForkRun, _source_context
 from .source_world_ancestry import SourceWorldAncestry, source_ancestry_root
 from .trajectory_sweep import _shared_rows
 from .unified_observation_graph import (
@@ -36,24 +37,20 @@ def _receipt(value):
 
 
 def _worlds(graph):
-    """Real qualified graph scenarios, not reconstructed author assertions."""
-    worlds = {"baseline": (
-        graph.plan.original, source_ancestry_root(graph.plan.original),
-        graph.baseline_status)}
-    for row in graph.entries:
-        worlds[row.node.node_id] = (
-            row.scenario, row.source_ancestry, row.status)
-    return worlds
+    """Same authenticated native history used for forks and new questions."""
+    return {world_id: (world.model, world.ancestry, world.status)
+            for world_id, world in _source_context(graph).worlds.items()}
 
 
 def _plan_record(plan, source):
-    return dict(
+    context = _source_context(plan.graph)
+    record = dict(
         schema="conductor_sim.graph_event_inquiry_plan.v1",
         inquiry_id=plan.inquiry_id,
-        source_graph_plan_id=plan.graph.plan.plan_id,
+        source_graph_plan_id=context.root.plan.plan_id,
         source_graph_schema=source["schema"],
         source_graph_sha256=_receipt(source),
-        original_revision_id=plan.graph.plan.original.revision_id,
+        original_revision_id=context.root.plan.original.revision_id,
         world_ids=plan.world_ids,
         questions=[dict(kind=type(q).__name__, **asdict(q))
                    for q in plan.questions],
@@ -63,13 +60,20 @@ def _plan_record(plan, source):
             "Retain genuinely admitted native graph worlds and graph-root "
             "branch-local source ancestry; new event measurement, no reassembly"),
     )
+    if type(plan.graph) is GraphWorldForkRun:
+        record.update(schema="conductor_sim.graph_event_inquiry_plan.v2",
+                      source_kind="native-fork-history",
+                      original_graph_sha256=context.root_digest,
+                      source_fork_id=plan.graph.plan.fork_id,
+                      source_stages=list(context.stages))
+    return record
 
 
 @dataclass(frozen=True, slots=True)
 class GraphEventInquiryPlan:
     """New question set for 1..8 actual qualified worlds of one issued graph."""
 
-    graph: UnifiedObservationRun
+    graph: UnifiedObservationRun | GraphWorldForkRun
     inquiry_id: str
     world_ids: tuple[str, ...]
     questions: tuple[PlaneEvent | VelocityReversal, ...]
@@ -77,12 +81,8 @@ class GraphEventInquiryPlan:
     comparisons: tuple[WorldComparison, ...] = ()
 
     def __post_init__(self):
-        if type(self.graph) is not UnifiedObservationRun:
-            raise TypeError("event inquiry requires an original runner-issued native graph")
-        # Authenticate original graph *now*, before accepting an inquiry request.
-        self.graph.__post_init__()
-        if not self.graph.plan.retain_source_ancestry:
-            raise ValueError("event inquiries require retained graph-root source ancestry")
+        # Validate every inherited source run without rebuilding physical models.
+        context = _source_context(self.graph)
         if type(self.inquiry_id) is not str or _ID.fullmatch(self.inquiry_id) is None:
             raise ValueError("event inquiry needs a bounded stable ASCII inquiry ID")
         if (type(self.world_ids) is not tuple or
@@ -90,7 +90,7 @@ class GraphEventInquiryPlan:
                 any(type(world_id) is not str for world_id in self.world_ids) or
                 len(set(self.world_ids)) != len(self.world_ids)):
             raise ValueError("event inquiry requires 1..8 distinct native world IDs")
-        known = {"baseline", *(node.node_id for node in self.graph.plan.nodes)}
+        known = set(context.worlds)
         if any(world_id not in known for world_id in self.world_ids):
             raise ValueError("event inquiry references a nonexistent physical world")
         if (type(self.questions) is not tuple or
@@ -206,7 +206,9 @@ def _record(plan, entries):
                                   else entry.native.as_dict()["outcomes"],
         ))
     return dict(
-        schema="conductor_sim.graph_event_inquiry.v1",
+        schema=("conductor_sim.graph_event_inquiry.v2" if
+                type(plan.graph) is GraphWorldForkRun else
+                "conductor_sim.graph_event_inquiry.v1"),
         plan=_plan_record(plan, source),
         provenance=(
             "New teacher-authored measurement questions about existing genuine "
