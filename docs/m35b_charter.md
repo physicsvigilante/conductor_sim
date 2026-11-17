@@ -1,0 +1,26 @@
+# M35b — Frozen charter: legacy sweep native evidence hardening (issue #80)
+
+**Charter-only freeze.** This is a separate scoped corrective milestone on top of **M35a merged `main` SHA `808d7ce9245aaeda3f8f58faff7181776d20183a`**, whose actual Git tree equals independently reviewed source `f9d14fedd06659f5abf8f822b31bc7e6353f2a37`. The full M35a main-push workflow suite was still completing when this charter was drafted; the charter is NOT permission to call M35a fully released. No implementation code is included in this first commit.
+
+## Inherited defect and scientific requirement
+
+Reproduce [issue #80](https://github.com/physicsvigilante/conductor_sim/issues/80) on the **actual released M34b** (and current M35a) source, without changing solver physics: `dataclasses.replace(EventSweepEntry(...), scenario=None, run=None, status='complete')` and the analogous `SweepEntry(..., scenario=None, trajectory=None, status='complete')` can be accepted by their older public run wrappers and exported as physically complete. This is a genuine integrity error in **post-solve result evidence**, not a demonstrated force-field, integration or event-root error.
+
+## Correct, minimal, versioned boundary
+
+- Preserve **byte-identical v1 JSON exports** and original native example/viewer functionality for *all valid historical* `TrajectorySweepRun` / `EventSweepRun` source-cases, including genuine completed, censored, physically rejected, event-study rejected and numerical integration-failed cases; do not infer missing results, fake full horizons or turn unsupported source models into successes.
+- Enforce exact native request/entry/model/trajectory/event status consistency on run construction **and every export**, including nested edits performed after construction. A `complete` entry requires true admitted model and original native duration-complete result. `censored` requires genuine shorter or terminal/guarded native result. Refused/failed states require the appropriate physically admitted or missing model and absent native result. Every child must have actual revision/parent/source ID properties, original typed questions and numerical policy when applicable.
+- Reject Boolean timestamp aliases (e.g. `False == 0.0`), forged root brackets, changed termination and altered native initial state before export. These are evidence-integrity checks, not a universal proof of numerical solution accuracy. Preserve real initial conditions, source guards and finite-resolution event truthfulness.
+- Define honest issuance semantics: in-process native receipt or equivalent transparent boundary must detect forged run entries, physical model changes, plan edits and valid-data replacements. A public mutable `dataclasses.replace` copy must not inherit a misleading runner-issued proof. If direct detached `Entry.as_dict` remains public, its guarantee must be limited and it must at least refuse contradictory status/model/native combinations. External JSON is never trusted native input, and in-process tokens are NOT externally cryptographic signatures.
+- Avoid breaking legitimate constructor or `dataclasses.replace` patterns without explicit migration tests. If an issuance seal would change the historical API, analyze staged/opt-in alternatives rather than silently changing behavior.
+- The new M35a graph/fork/inquiry history remains **strictly separate** and must not begin trusting legacy sweeps as authenticated source histories.
+
+## Tests and release process
+
+1. Red-before/green-after exact old source reproduction of the two issue #80 defect examples and at least 12 independently chosen hostile combinations, wrong typed native model, unrelated source parent, wrong original question or policy, Boolean SI clock, forged event root/termination and after-issuance mutation.
+2. Genuine old M28a and M28b physics cases including uniform acceleration, charged ring, physically refused oblique ring, guarded/terminal histories, unresolved or multiple roots where supported; **verify authentic legacy native JSON is byte-identical** for original and corrected implementations (not just matching metadata).
+3. Separate independent numerical field/force and signed M24a event checks at every actual saved SI timestamp in at least two nonuniform/constant field cases, and proper refusal/guard boundaries. Real older FEMM and Chromium physics remains unchanged.
+4. Full **Python 3.10/3.12, actual 97 FEMM5, real Chromium**, source/tree-pinned focused regression and released-vs-candidate byte-identity proofs. Preserve first failed attempts and original red reproduction, no retroactive PASS.
+5. Open a **DRAFT PR**, pin actual source HEAD/Git TREE and report precise scope. Submit to a **fresh independent Chat B R2 scientific/hostile review**, apply fixes and rerun all checks if blockers arise. Require separate explicit owner protected expected-head merge approval, then exact postmerge main Git tree and *every* triggered main-push workflow SUCCESS before release.
+
+No new conductor law, PDE/FEMM backend, moving source, arbitrary 3D motion, source geometry, scene graph, visual interpolation, textbook OCR or problem-text LLM converter is introduced. This milestone is evidence/validation compatibility maintenance; JEE-30 problem-family coverage may proceed independently against a pinned released engine.
