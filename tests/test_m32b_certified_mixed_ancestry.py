@@ -239,7 +239,7 @@ def test_06_two_oppositely_signed_roots_after_physical_then_structural_never_pai
     old=make_plan("double-crossing")
     c=old.family.cases[0]
     plan=UnifiedObservationPlan("m32b:double",old.family.baseline,(
-        physical("mass","baseline",("test-particle","mass_kg",1.2e-6),
+        physical("mass","baseline",("test-particle","mass_kg",1.1e-6),
                  observation="events"),
         StructuralWorldNode("extra-retarding","mass",c,"events"),
     ),"events",old.questions,old.policy,retain_source_ancestry=True)
