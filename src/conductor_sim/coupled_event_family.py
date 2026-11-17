@@ -6,7 +6,9 @@ are immutable hypotheses, not phases of one moving-source trajectory.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from hashlib import sha256
+from hmac import compare_digest
 import json
 
 from .coupled_physical_family import (
@@ -70,6 +72,11 @@ def _unpaired(event_id, reason):
     return dict(event_id=event_id, status="unpaired", reason=reason)
 
 
+# Only the native runner issues authentic in-process event observations.
+# This is not cryptographic security against arbitrary Python private access.
+_RUNNER_ISSUER = object()
+
+
 @dataclass(frozen=True, slots=True)
 class CoupledEventPlan:
     """Same immutable M24a questions on each actual M31a coupled source world."""
@@ -103,6 +110,34 @@ class CoupledChildEvent:
     reason: str
 
 
+def _observation_receipt(original, parents, children):
+    """Snapshot genuine native event states, root clocks and exception stages.
+
+    Hashing only detects post-observation alterations; the receipt must be
+    minted in the trusted runner, never from a supplied typed result.
+    """
+    record = dict(
+        original=original.as_dict(),
+        parents=[dict(
+            branch_id=p.branch_id, status=p.status, reason=p.reason,
+            model_revision_id=(None if p.parent_scenario is None
+                               else p.parent_scenario.revision_id),
+            native_event=(None if p.event_run is None else p.event_run.as_dict()),
+        ) for p in parents],
+        children=[dict(
+            index=c.index, case_id=c.physical_entry.hypothesis.case_id,
+            physical_status=c.physical_entry.status,
+            model_revision_id=(None if c.physical_entry.scenario is None
+                               else c.physical_entry.scenario.revision_id),
+            status=c.status, reason=c.reason,
+            native_event=(None if c.event_run is None else c.event_run.as_dict()),
+        ) for c in children],
+    )
+    payload = json.dumps(record, allow_nan=False, sort_keys=True,
+                         separators=(",", ":"), ensure_ascii=True)
+    return sha256(payload.encode("ascii")).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class CoupledEventRun:
     plan: CoupledEventPlan
@@ -110,6 +145,8 @@ class CoupledEventRun:
     original_event_run: EventRun
     parents: tuple[CoupledParentEvent, ...]
     children: tuple[CoupledChildEvent, ...]
+    _observation_digest: str = field(default="", repr=False, compare=False)
+    _issuer: object = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if (type(self.plan) is not CoupledEventPlan or
@@ -167,7 +204,11 @@ class CoupledEventRun:
             else:
                 if physical.scenario.parent_revision_id != parent.parent_scenario.revision_id:
                     raise ValueError("coupled child event lost its real source-model revision parent")
-                if child.event_run is None:
+                if physical.trajectory is None:
+                    if (physical.status != "integration-failed" or
+                            child.event_run is not None or child.status != physical.status):
+                        raise ValueError("failed M31a physical integration has fabricated M24a event")
+                elif child.event_run is None:
                     if child.status not in ("rejected-event-study", "integration-failed"):
                         raise ValueError("admitted child has unexplained missing native event")
                 elif child.status != _validate_native(
@@ -175,6 +216,13 @@ class CoupledEventRun:
                     raise ValueError("coupled child event status mismatches native termination")
                 if child.event_run is not None and child.event_run is parent.event_run:
                     raise ValueError("coupled revision reused its parent's event integration")
+        if (self._issuer is not _RUNNER_ISSUER or
+                type(self._observation_digest) is not str or
+                not compare_digest(
+                    self._observation_digest,
+                    _observation_receipt(
+                        self.original_event_run, self.parents, self.children))):
+            raise ValueError("coupled event differs from runner-issued observation receipt")
 
     def as_dict(self):
         """Detached evidence; event shifts are derived anew from checked native runs."""
@@ -278,12 +326,16 @@ def run_coupled_event_family(plan: CoupledEventPlan) -> CoupledEventRun:
             branch_id, e.parent_scenario, native, state, reason)
     children = []
     for idx, entry in enumerate(physical.entries, 1):
-        if entry.scenario is None:
+        if entry.scenario is None or entry.trajectory is None:
+            # An admitted but physically unsolved M31a child is NOT eligible
+            # for another solver to fabricate a successful M24a observation.
             native, state, reason = None, entry.status, entry.reason
         else:
             native, state, reason = _observe(entry.scenario, plan.questions, plan.policy)
         children.append(CoupledChildEvent(idx, entry, native, state, reason))
     if original.revision_id != original_sha or original.as_dict() != before:
         raise RuntimeError("coupled event exploration changed its immutable original world")
-    return CoupledEventRun(plan, physical, original_run,
-                           tuple(parents_by_id.values()), tuple(children))
+    parents, children = tuple(parents_by_id.values()), tuple(children)
+    return CoupledEventRun(
+        plan, physical, original_run, parents, children,
+        _observation_receipt(original_run, parents, children), _RUNNER_ISSUER)
