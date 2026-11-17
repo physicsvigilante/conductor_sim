@@ -313,7 +313,7 @@ def test_negative_typed_graph_bounds_and_unsupported_properties_refuse():
         CoupledPropertyEdit("test-particle","mass_kg",True)
     with pytest.raises(TypeError):
         StructuralWorldNode("different","baseline",family.cases[0])
-    with pytest.raises(ValueError,match="duplicate"):
+    with pytest.raises(ValueError,match="repeats a component-property"):
         PhysicalWorldNode("twice","baseline","duplicate edits",(
             CoupledPropertyEdit("test-particle","mass_kg",2e-5),
             CoupledPropertyEdit("test-particle","mass_kg",3e-5)))
