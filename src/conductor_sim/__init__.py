@@ -180,3 +180,10 @@ from .coupled_physical_family import (
 )
 __all__ += ["CoupledPropertyEdit", "CoupledHypothesis", "CoupledPhysicalPlan",
             "CoupledPhysicalEntry", "CoupledPhysicalRun", "run_coupled_physical_family"]
+
+from .coupled_event_family import (
+    CoupledEventPlan, CoupledParentEvent, CoupledChildEvent,
+    CoupledEventRun, run_coupled_event_family,
+)
+__all__ += ["CoupledEventPlan", "CoupledParentEvent", "CoupledChildEvent",
+            "CoupledEventRun", "run_coupled_event_family"]
