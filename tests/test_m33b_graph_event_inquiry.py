@@ -238,7 +238,7 @@ def test_08_malformed_native_requests_and_unapproved_graph_refuse():
         GraphEventInquiryPlan(graph,"m33b:dup",("baseline","baseline"),orig,policy())
     with pytest.raises(ValueError):
         GraphEventInquiryPlan(graph,"m33b:unknown",("absent",),orig,policy())
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError):
         GraphEventInquiryPlan(graph,"m33b:list",["baseline"],orig,policy())
     with pytest.raises(TypeError):
         GraphEventInquiryPlan(graph,"m33b:listq",("baseline",),list(orig),policy())
