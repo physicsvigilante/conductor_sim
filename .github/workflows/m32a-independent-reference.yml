@@ -1,0 +1,49 @@
+name: M32a independent constant-acceleration observation transfer
+
+on:
+  push:
+    branches: [m32a-unified-physical-observation-graph]
+  pull_request:
+    paths:
+      - "src/conductor_sim/unified_observation_graph.py"
+      - "tests/test_m32a_unified_observation_graph.py"
+      - "examples/m32a_unified_observations.py"
+      - "tools/m32a_independent_uniform.py"
+      - ".github/workflows/m32a-independent-reference.yml"
+      - "docs/m32a.md"
+
+jobs:
+  native-source-and-independent-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Print exact source tree and commit before execution
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install native engine only
+        run: python -m pip install -e .
+      - name: Create genuine new M32a original-source-to-world graph
+        run: |
+          python -m examples.m32a_unified_observations --case uniform-events --output output/m32a-native-worlds.json
+      - name: Independently compute SI trajectories and detector roots
+        run: |
+          python tools/m32a_independent_uniform.py --native output/m32a-native-worlds.json --output output/m32a-analytic-evidence.json
+      - name: Record deterministic evidence digests
+        run: |
+          sha256sum output/m32a-native-worlds.json output/m32a-analytic-evidence.json > output/m32a-sha256.txt
+          cat output/m32a-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m32a-native-world-graph-and-independent-reference
+          path: |
+            output/m32a-native-worlds.json
+            output/m32a-analytic-evidence.json
+            output/m32a-sha256.txt
+          if-no-files-found: error
