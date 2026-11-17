@@ -145,7 +145,7 @@ def test_09_native_model_revision_and_source_identity_alteration_refused(motion)
         replace(motion,entries=_changed(motion,
             replace(good, scenario=sibling.scenario)))
     forged=replace(good, explanation="FICTIONAL COMPLETE EXPERIMENT")
-    with pytest.raises(ValueError,match="receipt"):
+    with pytest.raises(ValueError,match="issued|altered"):
         replace(motion,entries=_changed(motion,forged))
 
 
