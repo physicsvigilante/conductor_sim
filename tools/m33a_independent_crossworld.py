@@ -100,7 +100,7 @@ def check_ancestry(cert, model, label):
 def check_model(model, label):
     e_expected, m_expected, ids, _path = EXPECTED[label]
     spec = model["spec"]
-    require(spec["gravity"] is None,
+    require(spec.get("gravity") is None,
             label + " uniform reference excludes gravity")
     require(all(source["kind"] == "UniformElectricField"
                 for source in spec["field"]["sources"]),
