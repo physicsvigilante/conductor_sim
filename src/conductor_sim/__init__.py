@@ -196,3 +196,6 @@ from .unified_observation_graph import (
 __all__ += ["StructuralWorldNode", "PhysicalWorldNode", "UnifiedObservationPlan",
             "UnifiedObservationEntry", "UnifiedObservationRun",
             "run_unified_observation_graph"]
+
+from .source_world_ancestry import SourceWorldAncestry
+__all__ += ["SourceWorldAncestry"]
