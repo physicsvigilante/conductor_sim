@@ -1,0 +1,86 @@
+name: M35b issued legacy sweep SI and evidence integrity
+on:
+  pull_request:
+    paths:
+      - "src/conductor_sim/_legacy_sweep_integrity.py"
+      - "src/conductor_sim/event_sweep.py"
+      - "src/conductor_sim/trajectory_sweep.py"
+      - "tests/test_m35b_legacy_sweep_integrity.py"
+      - "tools/m35b_independent_sweep.py"
+      - "docs/m35b.md"
+      - ".github/workflows/m35b-independent-sweep.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/conductor_sim/**"
+      - "tests/test_m35b_legacy_sweep_integrity.py"
+      - "tools/m35b_independent_sweep.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m35b-native-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  real-native-sweeps-independent-si-and-hostile-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record actual source commit and native Git tree
+        run: |
+          git rev-parse HEAD
+          git rev-parse 'HEAD^{tree}'
+      - name: Install genuine native physics package and pytest
+        run: python -m pip install -e ".[test]"
+      - name: Execute true issued M28a/M28b result and issue-80 hostile regressions
+        run: python -m pytest tests/test_m35b_legacy_sweep_integrity.py -q
+      - name: Rerun all old M28a/M28b scientific and visualization regression cases
+        run: python -m pytest tests/test_m28a_trajectory_sweep.py tests/test_m28b_event_sweep.py -q
+      - name: Produce genuine native uniform-acceleration M28a and M28b observations
+        run: |
+          mkdir -p output
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from examples.m28b_event_sweep import make_plan
+          from conductor_sim.trajectory_sweep import run_trajectory_sweep
+          from conductor_sim.event_sweep import run_event_sweep
+          plan=make_plan("uniform-mass")
+          a=run_trajectory_sweep(plan.sweep).as_dict()
+          b=run_event_sweep(plan).as_dict()
+          assert len(a["entries"])==len(b["entries"])==2
+          for name,record in (("motion",a),("events",b)):
+              Path(f"output/m35b-{name}.json").write_text(
+                  json.dumps(record,indent=2,allow_nan=False)+"\n",
+                  encoding="utf-8")
+          print("Native M28a and M28b actual source-model and event integration completed")
+          PY
+      - name: Separately recompute every actual saved native SI time/state and detector
+        run: |
+          python tools/m35b_independent_sweep.py \
+            --motion output/m35b-motion.json \
+            --events output/m35b-events.json \
+            --output output/m35b-independent.json
+      - name: Seal full issued evidence and separately expressed physical SI reference
+        run: |
+          sha256sum output/m35b-motion.json output/m35b-events.json output/m35b-independent.json > output/m35b-sha256.txt
+          cat output/m35b-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m35b-issued-legacy-native-and-independent-SI-evidence
+          path: |
+            output/m35b-motion.json
+            output/m35b-events.json
+            output/m35b-independent.json
+            output/m35b-sha256.txt
+          if-no-files-found: warn
