@@ -1,0 +1,50 @@
+name: M32b independent retained-source ancestry and SI transfer
+
+on:
+  push:
+    branches: [m32b-certified-mixed-order-ancestry]
+  pull_request:
+    paths:
+      - "src/conductor_sim/source_world_ancestry.py"
+      - "src/conductor_sim/unified_observation_graph.py"
+      - "tests/test_m32b_certified_mixed_ancestry.py"
+      - "examples/m32b_mixed_ancestry.py"
+      - "tools/m32b_independent_mixed.py"
+      - ".github/workflows/m32b-independent-reference.yml"
+      - "docs/m32b.md"
+
+jobs:
+  native-certification-and-independent-uniform-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Print actual native source commit/tree
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+      - name: Install original production package only
+        run: python -m pip install -e .
+      - name: Run genuine M32b mixed-order physical/world event graph
+        run: |
+          python -m examples.m32b_mixed_ancestry --output output/m32b-native.json
+      - name: Independent direct SI numerical and complete source history check
+        run: |
+          python tools/m32b_independent_mixed.py --native output/m32b-native.json --output output/m32b-independent.json
+      - name: Seal detached native and independent reference outputs
+        run: |
+          sha256sum output/m32b-native.json output/m32b-independent.json > output/m32b-sha256.txt
+          cat output/m32b-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m32b-mixed-world-and-independent-si-ancestry
+          path: |
+            output/m32b-native.json
+            output/m32b-independent.json
+            output/m32b-sha256.txt
+          if-no-files-found: error
