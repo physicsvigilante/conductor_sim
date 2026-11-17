@@ -334,3 +334,118 @@ def test_m31b_unfamiliar_rod_and_signed_points_coupled_event_and_independent_for
     force = (1e-9*e[0], 1e-9*e[1]-9e-6*.1, 1e-9*e[2])
     assert child.event_run.trajectory.samples[0].force_n == pytest.approx(force, abs=2e-13)
     assert original.as_dict() == family.baseline.as_dict()
+
+
+def test_review01_f01_invented_root_timestamp_rejected_at_creation_and_export():
+    """The real numerical root's original state cannot be assigned a new SI time."""
+    from examples.m31b_rod_reference import make_plan
+
+    authentic = run_coupled_event_family(make_plan())
+    child = authentic.children[0]
+    root = child.event_run.events[0]
+    late = replace(root,
+        sample=replace(root.sample, time_s=root.sample.time_s + .03),
+        time_bracket_s=tuple(t + .03 for t in root.time_bracket_s))
+    doctored = replace(child, event_run=replace(child.event_run, events=(late,)))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        CoupledEventRun(authentic.plan, authentic.physical_family,
+                        authentic.original_event_run, authentic.parents, (doctored,))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(authentic, children=(doctored,))
+    assert authentic.as_dict()["coupled_events"][0]["event_run"]["events"][0]["sample"]["time_s"] == (
+        root.sample.time_s)
+
+    # Even a frozen dataclass can be mutated through object.__setattr__:
+    # pre-export receipt verification must detect that same forgery.
+    restored = run_coupled_event_family(make_plan())
+    original = restored.children[0]
+    changed = replace(original.event_run.events[0],
+        sample=replace(original.event_run.events[0].sample,
+                       time_s=original.event_run.events[0].sample.time_s + .03),
+        time_bracket_s=tuple(t + .03 for t in original.event_run.events[0].time_bracket_s))
+    object.__setattr__(restored, "children", (replace(original,
+        event_run=replace(original.event_run, events=(changed,))),))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        restored.as_dict()
+
+
+def test_review01_f02_successful_parent_and_child_cannot_claim_fabricated_refusal():
+    from examples.m31b_rod_reference import make_plan
+
+    native = run_coupled_event_family(make_plan())
+    forged_parent = replace(native.parents[0], event_run=None,
+                            status="rejected-event-study", reason="fabricated parent refusal")
+    forged_child = replace(native.children[0], event_run=None,
+                           status="rejected-event-study", reason="fabricated child refusal")
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        CoupledEventRun(native.plan, native.physical_family,
+                        native.original_event_run, (forged_parent,), native.children)
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        CoupledEventRun(native.plan, native.physical_family,
+                        native.original_event_run, native.parents, (forged_child,))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(native, parents=(forged_parent,))
+    with pytest.raises(ValueError, match="runner-issued observation receipt"):
+        replace(native, children=(forged_child,))
+    assert native.as_dict()["coupled_events"][0]["parent_event_time_comparisons"][0]["status"] == (
+        "one-resolved-pair")
+
+
+def test_review01_f03_failed_m31a_physical_child_must_not_be_resolved_as_event(monkeypatch):
+    """Test-injected numerical failure; the original physical solver is unchanged."""
+    import conductor_sim.coupled_event_family as service
+    from conductor_sim.coupled_physical_family import (
+        CoupledPhysicalRun, run_coupled_physical_family,
+    )
+    from examples.m31b_coupled_events import example
+
+    plan = example("added-mass")
+    valid = run_coupled_physical_family(plan.physical_plan)
+    failure = replace(valid.entries[0], trajectory=None, comparisons=(),
+                      status="integration-failed",
+                      reason="Test-injected physical integration failure")
+    failed = CoupledPhysicalRun(valid.plan, valid.structural_run, (failure,))
+    monkeypatch.setattr(service, "run_coupled_physical_family", lambda chosen: failed)
+    observed = service.run_coupled_event_family(plan)
+    assert observed.children[0].physical_entry.status == "integration-failed"
+    assert observed.children[0].status == "integration-failed"
+    assert observed.children[0].event_run is None
+    record = observed.as_dict()["coupled_events"][0]
+    assert record["physical_status"] == record["event_status"] == "integration-failed"
+    assert record["event_run"] is None
+    assert record["parent_event_time_comparisons"][0]["status"] == "unpaired"
+
+    with pytest.raises(ValueError, match="failed M31a physical integration"):
+        replace(observed, children=(replace(observed.children[0],
+            event_run=observed.parents[0].event_run, status="complete"),))
+
+
+def test_review01_novel_y_gravity_field_two_property_case_matches_analytic_crossings():
+    """Chat B's previously unexecuted novel case is now a source-pinned native regression."""
+    from math import sqrt
+
+    plan = CoupledPhysicalPlan("review:m31b-gravity", model("uniform-edits"), (
+        CoupledHypothesis("gravity-field", "add-gravity", "Joint y-field and gravity.", (
+            CoupledPropertyEdit("gravity", "acceleration_m_s2", (0.,-3.3,0.)),
+            CoupledPropertyEdit("field:Ey", "field_v_m", (0.,1750.,0.)),
+        )),
+    ))
+    asked = CoupledEventPlan(
+        plan, (PlaneEvent("y-neg", (0.,-.003,0.), (0.,1.,0.),
+                          "Signed downward detector", direction=-1),),
+        EventPolicy(.001, 1e-8, 1e-9, 1e-7))
+    actual = run_coupled_event_family(asked)
+    parent, child = actual.parents[0], actual.children[0]
+    assert parent.status == child.status == "complete"
+    assert child.event_run.study.scenario is child.physical_entry.scenario
+    assert child.physical_entry.scenario.parent_revision_id == parent.parent_scenario.revision_id
+    for event, reference in ((parent.event_run, sqrt(.006/1.995)),
+                             (child.event_run, sqrt(.006/3.125))):
+        roots = [e for e in event.events if e.event_id == "y-neg"]
+        assert len(roots) == 1
+        assert roots[0].direction == -1
+        assert roots[0].sample.time_s == pytest.approx(reference,abs=1e-7)
+    assert actual.original_event_run.as_dict()["outcomes"]["y-neg"] == (
+        "not-found-at-requested-resolution")
+    assert actual.as_dict()["coupled_events"][0]["parent_event_time_comparisons"][0]["status"] == (
+        "one-resolved-pair")
