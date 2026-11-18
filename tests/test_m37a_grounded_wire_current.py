@@ -163,7 +163,6 @@ def test_motion_rejects_wrong_constraint_and_nonmotion_input():
         observe_grounded_sphere_motion(object())
     p = model(constraint=FixedNetCharge(0))
     spec = Motion1DSpec(p, 0, 1e-3, (0, 0, 1), 0., .01, .01)
-    genuine = integrate_motion_1d(spec, ExternalGroundedSphereBackend()) if False else None
     from conductor_sim.motion_1d import Motion1DResult
     fake = Motion1DResult(spec, (), (), "duration", 0.)
     with pytest.raises(UnsupportedProblem):
@@ -195,3 +194,38 @@ def test_motion_falsified_sample_fields_and_history_are_refused():
         observe_grounded_sphere_motion(replace(genuine, termination="nonsense"))
     with pytest.raises(ValueError, match="maximum"):
         observe_grounded_sphere_motion(replace(genuine, max_abs_energy_drift_j=1e3))
+
+
+def test_permittivity_changes_native_force_and_energy_but_not_induced_wire_current():
+    standard = model()
+    doubled = replace(standard, permittivity_f_per_m=2*EPSILON_0)
+    a = observe_grounded_sphere_wire(standard, (0., 0., -.1))
+    b = observe_grounded_sphere_wire(doubled, (0., 0., -.1))
+    assert b.permittivity_f_per_m == pytest.approx(2*EPSILON_0)
+    assert b.induced_sphere_net_charge_c == pytest.approx(a.induced_sphere_net_charge_c)
+    assert b.wire_current_sphere_to_ground_a == pytest.approx(a.wire_current_sphere_to_ground_a)
+    assert b.induced_force_on_source_n[2] == pytest.approx(a.induced_force_on_source_n[2]/2)
+    assert b.induced_mechanical_energy_j == pytest.approx(a.induced_mechanical_energy_j/2)
+
+
+def test_source_free_independent_si_reference_accepts_genuine_and_rejects_forged_json():
+    from copy import deepcopy
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+    genuine = example_data()
+    assert validate_examples(genuine)["actual_time_samples"] == 6
+    modifications = (
+        lambda d: d["instantaneous_prescribed"][0].__setitem__("wire_current_sphere_to_ground_a", -1.),
+        lambda d: d["instantaneous_prescribed"][0].__setitem__("induced_sphere_net_charge_c", 2e-9),
+        lambda d: d["instantaneous_prescribed"][0].__setitem__("point_charge_c", False),
+        lambda d: d["instantaneous_prescribed"][0].__setitem__("mode", "simulated trajectory"),
+        lambda d: d["actual_elapsed_time"]["observations"][1].__setitem__("wire_current_ground_to_sphere_a", 1.),
+        lambda d: d["actual_elapsed_time"]["motion"]["samples"][1].__setitem__("velocity_m_s", 3.),
+        lambda d: d["actual_elapsed_time"]["motion"]["samples"][1].__setitem__("time_s", 0.),
+        lambda d: d.__setitem__("source_role", "original problem given R=0.1m Q=1nC"),
+    )
+    for edit in modifications:
+        hostile = deepcopy(genuine)
+        edit(hostile)
+        with pytest.raises(ValueError):
+            validate_examples(hostile)
