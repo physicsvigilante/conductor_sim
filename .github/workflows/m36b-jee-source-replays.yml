@@ -28,11 +28,15 @@ jobs:
           git rev-parse HEAD^{tree} | tee review-artifacts/m36b/source-tree.txt
           sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf > review-artifacts/m36b/source-pdfs-sha256.txt
       - name: Run all real source-anchored native tests and adversarial counterexamples
-        run: python -m pytest tests/test_m36b_jee_replays.py -q --junitxml=review-artifacts/m36b/m36b-tests.xml
+        run: python -m pytest tests/test_m36b_jee_replays.py tests/test_m36b_transfer.py -q --junitxml=review-artifacts/m36b/m36b-tests.xml
       - name: Export seven actual source cases with genuine native physics and views
         run: python -m tools.m36b_jee_replay --output-dir review-artifacts/m36b
       - name: Check independently expressed analytical references (NO engine imports)
         run: python -m tools.m36b_jee_reference --input review-artifacts/m36b/native-replays.json --output review-artifacts/m36b/independent-reference.json
+      - name: Run three true teacher-hypothetical native transfer worlds (not extra JEE cases)
+        run: python -m tools.m36b_transfer --output review-artifacts/m36b/actual-teacher-transfer.json
+      - name: Independently check teacher native variants without production imports
+        run: python -m tools.m36b_transfer_reference --input review-artifacts/m36b/actual-teacher-transfer.json --output review-artifacts/m36b/teacher-transfer-independent-reference.json
       - name: Open all seven actual source-anchored views in real offline Chromium
         run: python -m tools.check_m36b_jee_browser --output-dir review-artifacts/m36b
       - name: Retain full run evidence and images, including original failures
