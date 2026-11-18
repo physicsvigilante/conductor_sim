@@ -136,6 +136,10 @@ def test_true_p27_original_central_source_AB_not_a_displaced_source_substitute(a
     assert actual_A==pytest.approx(ref_A,abs=.002)
     assert actual_B==pytest.approx(ref_B,abs=.002)
     assert actual_A!=ref_A and actual_B!=ref_B
+    html=( _folder/row["viewer_file"] ).read_text(encoding="utf-8")
+    assert 'id="p27-original-A-B"' in html
+    assert "Actual finite-metal V(A)" in html and "V(B)" in html
+    assert "TEACHER EXTENSION ONLY" in html
     evidence=verify(manifest)["source_independent_reference_results"]["p27-cavity-two-shells"]
     assert evidence["kind"]=="genuine_source_central_A_B_plus_disclosed_teacher_extension"
 
