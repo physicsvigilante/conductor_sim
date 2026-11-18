@@ -58,6 +58,7 @@ class GroundedSphereWireObservation:
     sphere_center_m: Vector3
     sphere_radius_m: float
     point_charge_c: float
+    permittivity_f_per_m: float
     source_position_m: Vector3
     source_velocity_m_s: Vector3
     distance_from_center_m: float
@@ -121,7 +122,7 @@ def observe_grounded_sphere_wire(
         raise ValueError("Kelvin charge, current, force or energy overflowed")
     return GroundedSphereWireObservation(
         sphere.name, sphere.center_m, sphere.radius_m, source.charge_c,
-        source.position_m, velocity, d, radial_velocity, charge_on_sphere,
+        problem.permittivity_f_per_m, source.position_m, velocity, d, radial_velocity, charge_on_sphere,
         charge_rate, sphere_to_ground, charge_rate,
         force_data.charges[0].total_force_n, force_data.energy.total_j,
     )
