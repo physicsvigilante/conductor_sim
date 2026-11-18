@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,34 @@ ROOT = Path(__file__).resolve().parents[1]
 BASELINE_SHA = "73e076cf7eaf7fefbae2b24afc1f54ff8f0b6fc6"
 BASELINE_TREE = "89363a917e3862d663d934501a1b5cd8a22a84c0"
 NEW_ANCHOR = "jee2021-p1-q09-q10-equipotential"
+# These immutable literal digests are sourced from the pre-M36a M21a audit.
+# Never accept two matching but jointly edited metadata objects as proof
+# that the actual PDF bytes are unchanged.
+SOURCE_PDF_SHA256 = {
+    "02_conductors_half_size.pdf":
+        "9dff3c02a9f1848d2c3d99cb1a6e7a44dc7f5a51f7a3a2b8cc92d10ce1fbca5d",
+    "POTENTIAL_CONDUCTORS1.pdf":
+        "8d0d9b5cf821219058cfc4b7685a39b777e460944df44c3f9cffcb68157a60e5",
+}
+# One official 2021 two-question *apparatus*, not two newly solved problems.
+OFFICIAL_2021 = {
+    "id": NEW_ANCHOR,
+    "source": "JEE Advanced 2021 Paper 1 English; archive apparatus also transcribed in 02_conductors_half_size.pdf",
+    "pdf_page": 16,
+    "printed_anchor": "Paper 1 Questions 9–10 (one two-charge apparatus)",
+    "problem_family": "two unlike fixed charges: V=0 circle",
+    "source_provenance": "official JEE Advanced 2021 Paper 1; documented in M21b",
+    "original_m21a_tier": None,
+    "official_apparatus": {
+        "paper": "JEE Advanced 2021 Paper 1",
+        "question_ids": ["Q9", "Q10"],
+    },
+}
+# Specifically refuse *local* 3D induced charge/field images for these
+# geometries. Gauss-law total-charge reasoning remains a valid partial fact.
+MUST_REFUSE_LOCAL_3D = frozenset({
+    "p11-linked-28", "p70-cavity-offset", "p70-three-cavities",
+})
 ROUTES = frozenset({"supported_scoped", "partial", "unsupported"})
 PRIMARY = (
     "interpretation_fidelity",
@@ -42,6 +71,17 @@ def load_inventory(path: Path) -> dict[str, Any]:
     return data
 
 
+def verify_pdf_bytes(path: Path, expected_sha256: str) -> None:
+    """Hash the actual physical source bytes, not only JSON digest strings."""
+    _assert(path.is_file(), f"missing source PDF: {path.name}")
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    _assert(digest.hexdigest() == expected_sha256,
+            f"source PDF bytes changed: {path.name}")
+
+
 def audit_inventory(
     candidate: dict[str, Any] | None = None,
     historic: dict[str, Any] | None = None,
@@ -64,7 +104,12 @@ def audit_inventory(
     _assert(baseline.get("source_git_tree") == BASELINE_TREE, "baseline tree")
     _assert(baseline.get("historical_inventory") == "docs/m21a_coverage.json", "historical source")
     _assert(type(baseline.get("historical_anchor_count")) is int and baseline["historical_anchor_count"] == 29, "historical count")
-    _assert(baseline.get("original_pdf_sha256") == historic.get("source_sha256"), "original PDF digests")
+    _assert(historic.get("source_sha256") == SOURCE_PDF_SHA256,
+            "historic PDF metadata differs from frozen original digests")
+    _assert(baseline.get("original_pdf_sha256") == SOURCE_PDF_SHA256,
+            "candidate PDF metadata differs from frozen original digests")
+    for filename, expected_sha in SOURCE_PDF_SHA256.items():
+        verify_pdf_bytes(repo_root / filename, expected_sha)
     old = historic.get("cases")
     cases = candidate.get("cases")
     _assert(type(old) is list and len(old) == 29, "original historical cohort changed")
@@ -89,11 +134,11 @@ def audit_inventory(
                     f"historical anchor changed at index {i}: {old_key}")
 
     extra = cases[-1]
-    _assert(extra.get("id") == NEW_ANCHOR, "new apparatus ID")
-    _assert(extra.get("original_m21a_tier") is None, "do not invent a 2024 M21a tier for new source")
-    _assert(extra.get("pdf_page") == 16 and "Questions 9" in extra.get("printed_anchor", "")
-            and "2021" in extra.get("source_provenance", ""), "2021 source anchor")
-    _assert("official JEE Advanced 2021" in extra.get("source_provenance", ""), "official source provenance")
+    for field, expected_value in OFFICIAL_2021.items():
+        _assert(extra.get(field) == expected_value,
+                f"2021 apparatus identity or grouping changed: {field}")
+    _assert(all("official_apparatus" not in c for c in cases[:-1]),
+            "2021 official apparatus grouping attached to a historical case")
     _assert(candidate.get("evaluation_contract") == "docs/evaluation_contract.md", "evaluation rubric")
     _assert(type(candidate.get("status")) is str and "PROVISIONAL" in candidate["status"], "candidate warning")
 
@@ -102,6 +147,9 @@ def audit_inventory(
         route = c.get("candidate_route")
         _assert(route in ROUTES, f"invalid route for {c.get('id')}")
         actual[route] += 1
+        if c["id"] in MUST_REFUSE_LOCAL_3D:
+            _assert(route == "unsupported",
+                    f"frozen local-3D refusal reclassified: {c['id']}")
         _assert(type(c.get("qualified_route")) is str and bool(c["qualified_route"].strip()),
                 f"missing physical qualification for {c.get('id')}")
         _assert(type(c.get("exclusions")) is str and bool(c["exclusions"].strip()),
