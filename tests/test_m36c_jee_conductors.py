@@ -59,6 +59,14 @@ def test_all_real_offline_conductor_visualizations_exist(actual):
     ("p27-cavity-two-shells",("authored_states",0,"native_conductor_results",0,"inner_surface_charge_c"),1e-9),
     ("p69-cavity-central-vs-shifted",("native_observations",5,"native_value"),0.),
     ("p09-multiple-27",("native_induced_only_at_tangent_v",),0.),
+    ("p27-cavity-two-shells",("native_observations",0,"native_value"),17.),
+    ("p27-cavity-two-shells",("authored_states",0,"charges",0,"position_m"),[0.,0.,.02]),
+    ("p27-cavity-two-shells",("native_observations",2,"conductor"),"outer"),
+    ("p27-cavity-two-shells",("source_anchor",),"Unrelated illustration 8"),
+    ("p69-cavity-central-vs-shifted",("native_observations",5,"theta_rad"),3.141592653589793),
+    ("p69-cavity-central-vs-shifted",("native_observations",6,"theta_rad"),0.),
+    ("p69-cavity-central-vs-shifted",("source_anchor",),"Completely different source"),
+    ("p26-conductor-potential",("source_shape_fidelity",),"Literal solid sphere with no proxy"),
 ])
 def test_refuse_fabricated_real_conductor_energies_charges_and_field(
     actual,case,path,bad
@@ -105,4 +113,58 @@ def test_static_connection_is_not_fake_time_domain(actual):
     forged=deepcopy(manifest)
     forged["native_source_apparatus"]["p03-single-27"]["kind"]="wire_discharge_time_series"
     with pytest.raises(AssertionError,match="not a time-dependent current"):
+        verify(forged)
+
+
+def test_true_p27_original_central_source_AB_not_a_displaced_source_substitute(actual):
+    _folder,manifest=actual
+    row=manifest["native_source_apparatus"]["p27-cavity-two-shells"]
+    assert row["original_asked_observables"]==["V(A)","V(B)"]
+    assert row["authored_states"][0]["charges"][0]["position_m"]==[0.,0.,0.]
+    assert row["authored_states"][1]["charges"][0]["position_m"]==[0.,0.,.02]
+    assert "TEACHER EXTENSION ONLY" in row["authored_states"][1]["title"]
+    # The printed mathematical ideal-shell formula and the finite-thickness
+    # numerical model are distinct; an actual source observer is evaluated.
+    from tools.m36c_jee_conductor_reference import K
+    q=1e-9;q1=2e-9;q2=3e-9
+    ref_A=K*(q/.04+q1/.10+q2/.20)
+    ref_B=K*((q+q1)/.15+q2/.20)
+    assert row["original_formula_limit"]["V_A_zero_thickness_v"]==pytest.approx(ref_A)
+    assert row["original_formula_limit"]["V_B_zero_thickness_v"]==pytest.approx(ref_B)
+    actual_A=row["native_observations"][0]["native_value"]
+    actual_B=row["native_observations"][1]["native_value"]
+    assert actual_A==pytest.approx(ref_A,abs=.002)
+    assert actual_B==pytest.approx(ref_B,abs=.002)
+    assert actual_A!=ref_A and actual_B!=ref_B
+    evidence=verify(manifest)["source_independent_reference_results"]["p27-cavity-two-shells"]
+    assert evidence["kind"]=="genuine_source_central_A_B_plus_disclosed_teacher_extension"
+
+
+def test_true_p26_source_solid_sphere_explicit_hollow_proxy_visible(actual):
+    folder,manifest=actual
+    case=manifest["native_source_apparatus"]["p26-conductor-potential"]
+    assert "SOURCE SOLID sphere; HOLLOW shell" in case["source_shape_fidelity"]
+    text=(folder/case["viewer_file"]).read_text(encoding="utf-8")
+    assert 'id="original-solid-sphere-proxy-disclosure"' in text
+    assert "Printed Illustration 1 is a SOLID conducting sphere" in text
+    assert "HOLLOW SHELL PROXY" in text
+    assert "The drawn hollow cavity is NOT in the source" in text
+
+
+@pytest.mark.parametrize("case,path,bad", [
+    ("p69-cavity-central-vs-shifted",("native_observations",5,"theta_rad"),3.141592653589793),
+    ("p69-cavity-central-vs-shifted",("native_observations",6,"theta_rad"),0.),
+    ("p27-cavity-two-shells",("native_observations",2,"conductor"),"outer"),
+    ("p27-cavity-two-shells",("source_anchor",),"Not Illustration 4"),
+])
+def test_reviewer_exact_three_attribution_falsifications_fail_closed(
+    actual,case,path,bad,
+):
+    _folder,manifest=actual
+    forged=deepcopy(manifest)
+    row=forged["native_source_apparatus"][case]
+    for key in path[:-1]:
+        row=row[key]
+    row[path[-1]]=bad
+    with pytest.raises(AssertionError):
         verify(forged)
