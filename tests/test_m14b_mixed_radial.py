@@ -131,8 +131,15 @@ def test_translation_scaling_and_authored_conductor_order():
 
 def test_reject_invalid_shapes_and_point_sources_before_numerical_solver():
     valid=model()
+    # M36d explicitly qualifies a single actual SOLID sphere in vacuum.
+    # Preserve older invalid source/geometry refusals rather than continuing
+    # to assert the newly supported original JEE p26 sphere is unsupported.
+    standalone=ElectrostaticProblem(conductors=(valid.conductors[0],))
+    assert MixedRadialBackend().supports(standalone)
+    one=MixedRadialBackend().solve(standalone)
+    assert len(one.radial_shells)==1
+    assert one.conductor_results[0].inner_surface_charge_c==0.
     bad=[
-        ElectrostaticProblem(conductors=(valid.conductors[0],)),
         ElectrostaticProblem(charges=(PointCharge(Q,(0,0,.16)),),conductors=valid.conductors),
         ElectrostaticProblem(charges=(PointCharge(Q,(0,0,0)),),conductors=valid.conductors),
         ElectrostaticProblem(conductors=(valid.conductors[0],

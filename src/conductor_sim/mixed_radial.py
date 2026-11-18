@@ -1,9 +1,9 @@
 """Exact, source-free, radially symmetric solid-sphere and shell equilibria.
 
-One solid conducting sphere is surrounded by one or more separated concentric
-SphericalShell conductors. No point charges, eccentricity, dielectrics or
-wire geometry are silently approximated by this solver. M14b adds an explicit
-analytical domain rather than misusing a phantom cavity in the solid.
+One solid conducting sphere may stand alone (M36d) or be surrounded by one
+or more separated concentric SphericalShell conductors (M14b). No point
+charges, eccentricity, dielectrics or wire geometry are silently approximated
+by this solver. A true isolated SolidSphere has NO phantom inner cavity.
 """
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ def _layout(problem: ElectrostaticProblem) -> tuple[RadialConductor, ...]:
     shapes = tuple(sorted(problem.conductors,
                           key=lambda c: (getattr(c, 'inner_radius_m', -1.),
                                          getattr(c, 'outer_radius_m', -1.))))
-    if (not 2 <= len(shapes) <= 8
+    if (not 1 <= len(shapes) <= 8
             or not isinstance(shapes[0], SolidSphere)
             or any(not isinstance(c, SphericalShell) for c in shapes[1:])
             or problem.charges):
         raise UnsupportedProblem(
-            'mixed radial solver requires one innermost solid sphere, '
-            '1–7 surrounding concentric shells, and no point sources')
+            'mixed radial solver requires one solid sphere, '
+            '0–7 surrounding concentric shells, and no point sources')
     center = shapes[0].center_m
     if any(c.center_m != center for c in shapes):
         raise UnsupportedProblem('mixed radial conductors must share one center')
@@ -124,7 +124,7 @@ class MixedRadialSolution:
 
 
 class MixedRadialBackend:
-    """One solid sphere inside 1–7 concentric shells; static analytical only."""
+    """Standalone solid sphere or solid plus 1–7 shells; static analytical only."""
 
     def supports(self, problem: ElectrostaticProblem) -> bool:
         try:
