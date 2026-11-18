@@ -12,7 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 from math import pi
+from dataclasses import replace
 from pathlib import Path
+
+from conductor_sim import FixedNetCharge
+from conductor_sim.distant_spheres import APPROXIMATION, DistantSphereConnectionBackend
+from conductor_sim.jee_potential_explorer import validate_fixed_potential_map
 
 from conductor_sim.dipoles import dipole_work
 from conductor_sim.dipole_viewer import write_dipole_explorer
@@ -98,6 +103,12 @@ def run_all(output_dir: Path) -> dict:
     sheet["early_surface_variant"] = {
         "teacher_launch_distance_m": .0002,
         "termination": encounter["termination"],
+        "initial_position_m": encounter["initial_position_m"],
+        "initial_velocity_m_s": encounter["initial_velocity_m_s"],
+        "source_field_v_m": encounter["source_field_v_m"],
+        "mass_kg": encounter["mass_kg"],
+        "particle_charge_c": encounter["particle_charge_c"],
+        "actual_native_contact_event": encounter["events"][0] if encounter["events"] else None,
         "event_id": encounter["events"][0]["id"] if encounter["events"] else None,
         "event_time_s": encounter["events"][0]["time_s"] if encounter["events"] else None,
     }
@@ -199,7 +210,48 @@ def run_all(output_dir: Path) -> dict:
         "release_energy_j": distant.released_field_energy_j,
     }
 
+    # Supplementary teacher hypothetical on the SAME two named conductors:
+    # the source's original E1/E2 relation remains the one counted apparatus.
+    # This deliberately drives nontrivial redistribution, rather than using
+    # an initial already-equipotential state as if charge flowed.
+    initial_non_equilibrium = (5e-9, 1e-9)
+    transfer_plan = replace(
+        distant.plan,
+        initial=replace(
+            distant.plan.initial,
+            conductors=tuple(
+                replace(c, constraint=FixedNetCharge(q))
+                for c, q in zip(distant.plan.initial.conductors, initial_non_equilibrium)
+            ),
+        ),
+    )
+    transfer = DistantSphereConnectionBackend().solve(
+        transfer_plan, approximation=APPROXIMATION,
+    )
+    data["p02-single-15"]["teacher_transfer_variant"] = {
+        "origin": "teacher-authored non-equilibrium 5/1 nC variation, not a source-given new question",
+        "before": [
+            {"name": c.name, "radius_m": c.outer_radius_m, "charge_c": c.charge_c}
+            for c in transfer.before.conductors
+        ],
+        "after": [
+            {"name": c.name, "radius_m": c.outer_radius_m, "charge_c": c.charge_c,
+             "outer_field_v_m": c.outer_field_normal_v_m}
+            for c in transfer.after.conductors
+        ],
+        "charge_transfers_c": [
+            post.charge_c - pre.charge_c
+            for pre, post in zip(transfer.before.conductors, transfer.after.conductors)
+        ],
+        "released_field_energy_j": transfer.released_field_energy_j,
+        "model_qualification": transfer.as_dict()["qualification"],
+    }
+
     circle_html, circle = static_case("2021-equipotential")
+    # Production validates actual saved grid, contour and source-mask linkage
+    # before we detach observations for a separate no-engine-import audit.
+    if validate_fixed_potential_map(circle) is not True:
+        raise ValueError("2021 actual native field map failed validation")
     frame = circle["frames"][0]
     highlights = [x for x in frame["contours"] if x.get("highlight") is True]
     if len(highlights) != 1 or not highlights[0]["segments_m"]:
@@ -219,6 +271,7 @@ def run_all(output_dir: Path) -> dict:
         "actual_segment_count": len(highlights[0]["segments_m"]),
         "sampled_contour_world_xy_m": world_points,
         "source_mask_count": len(frame["source_masks"]),
+        "source_masks": frame["source_masks"],
         "has_motion": any(k in circle for k in ("motion_1d","motion_2d","prescribed_motion")),
     }
 
