@@ -28,7 +28,9 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
         raise ValueError("source statement cannot be empty")
     if type(source.get("numeric_attribution")) is not str or not source["numeric_attribution"].strip():
         raise ValueError("teacher numeric attribution is required")
-    physics = trace.as_dict()
+    # Normalize the complete physical payload to its actual JSON wire form.
+    # A Python tuple must not appear to disagree with a saved/browser array.
+    physics = json.loads(json.dumps(trace.as_dict(),allow_nan=False))
     if physics["schema"] != SCHEMA:
         raise ValueError("wrong physical prescribed trace")
     sphere = trace.spec.problem.conductors[0]
