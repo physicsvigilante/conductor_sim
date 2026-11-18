@@ -251,6 +251,35 @@ def _p27_original_A_B(directory: Path) -> dict:
         bundle,output,
         title="PDF p.27 Illustration 4 · original central V(A), V(B) + teacher extension",
     )
+    # The source-asked observables must be visible to the teacher, not
+    # concealed in a JSON sidecar or replaced by unrelated conductor totals.
+    # The supplied textbook relationships are ideal ZERO-thickness limits;
+    # finite thickness in the actually rendered geometry is disclosed.
+    k=1/(4*pi*original.permittivity_f_per_m)
+    ideal_A=k*(q/r_A+q1/a+q2/b)
+    ideal_B=k*((q+q1)/r_B+q2/b)
+    original_readout=(
+        '<section id="p27-original-A-B" style="margin:12px 0;padding:12px;'
+        'border:2px solid #116b6b;background:#e9f8f6;color:#142f36">'
+        '<strong>PRINTED ORIGINAL — CENTRAL charge q, TWO STATIC conductor shells:</strong> '
+        f'Actual finite-metal V(A) = {o.potential_at(A):.9g} V, '
+        f'V(B) = {o.potential_at(B):.9g} V. '
+        f'Printed ideal-thin formula comparison: V(A) = {ideal_A:.9g} V, '
+        f'V(B) = {ideal_B:.9g} V. '
+        'A is an illustrative cavity probe at r=0.04m; B is an illustrative '
+        'gap probe at r1=0.15m. Source original radii/charges are symbolic; '
+        'these numerical values and a 1-micrometre metal thickness are TEACHER choices. '
+        'The second stored state moves the charge by 2cm as a TEACHER EXTENSION ONLY; '
+        'it does NOT answer the original central-charge V(A)/V(B) formula.'
+        '</section>'
+    )
+    html=output.read_text(encoding="utf-8")
+    if "</header>" not in html:
+        raise ValueError("cannot render original p27 A/B observables visibly")
+    output.write_text(
+        html.replace("</header>",original_readout+"</header>",1),
+        encoding="utf-8",
+    )
     # Record actual finite-thickness results separately from the zero-metal-
     # width PRINTED symbolic formulas; no old numeric benchmark expected values.
     return {
