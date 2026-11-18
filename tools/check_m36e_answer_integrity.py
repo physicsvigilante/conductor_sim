@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import json
+import re
 from pathlib import Path
 import tempfile
 
@@ -59,6 +60,87 @@ def check_hostile(directory:Path)->dict:
                       "The printed source supplies NUMERIC R and Q"),raw,
          "source-given symbols and teacher numbers not distinguished"),
     ]
+    # Exact, independently discovered Chat B R2 review #01 A3-A7 and A10
+    # attacks. These were accepted on prior source HEAD 75ef212d even though
+    # the unmodified viewer was truthful. Require targeted reason, not just
+    # an unrelated generic error.
+    tamper_cases.extend([
+        (
+            "R2 A3: teacher negative net Q falsely displayed as positive",
+            substitution(
+                "Isolated net Q=-2 nC (authored teacher value)",
+                "Isolated net Q=2 nC (authored teacher value)",
+            ),
+            raw,
+            "visible isolated signed Q contradicts actual native physical charge",
+        ),
+        (
+            "R2 A4: grounded teacher falsely claims nonzero solved net charge",
+            substitution(
+                "Grounded · actual solved Q=0 C in empty space",
+                "Grounded · actual solved Q=7 nC in empty space",
+            ),
+            raw,
+            "visible grounded sphere charge caption contradicts source-free Q=0",
+        ),
+        (
+            "R2 A5: teacher physical sphere radius falsely enlarged in caption",
+            substitution("TRUE SOLID Sphere A: R=0.12 m;",
+                         "TRUE SOLID Sphere A: R=1.2 m;"),
+            raw,
+            "visible source solid radius contradicts native geometry",
+        ),
+        (
+            "R2 A6: original symbolic source falsely claims specific textbook R and Q",
+            substitution(
+                "The printed source supplies SYMBOLIC R and Q.",
+                "The printed source supplies SYMBOLIC R and Q, exactly R=0.10m and Q=+1nC.",
+            ),
+            raw,
+            "source-given symbols and teacher numbers not distinguished or falsely specified",
+        ),
+        (
+            "R2 A7: remove default hidden teacher card visible with JavaScript disabled",
+            substitution(
+                'data-m36e-role="teacher_changed_radius_charge_and_centre" hidden>',
+                'data-m36e-role="teacher_changed_radius_charge_and_centre">',
+            ),
+            raw,
+            "no-JS source fallback must show only original",
+        ),
+        (
+            "R2 new: teacher world physical centre falsified without solver revision",
+            substitution("center=(0.025, 0, 0) m.",
+                         "center=(0.25, 0, 0) m."),
+            raw,
+            "visible sphere world centre contradicts actual physical geometry",
+        ),
+    ])
+
+    data_script=re.search(
+        r'(<script id="simulation-data" type="application/json">)(.*?)(</script>)',
+        source_html,re.DOTALL,
+    )
+    if data_script is None:
+        raise AssertionError("real original M5 JSON grid not found for reviewer A10")
+    embedded=json.loads(data_script.group(2))
+    embedded["frames"][0]["grid"]["potential_v"][2][2]=1_000_000.
+    patched=json.dumps(embedded,ensure_ascii=False,allow_nan=False,separators=(",",":"))
+    grid_mutated=source_html[:data_script.start(2)]+patched+source_html[data_script.end(2):]
+    tamper_cases.append((
+        "R2 A10: embedded physically impossible Gauss potential sample",
+        grid_mutated,raw,"embedded grid SI mismatch",
+    ))
+
+    embedded2=json.loads(data_script.group(2))
+    embedded2["frames"][0]["grid"]["electric_field_v_per_m"][2][2]=[500_000.,0.,0.]
+    patched2=json.dumps(embedded2,ensure_ascii=False,allow_nan=False,separators=(",",":"))
+    field_mutated=source_html[:data_script.start(2)]+patched2+source_html[data_script.end(2):]
+    tamper_cases.append((
+        "R2 new: embedded physically impossible signed E vector",
+        field_mutated,raw,"embedded grid SI mismatch",
+    ))
+
     altered_native=deepcopy(manifest)
     altered_native["native_states"][0]["native_samples"]["half_radius_potential_v"]=42.
     tamper_cases.append((
@@ -66,6 +148,21 @@ def check_hostile(directory:Path)->dict:
         source_html,json.dumps(altered_native),
         "display-native source evidence mismatch",
     ))
+    # A9: a forged HTML field and forged detached manifest agree on a false
+    # V. The separate engine-free SI reference still must reject such a
+    # coordinated error, not just the browser's manifest equality.
+    coforged=deepcopy(manifest)
+    coforged["native_states"][0]["native_samples"]["half_radius_potential_v"]=106.8755179226
+    visible_coforge=substitution(
+        number_prefix,
+        'data-native-value="106.8755179226">106.87551792 V</strong>',
+    )
+    tamper_cases.append((
+        "R2 A9: forged native and HTML potential agreed but broke Gauss law",
+        visible_coforge,json.dumps(coforged),
+        "independent Gauss",
+    ))
+
     accepted=[]
     for name,html,text,expected_error in tamper_cases:
         with tempfile.TemporaryDirectory(prefix="m36e-browser-adversary-") as scratch:
