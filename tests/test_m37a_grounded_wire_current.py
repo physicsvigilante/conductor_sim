@@ -399,6 +399,11 @@ def test_m37a_offline_si_checker_accepts_true_m16a_turning_and_guarded_terminati
     with pytest.raises(ValueError, match="final approach event"):
         validate_examples(missing)
     fake_position = copy(legitimate)
-    fake_position["actual_elapsed_time"]["motion"]["events"][-1]["displacement_m"] += .001
+    # Make the fabricated event internally geometry-consistent and still
+    # outside the conductor, so it specifically reaches the final-sample
+    # binding check (rather than being refused by a different earlier guard).
+    event = fake_position["actual_elapsed_time"]["motion"]["events"][-1]
+    event["displacement_m"] -= .001
+    event["position_m"][2] -= .001
     with pytest.raises(ValueError, match="terminal surface-guard displacement"):
         validate_examples(fake_position)
