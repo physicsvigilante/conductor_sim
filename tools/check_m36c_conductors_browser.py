@@ -20,8 +20,8 @@ SOURCE_MARKERS={
     "p03-single-27":("p03-single-27","Stored state"),
     "p10-linked-13+p10-linked-14":("p10-linked-13+p10-linked-14","Stored state"),
     "p14-numerical-07":("p14-numerical-07","Stored state"),
-    "p26-conductor-potential":("PDF p.26","Potential"),
-    "p27-cavity-two-shells":("PDF p.27","Potential"),
+    "p26-conductor-potential":("PDF p.26","Potential","HOLLOW SHELL PROXY","SOURCE-FIDELITY LIMIT"),
+    "p27-cavity-two-shells":("PDF p.27","Potential","Actual finite-metal V(A)","V(B)","TEACHER EXTENSION ONLY"),
     "p69-cavity-central-vs-shifted":("PDF p.69","Potential"),
     "p09-multiple-27":("p09-multiple-27","Potential"),
 }
