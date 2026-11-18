@@ -4,13 +4,18 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from tools.m36a_jee30_audit import ROOT, audit_inventory, load_inventory
+from tools.m36a_jee30_audit import (
+    ROOT, SOURCE_PDF_SHA256, audit_inventory, load_inventory,
+    verify_pdf_bytes,
+)
 
 
 @pytest.fixture
@@ -90,3 +95,78 @@ def test_clean_checkout_cli_emits_zero_execution_evidence(tmp_path):
     assert emitted == json.loads(out.read_text(encoding="utf-8"))
     assert emitted["result"] == "INVENTORY_VALID; ALL_SOURCE_CASE_EXECUTION_PENDING"
     assert emitted["educational_viewers_actually_inspected"] == 0
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("source", "fabricated-source.pdf"),
+    ("printed_anchor", "Paper 1 Questions 9–11 (one two-charge apparatus)"),
+    ("source_provenance", "official JEE Advanced 2022 Paper 1"),
+    ("pdf_page", 17),
+    ("problem_family", "unrelated electric circuit"),
+    ("official_apparatus", {
+        "paper": "JEE Advanced 2021 Paper 1", "question_ids": ["Q9", "Q11"],
+    }),
+    ("official_apparatus", {
+        "paper": "JEE Advanced 2020 Paper 1", "question_ids": ["Q9", "Q10"],
+    }),
+])
+def test_official_2021_source_and_membership_fail_closed(candidate, field, replacement):
+    """Correct-looking text fragments must not disguise a different apparatus."""
+    candidate["cases"][-1][field] = replacement
+    with pytest.raises(ValueError, match="2021 apparatus identity or grouping changed"):
+        audit_inventory(candidate)
+
+
+@pytest.mark.parametrize("refusal_id", [
+    "p11-linked-28", "p70-cavity-offset", "p70-three-cavities",
+])
+def test_local_3d_refusal_cannot_be_swapped_with_supported_case(candidate, refusal_id):
+    """Balanced 24/3/3 totals cannot falsely declare multicavity physics solved."""
+    by_id = {c["id"]: c for c in candidate["cases"]}
+    assert by_id[refusal_id]["candidate_route"] == "unsupported"
+    by_id[refusal_id]["candidate_route"] = "supported_scoped"
+    by_id["p01-single-08"]["candidate_route"] = "unsupported"
+    assert sum(c["candidate_route"] == "unsupported" for c in candidate["cases"]) == 3
+    with pytest.raises(ValueError, match="frozen local-3D refusal reclassified"):
+        audit_inventory(candidate)
+
+
+def test_historical_and_candidate_pdf_digests_cannot_collude(candidate):
+    """Same falsified hash in both JSON files is not acceptable evidence."""
+    historic = load_inventory(ROOT / "docs/m21a_coverage.json")
+    historic = copy.deepcopy(historic)
+    filename = "POTENTIAL_CONDUCTORS1.pdf"
+    historic["source_sha256"][filename] = "0" * 64
+    candidate["frozen_baseline"]["original_pdf_sha256"][filename] = "0" * 64
+    with pytest.raises(ValueError, match="historic PDF metadata differs"):
+        audit_inventory(candidate, historic)
+
+
+def test_original_pdf_stream_bytes_and_mutated_copy(tmp_path):
+    """A modified PDF with unchanged JSON cannot pass the actual byte verifier."""
+    filename = "POTENTIAL_CONDUCTORS1.pdf"
+    expected_sha = SOURCE_PDF_SHA256[filename]
+    original = ROOT / filename
+    verify_pdf_bytes(original, expected_sha)
+    edited = tmp_path / filename
+    shutil.copyfile(original, edited)
+    with edited.open("ab") as stream:
+        stream.write(b"\nM36a-deliberate-postscript-tamper\n")
+    with pytest.raises(ValueError, match="source PDF bytes changed"):
+        verify_pdf_bytes(edited, expected_sha)
+
+
+def test_historic_chromium_steps_retained_with_bounded_timeout():
+    """Do not resolve the original cancellation by silently deleting old tests."""
+    content = (ROOT / ".github/workflows/visualization.yml").read_text(encoding="utf-8")
+    match = re.search(r"^\s+timeout-minutes:\s+(\d+)\s*$", content, re.MULTILINE)
+    assert match and int(match.group(1)) >= 20
+    for original_browser_case in (
+        "M14b PDF p3 Chromium offline two-state acceptance",
+        "M15 nested cavity with shell constraints",
+        "M16b Chromium electron nanosecond time and energy acceptance",
+        "M17b Chromium central-force vectors, energy and path",
+        "M26a structural driven source Chromium acceptance",
+        "M27a real Chromium static two-ring off-axis E/V acceptance",
+    ):
+        assert original_browser_case in content
