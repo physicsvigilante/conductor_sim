@@ -194,6 +194,13 @@ def test_motion_falsified_sample_fields_and_history_are_refused():
         observe_grounded_sphere_motion(replace(genuine, termination="nonsense"))
     with pytest.raises(ValueError, match="maximum"):
         observe_grounded_sphere_motion(replace(genuine, max_abs_energy_drift_j=1e3))
+    # Forged but monotonic elapsed time: every individual physical snapshot,
+    # position, velocity, acceleration, force and energy remains authentic.
+    # A snapshot-only validator would wrongly accept this fake history.
+    fabricated_time = replace(second, time_s=second.time_s + .001)
+    with pytest.raises(ValueError, match="independently rerun M16a"):
+        observe_grounded_sphere_motion(replace(
+            genuine, samples=(first, fabricated_time, *rest)))
     with pytest.raises(ValueError, match="method"):
         observe_grounded_sphere_motion(replace(genuine, method="teacher-prescribed animation"))
     from conductor_sim.motion_1d import MotionEvent
