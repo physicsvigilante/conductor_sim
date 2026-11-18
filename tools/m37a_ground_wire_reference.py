@@ -37,7 +37,7 @@ def _same(actual, expected, label):
 def check_instant(record):
     if not isinstance(record, dict) or record.get("schema") != "conductor_sim.grounded_sphere_wire_instant.v1":
         raise ValueError("invalid instantaneous Kelvin observation schema")
-    if record.get("mode") != "instantaneous imposed kinematics; no trajectory asserted":
+    if record.get("mode") != "instantaneous Kelvin observation; supplied velocity does not define a trajectory":
         raise ValueError("prescribed instant falsely claims time evolution")
     if record.get("current_sign") != "positive sphere_to_ground is conventional +charge flux":
         raise ValueError("ground-wire current sign convention missing or false")
