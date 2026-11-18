@@ -502,3 +502,71 @@ def test_m37a_offline_turning_event_accepts_genuine_offgrid_turn_and_rejects_for
     e["time_s"] = .0225  # off-grid; both bracket velocities remain outward
     with pytest.raises(ValueError, match="outward-to-inward"):
         validate_examples(flipped)
+
+
+
+def test_m37a_offline_turning_exact_timestamp_binds_position_even_if_zero_velocity():
+    """R4 independently discovered attack: same timestamp but separate position.
+
+    Start from a genuine off-grid M16a turning trajectory. Make the saved
+    sample at the next timestamp have zero velocity and adjust its complete
+    local Kelvin-current and mechanical-energy ledger consistently, then
+    falsely place the event at that sample's time while preserving the old
+    distinct event position. This was accepted before the exact-time binding.
+    """
+    from copy import deepcopy
+    from math import fsum
+    import json
+    from conductor_sim import observe_grounded_sphere_motion
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+
+    p = model(q=1e-9, r=.23, a=.08)
+    true_motion = integrate_motion_1d(Motion1DSpec(
+        p, 0, 1e-6, (0.,0.,1.), .01, .35, .005
+    ), ExternalGroundedSphereBackend())
+    assert true_motion.termination == "duration"
+    genuine = deepcopy(example_data())
+    genuine["actual_elapsed_time"] = observe_grounded_sphere_motion(true_motion).as_dict()
+    genuine = json.loads(json.dumps(genuine, allow_nan=False))
+    assert validate_examples(genuine)["motion_termination"] == "duration"
+
+    false = deepcopy(genuine)
+    payload = false["actual_elapsed_time"]
+    motion = payload["motion"]
+    event = motion["events"][0]
+    index = next(i for i, row in enumerate(motion["samples"])
+                 if row["time_s"] > event["time_s"])
+    row = motion["samples"][index]
+    observation = payload["observations"][index]
+    assert abs(row["velocity_m_s"]) > 1e-7
+    assert abs(event["displacement_m"] - row["displacement_m"]) > 1e-9
+
+    row["velocity_m_s"] = 0.
+    row["kinetic_energy_j"] = 0.
+    row["total_energy_j"] = row["interaction_energy_j"]
+    first = motion["samples"][0]
+    row["energy_drift_j"] = fsum(
+        (-first["kinetic_energy_j"],
+         row["interaction_energy_j"] - first["interaction_energy_j"])
+    )
+    observation["source_velocity_m_s"] = [0.,0.,0.]
+    for key in ("radial_velocity_m_s", "induced_net_charge_rate_c_per_s",
+                "wire_current_sphere_to_ground_a", "wire_current_ground_to_sphere_a"):
+        observation[key] = 0.
+    motion["max_abs_energy_drift_j"] = max(
+        abs(record["energy_drift_j"]) for record in motion["samples"])
+    event["time_s"] = row["time_s"]
+
+    # Every local actual state and event remains SI-consistent. Only the
+    # impossible same-instant displacement is different: must refuse there.
+    with pytest.raises(ValueError, match="turning-point event displacement contradicts saved particle"):
+        validate_examples(false)
+
+    # Do not rely solely on the displacement binding: a forged physical
+    # position still needs to agree with the exact saved timestamp.
+    false_position = deepcopy(false)
+    wrong_event = false_position["actual_elapsed_time"]["motion"]["events"][0]
+    wrong_event["displacement_m"] = row["displacement_m"]
+    with pytest.raises(ValueError, match="motion event position contradicts physical authored axis|turning-point event position contradicts saved particle"):
+        validate_examples(false_position)

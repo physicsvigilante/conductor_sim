@@ -265,6 +265,20 @@ def validate_examples(document):
             if matching_sample:
                 if insertion == len(rows)-1:
                     raise ValueError("turning-point event has no later velocity witness")
+                # At an EXACT stored timestamp the particle has just one
+                # physical displacement and world position. A zero-velocity
+                # claim and correct sign bracket cannot make a different
+                # position at the same instant true. Compare displacement
+                # separately: world-coordinate relative tolerances alone can
+                # hide physically relevant offsets after large translations.
+                at_time = rows[insertion]
+                _same(disp, _number(at_time["displacement_m"],
+                                    "coincident particle displacement"),
+                      "turning-point event displacement contradicts saved particle at same timestamp")
+                stored_point = _vector(at_time["position_m"], "coincident particle position")
+                for coordinate in range(3):
+                    _same(event_position[coordinate], stored_point[coordinate],
+                          "turning-point event position contradicts saved particle at same timestamp")
                 v = _number(rows[insertion]["velocity_m_s"], "turning-point saved velocity")
                 v_previous = _number(rows[insertion-1]["velocity_m_s"], "velocity before turning")
                 v_next = _number(rows[insertion+1]["velocity_m_s"], "velocity after turning")
