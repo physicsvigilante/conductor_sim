@@ -407,3 +407,98 @@ def test_m37a_offline_si_checker_accepts_true_m16a_turning_and_guarded_terminati
     event["position_m"][2] -= .001
     with pytest.raises(ValueError, match="terminal surface-guard displacement"):
         validate_examples(fake_position)
+
+
+
+def test_m37a_offline_turning_event_rejects_nonzero_saved_velocity_and_fake_brackets():
+    """Independent R3 blocker plus neighboring false-turn mutations."""
+    import json
+    from copy import deepcopy
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+
+    genuine = json.loads(json.dumps(example_data(), allow_nan=False))
+    assert validate_examples(genuine)["motion_termination"] == "duration"
+
+    def make_turn(motion, sample_index):
+        saved = motion["samples"][sample_index]
+        return {
+            "kind": "turning-point",
+            "time_s": saved["time_s"],
+            "displacement_m": saved["displacement_m"],
+            "position_m": deepcopy(saved["position_m"]),
+            "description": "Fake physical turning event",
+        }
+
+    # R3 actual accepted attack: t=0, vx=-.05 m/s is not a turning point.
+    first = deepcopy(genuine)
+    history = first["actual_elapsed_time"]["motion"]
+    assert history["samples"][0]["velocity_m_s"] == -.05
+    history["events"].append(make_turn(history, 0))
+    with pytest.raises(ValueError, match="turning-point event"):
+        validate_examples(first)
+
+    # A fabricated time coinciding with an interior actual snapshot is also
+    # false when that actual saved velocity is distinctly nonzero.
+    interior = deepcopy(genuine)
+    history = interior["actual_elapsed_time"]["motion"]
+    history["events"].append(make_turn(history, 2))
+    with pytest.raises(ValueError, match="nonzero velocity"):
+        validate_examples(interior)
+
+    # An off-grid apparent turning event within a time interval with
+    # continuing inward velocity cannot be inferred from the saved physics.
+    offgrid = deepcopy(genuine)
+    history = offgrid["actual_elapsed_time"]["motion"]
+    one, two = history["samples"][1:3]
+    history["events"].append({
+        "kind": "turning-point",
+        "time_s": (one["time_s"] + two["time_s"])/2,
+        "displacement_m": one["displacement_m"],
+        "position_m": deepcopy(one["position_m"]),
+        "description": "Unsupported turn during inward travel",
+    })
+    with pytest.raises(ValueError, match="outward-to-inward"):
+        validate_examples(offgrid)
+
+
+def test_m37a_offline_turning_event_accepts_genuine_offgrid_turn_and_rejects_forged_maximum():
+    import json
+    from copy import deepcopy
+    from conductor_sim import observe_grounded_sphere_motion
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+    real_model = model(q=1e-9, r=.23, a=.08)
+    trajectory = integrate_motion_1d(Motion1DSpec(
+        real_model, 0, 1e-6, (0,0,1), .01, .35, .005,
+    ), ExternalGroundedSphereBackend())
+    assert trajectory.termination == "duration"
+    assert len(trajectory.events) == 1
+    turn = trajectory.events[0]
+    assert turn.kind == "turning-point"
+    assert all(turn.time_s != row.time_s for row in trajectory.samples)
+    genuine = deepcopy(example_data())
+    genuine["actual_elapsed_time"] = observe_grounded_sphere_motion(trajectory).as_dict()
+    genuine = json.loads(json.dumps(genuine, allow_nan=False))
+    assert validate_examples(genuine)["motion_termination"] == "duration"
+
+    duplicate = deepcopy(genuine)
+    duplicate["actual_elapsed_time"]["motion"]["events"].append(
+        deepcopy(duplicate["actual_elapsed_time"]["motion"]["events"][0]))
+    with pytest.raises(ValueError, match="multiple turning points"):
+        validate_examples(duplicate)
+
+    not_maximum = deepcopy(genuine)
+    m = not_maximum["actual_elapsed_time"]["motion"]
+    e = m["events"][0]
+    e["displacement_m"] -= .00002  # still exterior, but below nearby samples
+    e["position_m"][2] -= .00002
+    with pytest.raises(ValueError, match="radial-distance maximum"):
+        validate_examples(not_maximum)
+
+    flipped = deepcopy(genuine)
+    m = flipped["actual_elapsed_time"]["motion"]
+    e = m["events"][0]
+    e["time_s"] = .02  # early, both bracket velocities still positive
+    with pytest.raises(ValueError, match="outward-to-inward"):
+        validate_examples(flipped)

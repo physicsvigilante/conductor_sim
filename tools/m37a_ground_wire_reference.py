@@ -212,9 +212,25 @@ def validate_examples(document):
         raise ValueError("motion event history must be a list")
     previous_event_time = -1.
     guard_events = []
+    turning_events = []
     final_time = _number(rows[-1]["time_s"], "last saved time")
     centre = fixed_sphere_identity[1]
     radius = fixed_sphere_identity[2]
+
+    # The M37a M16a source is on one physical radial line in a single
+    # exterior vacuum component. A grounded image force is always attractive:
+    # it can stop an initially outward-moving charge once, but cannot create
+    # two reversals or an inward-to-outward turn without a contact/bounce law.
+    x_rel = tuple(x0[i] - centre[i] for i in range(3))
+    axial = fsum(x_rel[i] * axis[i] for i in range(3))
+    d0 = hypot(*x_rel)
+    off_axis = hypot(*(x_rel[i]-axial*axis[i] for i in range(3)))
+    if (not d0 > radius + guard
+            or abs(axial) <= 0
+            or off_axis > max(1e-10*d0, 128*ulp(d0))):
+        raise ValueError("M16a grounded-sphere motion must follow a real radial vacuum axis")
+    radial_sign = 1. if axial > 0 else -1.
+    times = [_number(row["time_s"], "actual saved time") for row in rows]
     for index, event in enumerate(events):
         if type(event) is not dict:
             raise ValueError("motion event must be a finite physical record")
@@ -234,9 +250,51 @@ def validate_examples(document):
                   "motion event position contradicts physical authored axis")
         if hypot(*(event_position[i]-centre[i] for i in range(3))) <= radius + guard:
             raise ValueError("motion event crosses numerical sphere surface-approach guard")
+        if kind == "turning-point":
+            turning_events.append(index)
+            # A turning event is a statement of velocity reversal, not just
+            # a label attached to a geometrically valid time and position.
+            # The adjacent *saved* actual velocities must bracket outward
+            # motion followed by inward motion; we do not interpolate or
+            # invent between-sample dynamics.
+            from bisect import bisect_left
+            insertion = bisect_left(times, time)
+            if (insertion <= 0 or insertion >= len(rows)):
+                raise ValueError("turning-point event cannot occur outside the sampled interior")
+            matching_sample = times[insertion] == time
+            if matching_sample:
+                if insertion == len(rows)-1:
+                    raise ValueError("turning-point event has no later velocity witness")
+                v = _number(rows[insertion]["velocity_m_s"], "turning-point saved velocity")
+                v_previous = _number(rows[insertion-1]["velocity_m_s"], "velocity before turning")
+                v_next = _number(rows[insertion+1]["velocity_m_s"], "velocity after turning")
+                local_speed_scale = max(abs(v), abs(v_previous), abs(v_next))
+                # Floating-root tolerance scales ONLY with genuine local
+                # speeds, never with an unrelated 1 m/s macroscopic floor.
+                if abs(v) > max(1e-10*local_speed_scale, 128*ulp(local_speed_scale)):
+                    raise ValueError("turning-point event contradicts nonzero velocity at same saved timestamp")
+                left, right = insertion-1, insertion+1
+            else:
+                left, right = insertion-1, insertion
+            before = _number(rows[left]["velocity_m_s"], "velocity before turning")
+            after = _number(rows[right]["velocity_m_s"], "velocity after turning")
+            if not (before*radial_sign > 0 and after*radial_sign < 0):
+                raise ValueError("turning-point event lacks a physical outward-to-inward saved velocity reversal")
+            # A real turning point is the radial-distance maximum in the
+            # bracket; this is a necessary geometric condition, not a claim
+            # that these data uniquely certify the exact root time.
+            turn_radius = hypot(*(event_position[i]-centre[i] for i in range(3)))
+            for sample_index in (left, right):
+                saved_pos = _vector(rows[sample_index]["position_m"], "turning bracket position")
+                sample_radius = hypot(*(saved_pos[i]-centre[i] for i in range(3)))
+                if turn_radius + max(1e-9*max(turn_radius,sample_radius),
+                                     128*ulp(max(turn_radius,sample_radius))) < sample_radius:
+                    raise ValueError("turning-point event is not a radial-distance maximum")
         if kind == "surface-guard":
             guard_events.append(index)
 
+    if len(turning_events) > 1:
+        raise ValueError("one attractive grounded sphere cannot yield multiple turning points")
     if termination == "duration":
         if guard_events:
             raise ValueError("duration-complete history contains an impossible surface-guard event")
