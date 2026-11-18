@@ -205,7 +205,7 @@ def observe_grounded_sphere_motion(motion: Motion1DResult) -> GroundedSphereWire
         problem = replace(spec.problem, charges=(PointCharge(charge, position),))
         obs = observe_grounded_sphere_wire(problem, velocity)
         force = _dot(obs.induced_force_on_source_n, spec.axis)
-        kinetic = 0.5 * spec.mass_kg * row.velocity_m_s**2
+        kinetic = 0.5 * spec.mass_kg * row.velocity_m_s * row.velocity_m_s
         total = kinetic + obs.induced_mechanical_energy_j
         if first_kinetic is None:
             first_kinetic = kinetic
