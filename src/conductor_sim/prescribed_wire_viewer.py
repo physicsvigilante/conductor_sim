@@ -60,7 +60,6 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
             "induced_charge_label": _fmt(row.induced_sphere_net_charge_c)+" C",
             "wire_current_label": _fmt(current)+" A",
             "opposite_current_label": _fmt(row.wire_current_ground_to_sphere_a)+" A",
-            "force_label": _fmt(row.induced_force_on_source_n[2])+" N (world z component; complete vector in JSON)",
         })
     return {
         "schema": "conductor_sim.prescribed_ground_wire_viewer.v1",
