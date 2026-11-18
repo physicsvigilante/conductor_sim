@@ -66,15 +66,59 @@ def reference_sheet(card: dict) -> dict:
     stop = card["events"][0]
     demand(stop["id"] == "stop:x" and stop["full_stop"] is True, "real complete stop event missing")
     near(stop["time_s"], t_stop, rel=0, abs_tol=2e-12, label="native reversal time")
-    near(stop["position_m"][0], .001-ds, rel=0, abs_tol=3e-12, label="stopping position")
-    near(stop["velocity_m_s"][0], 0., rel=0, abs_tol=1e-3, label="reversal vx")
+    near3(stop["position_m"], (.001-ds,0.,0.), rel=0, abs_tol=3e-12,
+          label="real stopped electron position vector")
+    near3(stop["velocity_m_s"], (0.,0.,0.), rel=0, abs_tol=1e-3,
+          label="stopped electron full velocity vector")
+    # Source and launch have no transverse force/velocity. A nominal full
+    # stop cannot secretly carry vy/vz, even below the x-reversal tolerance.
+    near(stop["velocity_m_s"][1],0.,rel=0,abs_tol=1e-9,label="no transverse vy at full stop")
+    near(stop["velocity_m_s"][2],0.,rel=0,abs_tol=1e-9,label="no transverse vz at full stop")
+    speed_sq=sum(v*v for v in stop["velocity_m_s"])
+    demand(speed_sq <= (1e-3)**2 * 1.05,
+           "full_stop=True contradicts the magnitude of the actual velocity vector")
+    expected_K=0.5*ELECTRON_M*speed_sq
+    near(stop["kinetic_energy_j"],expected_K,rel=1e-7,abs_tol=1e-42,
+         label="actual electron stopping kinetic energy from full native velocity")
+    demand(stop["kinetic_energy_j"] <= .5*ELECTRON_M*(1e-3)**2*1.05,
+           "stopped electron kinetic energy exceeds event velocity tolerance")
     demand(card["termination"] == "terminal-event", "sheet observation must end at stop")
     early = card["early_surface_variant"]
     near(early["teacher_launch_distance_m"], .0002, label="early teacher clearance")
     demand(early["event_id"] == "sheet" and early["termination"] == "terminal-event",
            "early surface encounter did not censor before reversal")
-    demand(0 < early["event_time_s"] < t_stop, "early stop chronology invalid")
-    return {"time_s": t_stop, "stopping_displacement_m": ds, "early_surface_event_checked": True}
+    near3(early["initial_position_m"],(.0002,0.,0.),rel=0,abs_tol=1e-15,
+          label="early variant genuinely revised launch position")
+    near3(early["initial_velocity_m_s"],(v0,0.,0.),rel=2e-12,abs_tol=1e-14,
+          label="early variant same source electron initial velocity")
+    near3(early["source_field_v_m"],(field_x,0.,0.),rel=1e-11,
+          label="early variant same physical one-sided metal E")
+    near(early["mass_kg"],ELECTRON_M,rel=1e-13,label="early electron mass")
+    near(early["particle_charge_c"],-ELECTRON_Q,rel=1e-13,label="early electron charge")
+    d_early=.0002
+    discr=(-v0)**2 - 2*acceleration*d_early
+    demand(discr>0,"early surface is not reached before physical reversal")
+    # Stable first positive quadratic root, rather than merely t < t_stop.
+    first_root=2*d_early/(-v0+math.sqrt(discr))
+    near(early["event_time_s"], first_root, rel=0, abs_tol=2e-14,
+         label="independently computed FIRST metal-surface root time")
+    demand(0 < early["event_time_s"] < t_stop,
+           "early terminal surface must chronologically preempt reversal")
+    contact=early["actual_native_contact_event"]
+    demand(contact["id"]=="sheet" and contact["full_stop"] is False,
+           "early terminal event must be a surface, not an invented full rest")
+    near(contact["time_s"], early["event_time_s"], rel=0, abs_tol=1e-22,
+         label="early event time mirrors true native sample")
+    near3(contact["position_m"],(0.,0.,0.),rel=0,abs_tol=2e-9,
+          label="real first surface root world position")
+    contact_v=v0+acceleration*first_root
+    near3(contact["velocity_m_s"],(contact_v,0.,0.),rel=2e-8,abs_tol=.1,
+          label="native impact-threshold velocity, NOT bounce/contact physics")
+    near(contact["kinetic_energy_j"],.5*ELECTRON_M*contact_v**2,
+         rel=3e-8,abs_tol=1e-23,label="early event physical kinetic energy")
+    return {"time_s": t_stop, "stopping_displacement_m": ds,
+            "early_surface_first_root_time_s": first_root,
+            "early_surface_event_checked": True}
 
 
 def reference_plate(card: dict) -> dict:
@@ -137,16 +181,33 @@ def reference_ring(card: dict) -> dict:
     expected_work=K*q*(Q1*(1/R-1/r_far)+Q2*(1/r_far-1/R))
     near(card["observed_field_work_j"],expected_work,rel=2e-12,label="two-ring independent axial work")
     near(card["observed_field_work_j"],3.5950207169,rel=2e-9,label="ring joules")
-    near3(card["start_electric_field_v_m"],
-          (card["start_electric_field_v_m"][0],1e5,0),abs_tol=1e-8,label="start transverse E")
-    near3(card["end_electric_field_v_m"],
-          (card["end_electric_field_v_m"][0],1e5,0),abs_tol=1e-8,label="end transverse E")
+    # Independently compute the FULL vector field at each source centre,
+    # including the signed axial field from the opposite charged ring.
+    # Reusing the recorded Ex as the expected Ex would accept forged fields.
+    axial_at_a=K*Q2*(-d)/(r_far**3)
+    axial_at_b=K*Q1*(d)/(r_far**3)
+    near3(card["start_electric_field_v_m"],(axial_at_a,1e5,0.),
+          rel=2e-12,abs_tol=1e-8,label="independent E vector at ring centre A")
+    near3(card["end_electric_field_v_m"],(axial_at_b,1e5,0.),
+          rel=2e-12,abs_tol=1e-8,label="independent E vector at ring centre B")
     near(card["transverse_profile_max_abs_v_m"],1e5,abs_tol=1e-7,label="nonzero transverse force")
     parts=card["observed_source_work_components"]
     demand(len(parts)==3 and [p["id"] for p in parts]==["ring:A","ring:B","field:vertical"],
            "lost ring and applied-field source identity")
-    near(parts[-1]["field_work_j"],0.,rel=0,abs_tol=1e-12,label="transverse endpoint work")
-    return {"work_j":expected_work,"transverse_force_n":q*1e5,"elapsed_time_motion_claimed":False}
+    # Verify each source's own signed potential-work contribution,
+    # not just the total and a conveniently unchanged transverse component.
+    expected_a=q*K*Q1*(1/R-1/r_far)
+    expected_b=q*K*Q2*(1/r_far-1/R)
+    for part,expected,source in zip(parts,(expected_a,expected_b,0.),
+                                    ("ring A","ring B","uniform upward field")):
+        near(part["field_work_j"],expected,rel=2e-12,abs_tol=1e-13,
+             label="independent signed work from "+source)
+    near(sum(part["field_work_j"] for part in parts),expected_work,
+         rel=2e-12,abs_tol=1e-12,label="source-resolved work sums to total")
+    return {"work_j":expected_work,"ring_a_work_j":expected_a,
+            "ring_b_work_j":expected_b,"axial_field_a_v_m":axial_at_a,
+            "axial_field_b_v_m":axial_at_b,
+            "transverse_force_n":q*1e5,"elapsed_time_motion_claimed":False}
 
 
 def reference_proton(card: dict) -> dict:
@@ -203,7 +264,45 @@ def reference_distant(card: dict) -> dict:
     ratio=fin[0]["outer_field_v_m"]/fin[1]["outer_field_v_m"]
     near(ratio,radii[1]/radii[0],rel=1e-12,label="E1/E2")
     near(card["release_energy_j"],0,rel=0,abs_tol=1e-27,label="already equal potential")
-    return {"surface_field_ratio":ratio, "approximation_not_exact_induction":True}
+    # Separate teacher variation on the SAME qualified two-sphere apparatus.
+    # It starts non-equipotential: actual redistribution is -3/+3 nC.
+    # It is NOT the originally given p2 Q15 initial state, or an eighth case.
+    variation=card["teacher_transfer_variant"]
+    demand("teacher-authored" in variation["origin"],"source/teacher sphere provenance")
+    demand(variation["model_qualification"]["is_relative_error_bound"] is False,
+           "teacher transfer falsely promises relative error bound")
+    before,after=variation["before"],variation["after"]
+    demand(len(before)==len(after)==2,"teacher transfer two source identities")
+    for left,right,original in zip(before,after,init):
+        demand(left["name"]==right["name"]==original["name"],
+               "teacher variation unexpectedly changes physical source identity")
+    for i,c in enumerate(before):
+        near(c["radius_m"],radii[i],label=f"teacher variant radius {i}")
+        near(c["charge_c"],(5e-9,1e-9)[i],label=f"teacher changed source charge {i}")
+    teacher_q=(5e-9,1e-9)
+    expected_after=[sum(teacher_q)*r/sum(radii) for r in radii]
+    expect_transfer=[a-b for a,b in zip(expected_after,teacher_q)]
+    demand(len(variation["charge_transfers_c"])==2,"missing signed charge-transfer ledger")
+    for i,c in enumerate(after):
+        near(c["radius_m"],radii[i],label=f"teacher after radius {i}")
+        near(c["charge_c"],expected_after[i],rel=2e-12,abs_tol=1e-24,
+             label=f"teacher true redistributing Q{i}")
+        near(variation["charge_transfers_c"][i],expect_transfer[i],
+             rel=2e-12,abs_tol=1e-24,label=f"independent signed Q transfer {i}")
+        near(c["outer_field_v_m"],K*expected_after[i]/radii[i]**2,
+             rel=2e-12,label=f"teacher final outward surface E{i}")
+    near(sum(c["charge_c"] for c in after),sum(teacher_q),
+         rel=2e-12,label="teacher non-equilibrium group conservation")
+    self_release=.5*K*(
+        sum(teacher_q[i]**2/radii[i] for i in range(2))-
+        sum(expected_after[i]**2/radii[i] for i in range(2))
+    )
+    near(variation["released_field_energy_j"],self_release,
+         rel=2e-12,abs_tol=1e-20,label="independent positive released field energy")
+    demand(self_release>0,"chosen teacher variant must actually transfer charge")
+    return {"surface_field_ratio":ratio,"teacher_variant_signed_transfer_c":expect_transfer,
+            "teacher_variant_release_energy_j":self_release,
+            "approximation_not_exact_induction":True}
 
 
 def reference_circle(card: dict) -> dict:
@@ -223,6 +322,17 @@ def reference_circle(card: dict) -> dict:
     near(card["actual_highlighted_level_v"],0,abs_tol=0,label="zero contour level")
     demand(card["actual_segment_count"]>100 and card["source_mask_count"]==2,
            "real sampled V=0 contour or masks missing")
+    # The count alone does not authenticate source-exclusion placement.
+    masks=card["source_masks"]
+    demand(isinstance(masks,list) and len(masks)==2,
+           "authoritative 2021 source-mask geometry missing")
+    for i,(mask,source) in enumerate(zip(masks,src)):
+        demand(mask["kind"]=="display-exclusion",
+               "source singularities cannot masquerade as conductor boundaries")
+        near3(mask["center_m"],tuple(source["position_m"]),rel=0,abs_tol=1e-12,
+              label=f"source mask centre {i} physically covers charge")
+        near(mask["radius_m"],.11,rel=2e-12,
+             label=f"source display-only exclusion radius {i}")
     points=card["sampled_contour_world_xy_m"]
     demand(len(points)>=40,"actual contour samples missing")
     radius=math.sqrt(3.)
