@@ -320,7 +320,7 @@ def notes(card,id_):
                    "near-side enhanced inner sigma",
                    "far-side weaker inner sigma")
             conductor="body"
-            theta=(0.,None,None,None,0.,0.,pi)[i]
+            theta=(None,None,None,None,0.,0.,pi)[i]
         demand(row["label"]==names[i],
                f"source original observable label attribution #{i} changed")
         demand(row["conductor"]==conductor and row["other_conductor"] is None,
