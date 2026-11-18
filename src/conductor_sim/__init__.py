@@ -217,3 +217,13 @@ __all__ += [
     "GraphWorldForkPlan", "GraphWorldForkEntry", "GraphWorldForkRun",
     "run_graph_world_fork",
 ]
+
+
+from .grounded_sphere_wire import (
+    GroundedSphereWireObservation, GroundedSphereWireTrace,
+    observe_grounded_sphere_wire, observe_grounded_sphere_motion,
+)
+__all__ += [
+    "GroundedSphereWireObservation", "GroundedSphereWireTrace",
+    "observe_grounded_sphere_wire", "observe_grounded_sphere_motion",
+]
