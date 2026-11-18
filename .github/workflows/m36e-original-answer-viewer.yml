@@ -1,0 +1,50 @@
+name: M36e actual JEE solid-source answers and real Chromium integrity
+on:
+  push:
+    branches: [m36e-solid-source-answers, main]
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  original-source-answer-viewer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing qualified engine and actual offline Chromium
+        run: |
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Assert actual source and true original PDF bytes
+        run: |
+          set -eu
+          mkdir -p review-artifacts/m36e
+          git rev-parse HEAD | tee review-artifacts/m36e/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m36e/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m36e/pdf-sha256.txt
+      - name: Execute real source-native physics, readout integrity and legacy M36d regressions
+        run: |
+          python -m pytest tests/test_m36e_solid_answers.py tests/test_m36d_true_solid_sphere.py -q --junitxml=review-artifacts/m36e/focused-tests.xml
+      - name: Export actual source and teacher solver observations and 65x65 static field viewer
+        run: python -m tools.m36d_true_solid_sphere --output-dir review-artifacts/m36e
+      - name: Independently recompute all native solid sphere physical observations
+        run: |
+          python -m tools.m36d_solid_reference --input review-artifacts/m36e/native-solid-sphere.json --output review-artifacts/m36e/source-free-reference.json
+      - name: Real Chromium verify visibly synchronized p26 original and teacher SI answers
+        run: python -m tools.check_m36d_solid_browser --output-dir review-artifacts/m36e
+      - name: Real Chromium reject tampered visible answers and source/teacher attribution
+        run: python -m tools.check_m36e_answer_integrity --output-dir review-artifacts/m36e
+      - name: Preserve actual original source, screenshots, native values and first failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m36e-true-p26-original-visible-source-answers
+          path: review-artifacts/m36e/
+          retention-days: 21
+          if-no-files-found: warn
