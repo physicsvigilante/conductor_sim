@@ -137,12 +137,18 @@ def validate_examples(document):
         K = .5*mass*vscalar*vscalar
         _same(row.get("kinetic_energy_j"), K, "actual kinetic energy")
         _same(row.get("interaction_energy_j"), U, "actual induced mechanical energy")
-        _same(row.get("total_energy_j"), K+U, "actual total mechanical energy")
+        # The independent SI U above is checked on its physical scale. Drift
+        # itself is a subtraction of near-cancelling small energies: recompute
+        # using the stored *individually SI-validated* U, with identical M16a
+        # summation order. Comparing two independently rounded U differences
+        # at the drift scale would manufacture a false failure.
+        saved_U = _number(row.get("interaction_energy_j"), "saved interaction energy")
+        _same(row.get("total_energy_j"), K+saved_U, "actual total mechanical energy")
         if firstK is None:
-            firstK, firstU = K, U
+            firstK, firstU = K, saved_U
             if t != 0 or delta != 0:
                 raise ValueError("actual motion lacks original physical initial state")
-        _same(row.get("energy_drift_j"), fsum((K-firstK, U-firstU)), "energy drift")
+        _same(row.get("energy_drift_j"), fsum((K-firstK, saved_U-firstU)), "energy drift")
     if motion.get("termination") not in ("duration", "surface-guard"):
         raise ValueError("unsupported motion termination")
     if motion.get("termination") == "surface-guard":
