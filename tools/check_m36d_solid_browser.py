@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from math import isclose
 from pathlib import Path
 
 
@@ -54,6 +55,20 @@ def check(directory:Path)->dict:
                         raise AssertionError("missing actual visible truthful source label: "+phrase)
                 if page.locator("canvas#scene").count()!=1:
                     raise AssertionError("no genuine painted physical conductor canvas")
+                answer_panel=page.locator("#m36e-source-observations")
+                if not answer_panel.is_visible():
+                    raise AssertionError("JEE original source potential readouts not visibly presented")
+                if "Original JEE p26: native potential observations" not in answer_panel.inner_text():
+                    raise AssertionError("original textbook question not visibly identified")
+                if "SYMBOLIC" not in answer_panel.inner_text() or "teacher-chosen" not in answer_panel.inner_text():
+                    raise AssertionError("source-given symbols and teacher numbers not distinguished")
+                if page.locator("#density-panel h2").inner_text()!="Surface-charge density (one real outer face)":
+                    raise AssertionError("isolated fixed-Q sigma mislabeled induced charge")
+                if page.locator("#profile").get_attribute("aria-label")!="Surface-charge density along a great circle":
+                    raise AssertionError("density chart accessible label is physically misleading")
+                cards=answer_panel.locator("[data-m36e-state]")
+                if cards.count()!=3:
+                    raise AssertionError("source answer card missing one of its three true physics states")
                 for i,state in enumerate(manifest["native_states"]):
                     page.locator("#frame").evaluate(
                         "(el,index) => {el.value=String(index);"
@@ -68,6 +83,46 @@ def check(directory:Path)->dict:
                         raise AssertionError("changed physical world mistaken for source givens")
                     if page.locator("#density option").count()!=1:
                         raise AssertionError("solid surface must have ONE outer density profile")
+                    active=cards.nth(i)
+                    for candidate_index in range(3):
+                        visible=cards.nth(candidate_index).is_visible()
+                        if visible!=(candidate_index==i):
+                            raise AssertionError("visible source answer card is stale or mismatched to slider")
+                    if active.get_attribute("data-m36e-role")!=state["case_role"]:
+                        raise AssertionError("answer card mistaken original textbook for teacher hypothesis")
+                    answer_text=active.inner_text()
+                    if i==0:
+                        if "PRINTED ORIGINAL GEOMETRY" not in answer_text:
+                            raise AssertionError("original formula answer card not identified")
+                    elif "TEACHER HYPOTHETICAL" not in answer_text:
+                        raise AssertionError("teacher changes falsely displayed as original source givens")
+                    if i==2 and "Grounded" not in answer_text:
+                        raise AssertionError("source-free grounded world was misattributed as fixed-Q")
+                    if i!=2 and "Isolated net Q=" not in answer_text:
+                        raise AssertionError("charge-controlled physical world lost isolation status")
+                    native=state["native_samples"]
+                    required={
+                        "V_half_R":(native["half_radius_potential_v"],"V"),
+                        "V_three_half_R":(native["three_half_radius_potential_v"],"V"),
+                        "E_inside":(
+                            sum(v*v for v in native["metal_half_radius_e_v_m"])**.5,
+                            "V/m"),
+                        "sigma_outer":(native["outer_sigma_c_m2"],"C/m²"),
+                    }
+                    if active.locator("[data-m36e-number]").count()!=len(required):
+                        raise AssertionError("two original V observables or other actual SI values missing")
+                    for key,(expected,unit) in required.items():
+                        label=active.locator('[data-m36e-number="'+key+'"]')
+                        if label.count()!=1:
+                            raise AssertionError("missing/duplicated source native observation "+key)
+                        raw=label.get_attribute("data-native-value")
+                        if raw is None or not isclose(float(raw),expected,rel_tol=2e-12,abs_tol=1e-19):
+                            raise AssertionError("display-native source evidence mismatch "+key)
+                        text_value=label.inner_text()
+                        if not text_value.endswith(" "+unit):
+                            raise AssertionError("wrong actual physical units on source answer "+key)
+                        if not isclose(float(text_value.split()[0]),expected,rel_tol=2e-9,abs_tol=1e-13):
+                            raise AssertionError("visible original source answer is stale/forged "+key)
                     actual_text=page.locator("#density option").first.inner_text()
                     if "Sphere A / outer" not in actual_text:
                         raise AssertionError("imaginary inner surface in actual solid density viewer")
@@ -77,7 +132,8 @@ def check(directory:Path)->dict:
                         "const f=bundle.frames[index];return {"
                         "geom:f.geometry,profiles:f.profiles,"
                         "conductors:f.conductor_results,source_masks:f.source_masks,"
-                        "regions:f.grid.region, label:f.label};}",i
+                        "regions:f.grid.region, gridSize:[f.grid.x_m.length,f.grid.y_m.length],"
+                        "label:f.label};}",i
                     )
                     if len(frame["geom"])!=1:
                         raise AssertionError("source shape has phantom extra object")
@@ -95,6 +151,8 @@ def check(directory:Path)->dict:
                         raise AssertionError("fake point source/singularity inside solid")
                     if not any("metal" in str(region).lower() for row in frame["regions"] for region in row):
                         raise AssertionError("real solid interior never painted as metal")
+                    if frame["gridSize"]!=[65,65]:
+                        raise AssertionError("new denser grid must be genuine 65x65 physical samples")
                     if page.locator("#scene").is_visible() is False:
                         raise AssertionError("real canvas hidden")
                     saved=screenshot_dir/f"state-{i}.png"
@@ -110,6 +168,12 @@ def check(directory:Path)->dict:
                         "named_source":"Sphere A",
                         "mode":"precomputed_static_not_particle_motion",
                         "screenshot":str(saved.relative_to(directory)),
+                        "native_answer_values":{
+                            key:expected for key,(expected,unit) in required.items()
+                        },
+                        "visible_readout_from_real_browser":True,
+                        "actual_field_grid_resolution":[65,65],
+                        "isolated_sigma_label":"Surface-charge density (one real outer face)",
                     })
                 if external_requests:
                     raise AssertionError("offline source viewer made HTTP requests: "+str(external_requests))
