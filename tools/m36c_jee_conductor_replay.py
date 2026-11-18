@@ -13,9 +13,12 @@ from hashlib import sha256
 from math import pi
 from pathlib import Path
 
-from conductor_sim import ConnectedShellBackend, NestedShellBackend, ExternalSphereBackend
+from conductor_sim import (
+    ConnectedShellBackend, NestedShellBackend, ExternalSphereBackend,
+    ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell,
+)
 from conductor_sim.solver import SingularField
-from conductor_sim.visualization import write_visualization
+from conductor_sim.visualization import SliceSpec, sample_sweep, write_visualization
 from conductor_sim.pdf_benchmark import load_case, measure, export_case
 from conductor_sim.pdf_benchmark import PDF_NAME, PDF_SHA256
 from examples.solid_sphere_connected import scenario as solid_connection
@@ -128,6 +131,24 @@ def _notes_case(id_: str, name: str, directory: Path) -> dict:
         })
     output=directory/(id_+".html")
     export_case(name,output,backend_name="analytical",resolution=19)
+    if id_ == "p26-conductor-potential":
+        # Original Illustration 1 shows a SOLID conducting sphere. The
+        # historical M6 authoring example represents ONLY V(R/2), V(3R/2)
+        # and E=0 by a finite-thickness shell proxy. Its physical interior
+        # is hollow, and that MUST be conspicuous in the actual visible HTML.
+        notice = (
+            '<p id="original-solid-sphere-proxy-disclosure" style="margin:12px 0;'
+            'padding:10px;background:#fff1d6;color:#342800;font-weight:600">'
+            'SOURCE-FIDELITY LIMIT: Printed Illustration 1 is a SOLID conducting '
+            'sphere. This display uses a HOLLOW SHELL PROXY (0.09–0.10 m) '
+            'ONLY for the identical sampled radial V(R/2), V(3R/2) and '
+            'zero interior E. The drawn hollow cavity is NOT in the source.'
+            '</p>'
+        )
+        html = output.read_text(encoding="utf-8")
+        if "</header>" not in html:
+            raise ValueError("cannot disclose source-shape proxy in viewer header")
+        output.write_text(html.replace("</header>",notice+"</header>",1),encoding="utf-8")
     if not output.is_file():
         raise AssertionError("existing JEE source viewer did not render")
     return {
@@ -135,7 +156,134 @@ def _notes_case(id_: str, name: str, directory: Path) -> dict:
         "kind":"true_static_conductor_field_and_surface_observations",
         "native":True,"viewer_file":output.name,
         "source_pdf_page":case.page,"source_anchor":case.source_anchor,
+        "source_shape_fidelity": (
+            "SOURCE SOLID sphere; HOLLOW shell is a scoped radial V/E PROXY, NOT the drawn source geometry"
+            if id_ == "p26-conductor-potential" else
+            "qualified real spherical conductor geometry"
+        ),
         "authored_states":states,"native_observations":observations,
+    }
+
+
+def _p27_original_A_B(directory: Path) -> dict:
+    """Original Illustration 4: central q, potential at A and B.
+
+    Historical M6's off-centre charge is a legitimate TEACHER extension, but
+    it must not silently replace the printed central-charge A/B question.
+    The source gives symbolic q, q1, q2, a, b, r and r1. The chosen numeric
+    scale/probe radii and 1-micrometre shell widths are teacher examples.
+    """
+    original_id="p27-cavity-two-shells"
+    source=load_case(original_id)
+    if source.source_anchor != "Illustration 4" or source.page != 27:
+        raise ValueError("actual source question identity changed")
+    q,q1,q2=1e-9,2e-9,3e-9
+    a,b=.10,.20
+    metal_width=1e-6
+    r_A,r_B=.04,.15
+    shells=(
+        SphericalShell(a-metal_width,a,FixedNetCharge(q1),name="inner"),
+        SphericalShell(b-metal_width,b,FixedNetCharge(q2),name="outer"),
+    )
+    original=ElectrostaticProblem(
+        charges=(PointCharge(q,(0.,0.,0.)),),conductors=shells)
+    teacher=ElectrostaticProblem(
+        charges=(PointCharge(q,(0.,0.,.02)),),conductors=shells)
+    backend=NestedShellBackend()
+    if not backend.supports(original) or not backend.supports(teacher):
+        raise ValueError("real central/teacher variant outside qualified cavity regime")
+    o=backend.solve(original)
+    displaced=backend.solve(teacher)
+    A=(r_A,0.,0.);B=(r_B,0.,0.)
+    observations=[
+        dict(state_index=0,label="Printed original V(A), central q in cavity",
+             kind="potential",point_m=list(A),conductor=None,
+             other_conductor=None,theta_rad=None,
+             native_value=o.potential_at(A)),
+        dict(state_index=0,label="Printed original V(B), intershell gap",
+             kind="potential",point_m=list(B),conductor=None,
+             other_conductor=None,theta_rad=None,
+             native_value=o.potential_at(B)),
+        dict(state_index=0,label="Printed original inner shell total",
+             kind="shell_net_charge",point_m=None,conductor="inner",
+             other_conductor=None,theta_rad=None,
+             native_value=o.conductor_by_name("inner").net_charge_c),
+        dict(state_index=0,label="Printed original outer shell total",
+             kind="shell_net_charge",point_m=None,conductor="outer",
+             other_conductor=None,theta_rad=None,
+             native_value=o.conductor_by_name("outer").net_charge_c),
+        dict(state_index=1,label="TEACHER off-centre extension, inner face -q",
+             kind="inner_total",point_m=None,conductor="inner",
+             other_conductor=None,theta_rad=None,
+             native_value=displaced.conductor_by_name("inner").inner_surface_charge_c),
+    ]
+    states=[]
+    for i,(label,p,solution) in enumerate((
+        ("PRINTED ORIGINAL: central q; evaluate V(A), V(B)",original,o),
+        ("TEACHER EXTENSION ONLY: shifted q, no original A/B formula",teacher,displaced),
+    )):
+        states.append(dict(
+            index=i,title=label,
+            conductors=[
+                {"name":c.name,"inner_radius_m":c.inner_radius_m,
+                 "outer_radius_m":c.outer_radius_m,
+                 "initial_constraint":type(c.constraint).__name__}
+                for c in p.conductors
+            ],
+            charges=[{"position_m":list(c.position_m),"charge_c":c.charge_c}
+                     for c in p.charges],
+            native_conductor_results=_results(solution),
+        ))
+    plane=SliceSpec.meridian(original,extent_m=.32,resolution=25)
+    bundle=sample_sweep(
+        [(states[0]["title"],original),(states[1]["title"],teacher)],
+        backend,plane=plane,line_steps=65,profile_samples=17,
+    )
+    bundle["frames"][0]["notes"].append(
+        "SOURCE ORIGINAL: central q. A=(0.04,0,0)m cavity; "
+        "B=(0.15,0,0)m intershell gap are TEACHER numerical probe choices."
+    )
+    bundle["frames"][1]["notes"].append(
+        "TEACHER off-centre extension ONLY; not original V(A)/V(B) formula."
+    )
+    output=directory/(original_id+".html")
+    write_visualization(
+        bundle,output,
+        title="PDF p.27 Illustration 4 · original central V(A), V(B) + teacher extension",
+    )
+    # Record actual finite-thickness results separately from the zero-metal-
+    # width PRINTED symbolic formulas; no old numeric benchmark expected values.
+    return {
+        "source_case_id":original_id,
+        "source_authoring_id":"p27-central-original-and-disclosed-teacher-variant",
+        "kind":"true_static_conductor_field_and_surface_observations",
+        "native":True,
+        "viewer_file":output.name,
+        "source_pdf_page":27,
+        "source_anchor":"Illustration 4",
+        "source_shape_fidelity":"source central point q, two concentric thin conducting shells; separate shifted teacher extension",
+        "original_asked_observables":["V(A)","V(B)"],
+        "source_givens":"CENTRAL q, two nested thin spherical shells q1/q2, A in cavity at r, B in gap at r1; source is symbolic",
+        "teacher_numerical_values":{
+            "q_c":q,"q1_c":q1,"q2_c":q2,
+            "radius_a_m":a,"radius_b_m":b,
+            "A_world_m":list(A),"B_world_m":list(B),
+            "authored_metal_thickness_m":metal_width,
+            "displaced_teacher_source_m":[0.,0.,.02],
+        },
+        "original_formula_limit":{
+            "V_A_zero_thickness_v": (
+                (1/(4*pi*original.permittivity_f_per_m))*
+                (q/r_A+q1/a+q2/b)
+            ),
+            "V_B_zero_thickness_v": (
+                (1/(4*pi*original.permittivity_f_per_m))*
+                ((q+q1)/r_B+q2/b)
+            ),
+            "scope":"printed symbolic zero-thickness limit; NOT the saved numerical observation",
+        },
+        "authored_states":states,
+        "native_observations":observations,
     }
 
 
@@ -190,8 +338,7 @@ def run_all(directory: Path) -> dict:
             "p14-numerical-07","pdf-p14-q7",directory),
         "p26-conductor-potential":_notes_case(
             "p26-conductor-potential","p26-conductor-potential",directory),
-        "p27-cavity-two-shells":_notes_case(
-            "p27-cavity-two-shells","p27-cavity-two-shells",directory),
+        "p27-cavity-two-shells":_p27_original_A_B(directory),
         "p69-cavity-central-vs-shifted":_notes_case(
             "p69-cavity-central-vs-shifted","p69-cavity-central-vs-shifted",directory),
         "p09-multiple-27":_neutral_tangent(directory),
