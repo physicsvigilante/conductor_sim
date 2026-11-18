@@ -1,5 +1,5 @@
 """M38a: actual 3D linear-path Kelvin physics, continuous guards, integrity."""
-from copy import deepcopy
+import json
 from dataclasses import replace
 from math import hypot, isclose
 
@@ -222,7 +222,8 @@ def test_native_export_rejects_replaced_rows_even_boolean_zero(key, value):
 ])
 def test_independent_stdlib_refuses_forged_kinematics_and_evidence(path, value):
     authentic = example_data()
-    forged = deepcopy(authentic)
+    # Attack a genuinely serialized JSON document, not tuple-valued asdict data.
+    forged = json.loads(json.dumps(authentic))
     node = forged
     for key in path[:-1]:
         node = node[key]
