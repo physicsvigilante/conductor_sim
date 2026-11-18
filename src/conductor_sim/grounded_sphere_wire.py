@@ -73,7 +73,7 @@ class GroundedSphereWireObservation:
     def as_dict(self):
         return dict(
             schema="conductor_sim.grounded_sphere_wire_instant.v1",
-            mode="instantaneous imposed kinematics; no trajectory asserted",
+            mode="instantaneous Kelvin observation; supplied velocity does not define a trajectory",
             units={"length": "m", "velocity": "m/s", "charge": "C",
                    "current": "A", "force": "N", "energy": "J"},
             current_sign="positive sphere_to_ground is conventional +charge flux",
@@ -229,11 +229,25 @@ def observe_grounded_sphere_motion(motion: Motion1DResult) -> GroundedSphereWire
         raise ValueError("motion maximum energy drift contradicts saved actual states")
     if motion.termination == "duration" and motion.samples[-1].time_s != spec.duration_s:
         raise ValueError("duration termination has no actual final sample")
+    if motion.method != Motion1DResult.__dataclass_fields__["method"].default:
+        raise ValueError("saved motion method misattributes the integration protocol")
     for event in motion.events:
         if (event.kind not in ("turning-point", "surface-guard") or
                 type(event.time_s) not in (int, float) or not isfinite(event.time_s)
-                or not 0 <= event.time_s <= motion.samples[-1].time_s):
+                or not 0 <= event.time_s <= motion.samples[-1].time_s
+                or type(event.displacement_m) not in (int, float)
+                or not isfinite(event.displacement_m)
+                or type(event.description) is not str or not event.description.strip()):
             raise ValueError("motion has an invalid event")
+        expected_position = tuple(initial.position_m[i] + spec.axis[i] * event.displacement_m
+                                  for i in range(3))
+        if (type(event.position_m) is not tuple or len(event.position_m) != 3
+                or any(type(x) not in (int, float) or not isfinite(x)
+                       or x != expected_position[i]
+                       for i, x in enumerate(event.position_m))):
+            raise ValueError("motion event location contradicts physical axis and displacement")
+        if hypot(*(event.position_m[i] - sphere.center_m[i] for i in range(3))) <= radius + guard:
+            raise ValueError("motion event crosses singular conductor approach guard")
     if motion.termination == "surface-guard":
         if not motion.events or motion.events[-1].kind != "surface-guard":
             raise ValueError("surface-guard termination must retain an approach event")
