@@ -194,6 +194,13 @@ def test_motion_falsified_sample_fields_and_history_are_refused():
         observe_grounded_sphere_motion(replace(genuine, termination="nonsense"))
     with pytest.raises(ValueError, match="maximum"):
         observe_grounded_sphere_motion(replace(genuine, max_abs_energy_drift_j=1e3))
+    with pytest.raises(ValueError, match="method"):
+        observe_grounded_sphere_motion(replace(genuine, method="teacher-prescribed animation"))
+    from conductor_sim.motion_1d import MotionEvent
+    false_event = MotionEvent("turning-point", .02, .03, (.0,.0,.2),
+                              "a fabricated position inconsistent with physical axis")
+    with pytest.raises(ValueError, match="event location"):
+        observe_grounded_sphere_motion(replace(genuine, events=(false_event,)))
 
 
 def test_permittivity_changes_native_force_and_energy_but_not_induced_wire_current():
