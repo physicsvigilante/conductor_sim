@@ -49,6 +49,8 @@ def check(directory: Path):
             )
             if source_text!=exact_original:
                 raise AssertionError("visible original Q21 symbolic source/current claim altered")
+            if not page.locator("#m37b-teacher-attribution").is_visible():
+                raise AssertionError("source versus teacher numeric attribution hidden from students")
             attribution=page.locator("#m37b-teacher-attribution").inner_text().strip()
             exact_teacher=(
                 "ALL numbers (q, R, d₀, v, duration, ε) displayed here are TEACHER-CHOSEN "
