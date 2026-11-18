@@ -499,6 +499,6 @@ def test_m37a_offline_turning_event_accepts_genuine_offgrid_turn_and_rejects_for
     flipped = deepcopy(genuine)
     m = flipped["actual_elapsed_time"]["motion"]
     e = m["events"][0]
-    e["time_s"] = .02  # early, both bracket velocities still positive
+    e["time_s"] = .0225  # off-grid; both bracket velocities remain outward
     with pytest.raises(ValueError, match="outward-to-inward"):
         validate_examples(flipped)
