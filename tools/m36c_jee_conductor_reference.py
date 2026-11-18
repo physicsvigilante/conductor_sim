@@ -130,6 +130,117 @@ def connection(card,case_id):
             "independent_outer_energy_j":ext_U}
 
 
+def original_p27_AB(card):
+    """Independently reproduce the ORIGINAL centred q / shell V(A), V(B).
+
+    Printed mathematical zero-thickness a,b shell relation differs slightly
+    from the genuine authored 1-micrometre-thick metal solutions. Both are
+    computed from independent SI Gauss-law terms rather than source callbacks.
+    """
+    demand(card["source_case_id"]=="p27-cavity-two-shells" and card["native"] is True,
+           "original p27 source identity")
+    demand(card["source_anchor"]=="Illustration 4" and card["source_pdf_page"]==27,
+           "original p27 printed Illustration 4 attribution changed")
+    demand(card["kind"]=="true_static_conductor_field_and_surface_observations",
+           "p27 original source needs static conductor observers")
+    demand(card["original_asked_observables"]==["V(A)","V(B)"],
+           "actual printed p27 asks for BOTH original A and B potentials")
+    demand("CENTRAL q" in card["source_givens"] and "symbolic" in card["source_givens"],
+           "p27 actual source has central symbolic q, not displaced q")
+    demand("separate shifted teacher extension" in card["source_shape_fidelity"],
+           "do not silently substitute off-centre teacher point for printed source")
+    teacher=card["teacher_numerical_values"]
+    for label,v in [
+        ("q_c",1e-9),("q1_c",2e-9),("q2_c",3e-9),
+        ("radius_a_m",.10),("radius_b_m",.20),
+        ("authored_metal_thickness_m",1e-6),
+    ]:
+        close(teacher[label],v,tol=1e-12,abs_tol=1e-22,
+              label="teacher numerical model scalar "+label)
+    demand(teacher["A_world_m"]==[.04,0.,0.] and
+           teacher["B_world_m"]==[.15,0.,0.] and
+           teacher["displaced_teacher_source_m"]==[0.,0.,.02],
+           "teacher probes A/B must be in the physical source regions")
+    q,q1,q2=1e-9,2e-9,3e-9
+    a,b=.10,.20
+    a_in,b_in=a-1e-6,b-1e-6
+    r_A,r_B=.04,.15
+    ideal_A=K*(q/r_A+q1/a+q2/b)
+    ideal_B=K*((q+q1)/r_B+q2/b)
+    formula=card["original_formula_limit"]
+    demand("zero-thickness" in formula["scope"] and
+           "NOT the saved numerical observation" in formula["scope"],
+           "original ideal limit and actual finite metal geometry conflated")
+    close(formula["V_A_zero_thickness_v"],ideal_A,tol=2e-12,
+          abs_tol=1e-10,label="printed symbolic V(A) formula")
+    close(formula["V_B_zero_thickness_v"],ideal_B,tol=2e-12,
+          abs_tol=1e-10,label="printed symbolic V(B) formula")
+    # For two finite-thickness conducting shells, charge q gives -q on
+    # inner face, +q+q1 on first outer face, -(q+q1) on second inner
+    # face and q+q1+q2 on second outer face. A and B are in vacuum.
+    actual_A=K*(q/r_A-q/a_in+(q+q1)/a-(q+q1)/b_in+(q+q1+q2)/b)
+    actual_B=K*((q+q1)/r_B-(q+q1)/b_in+(q+q1+q2)/b)
+    demand(abs(actual_A-ideal_A)>.0 and abs(actual_B-ideal_B)>.0,
+           "finite-thickness and ideal thin-shell outputs are distinct")
+    demand(abs(actual_A-ideal_A)<.002 and abs(actual_B-ideal_B)<.002,
+           "thin model approximation must be quantitatively limited")
+    states=card["authored_states"]
+    demand(len(states)==2,"original source and distinct teacher extension required")
+    for i,state in enumerate(states):
+        demand(state["index"]==i and len(state["conductors"])==2
+               and len(state["charges"])==1,
+               "original two metal bodies and one source per static state")
+        expected_pos=[0.,0.,0.] if i==0 else [0.,0.,.02]
+        demand(state["charges"][0]["position_m"]==expected_pos,
+               "printed central q must be FIRST source state")
+        close(state["charges"][0]["charge_c"],q,label="actual q in cavity")
+        c0,c1=state["conductors"]
+        demand((c0["name"],c1["name"])==("inner","outer"),
+               "actual named shell identity changed")
+        close(c0["inner_radius_m"],a_in,label="first thin actual inner face")
+        close(c0["outer_radius_m"],a,label="first thin actual outer face")
+        close(c1["inner_radius_m"],b_in,label="outer thin actual inner face")
+        close(c1["outer_radius_m"],b,label="outer thin actual outer face")
+        result=state["native_conductor_results"]
+        Vouter=K*(q+q1+q2)/b
+        Vinner=K*((q+q1)*(1/a-1/b_in)+(q+q1+q2)/b)
+        record(result[0],"inner",q1,-q,q+q1,Vinner)
+        record(result[1],"outer",q2,-(q+q1),q+q1+q2,Vouter)
+    demand("PRINTED ORIGINAL" in states[0]["title"] and
+           "TEACHER EXTENSION ONLY" in states[1]["title"],
+           "original and supplementary conductor models not distinguished")
+    obs=card["native_observations"]
+    checks=[
+        ("Printed original V(A), central q in cavity","potential",0,
+         [.04,0.,0.],None,None,None,actual_A),
+        ("Printed original V(B), intershell gap","potential",0,
+         [.15,0.,0.],None,None,None,actual_B),
+        ("Printed original inner shell total","shell_net_charge",0,
+         None,"inner",None,None,q1),
+        ("Printed original outer shell total","shell_net_charge",0,
+         None,"outer",None,None,q2),
+        ("TEACHER off-centre extension, inner face -q","inner_total",1,
+         None,"inner",None,None,-q),
+    ]
+    demand(len(obs)==len(checks),"p27 source A/B observation ledger altered")
+    for i,(row,expected) in enumerate(zip(obs,checks)):
+        label,kind,state,point,conductor,other,theta,value=expected
+        demand(row["label"]==label and row["kind"]==kind
+               and row["state_index"]==state,
+               f"p27 observation/source label mismatch #{i}")
+        demand(row["point_m"]==point and row["conductor"]==conductor
+               and row["other_conductor"]==other and row["theta_rad"]==theta,
+               f"p27 wrong conductor/angle/position attribution #{i}")
+        close(row["native_value"],value,tol=2e-10,abs_tol=2e-12,
+              label=f"source p27 native V(A), V(B), shell observations #{i}")
+    return {"kind":"genuine_source_central_A_B_plus_disclosed_teacher_extension",
+            "source_V_A_actual_v":actual_A,
+            "source_V_B_actual_v":actual_B,
+            "printed_ideal_V_A_v":ideal_A,
+            "printed_ideal_V_B_v":ideal_B,
+            "checked_source_observations":len(obs)}
+
+
 def notes(card,id_):
     demand(card["source_case_id"]==id_ and card["native"] is True,"notes source identity")
     demand(card["kind"]=="true_static_conductor_field_and_surface_observations",
@@ -139,36 +250,27 @@ def notes(card,id_):
     demand(card["source_pdf_page"]==page,"wrong pinned physical PDF page")
     states=card["authored_states"]
     obs=card["native_observations"]
+    if id_=="p27-cavity-two-shells":
+        return original_p27_AB(card)
+    require_source={"p26-conductor-potential":"Illustration 1",
+                    "p69-cavity-central-vs-shifted":"Illustration 7"}
+    demand(card["source_anchor"]==require_source[id_],
+           "source original illustration anchor attribution changed")
     Q=1e-9
     if id_=="p26-conductor-potential":
         demand(len(states)==1 and len(obs)==3,"shell potential/field scope")
         s=states[0]
         demand(len(s["conductors"])==1 and s["charges"]==[],"one shell/no internal point")
+        demand("SOURCE SOLID sphere; HOLLOW shell" in card["source_shape_fidelity"]
+               and "PROXY" in card["source_shape_fidelity"],
+               "p26 source shape is a SOLID sphere; hidden hollow proxy must be disclosed")
         shell=s["conductors"][0]
-        close(shell["inner_radius_m"],.09,label="true metal thickness inner")
+        close(shell["inner_radius_m"],.09,label="proxy hollow metal thickness inner")
         close(shell["outer_radius_m"],.10,label="source conductor R")
         record(s["native_conductor_results"][0],"sphere",Q,0.,Q,K*Q/.1)
         expected=[("potential",K*Q/.1,0,(.05,0.,0.)),
                   ("potential",K*Q/.15,0,(.15,0.,0.)),
                   ("field_x",0.,0,(.05,0.,0.))]
-    elif id_=="p27-cavity-two-shells":
-        demand(len(states)==1 and len(obs)==4,"nested cavity two-shell scope")
-        s=states[0]
-        demand(len(s["conductors"])==2 and len(s["charges"])==1,
-               "cavity source and both metals")
-        charge=s["charges"][0]
-        close(charge["charge_c"],Q,label="original cavity charge")
-        demand(charge["position_m"]==[0.,0.,.02],"real off-centre cavity source")
-        for i,shell in enumerate(s["conductors"]):
-            close(shell["inner_radius_m"],(.09,.19)[i],label="nested inner metal boundary")
-            close(shell["outer_radius_m"],(.10,.20)[i],label="nested outer radius")
-        Vinner=K*(3*Q*(1/.1-1/.19)+6*Q/.2)
-        record(s["native_conductor_results"][0],"inner",2*Q,-Q,3*Q,Vinner)
-        record(s["native_conductor_results"][1],"outer",3*Q,-3*Q,6*Q,K*6*Q/.2)
-        expected=[("shell_net_charge",2*Q,0,None),
-                  ("shell_net_charge",3*Q,0,None),
-                  ("inner_total",-Q,0,None),
-                  ("shell_voltage",Vinner,0,None)]
     else:
         demand(len(states)==2 and len(obs)==7,"central and shifted are two STATIC states")
         for i,s in enumerate(states):
@@ -201,6 +303,37 @@ def notes(card,id_):
             for axis,(observed_m,expected_m) in enumerate(zip(row["point_m"],point)):
                 close(observed_m,expected_m,tol=2e-14,abs_tol=2e-15,
                       label=f"actual source world probe #{i} axis {axis}")
+        # Valid scientific evidence attributes each value to the correct
+        # physical surface and angle; numerically correct values with swapped
+        # conductor names or theta labels are NOT valid observations.
+        if id_=="p26-conductor-potential":
+            names=("potential at R/2","potential at 3R/2",
+                   "electric field in hollow interior")
+            conductor=None
+            theta=None
+        else:
+            names=("central charge induces -q inner",
+                   "outer charge is 4q",
+                   "off-center inner total remains -q",
+                   "outer total remains 4q",
+                   "centered inner sigma uniform",
+                   "near-side enhanced inner sigma",
+                   "far-side weaker inner sigma")
+            conductor="body"
+            theta=(0.,None,None,None,0.,0.,pi)[i]
+        demand(row["label"]==names[i],
+               f"source original observable label attribution #{i} changed")
+        demand(row["conductor"]==conductor and row["other_conductor"] is None,
+               f"wrong physical conductor association #{i}")
+        if theta is None:
+            demand(row["theta_rad"] is None,
+                   f"unexpected physical angle for observer #{i}")
+        else:
+            close(row["theta_rad"],theta,tol=2e-14,abs_tol=1e-15,
+                  label=f"physical Kelvin sigma angle #{i}")
+        if point is None:
+            demand(row["point_m"] is None,
+                   f"surface datum must not be relabelled as spatial sample #{i}")
         close(row["native_value"],value,tol=5e-9,abs_tol=2e-14,
               label=f"independent {id_} physical native observable #{i}")
     return {"kind":"static_spherical_conductor","independent_observations":len(expected)}
