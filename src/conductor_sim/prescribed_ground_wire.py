@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, replace
 from math import fsum, hypot, isfinite
 
 from .grounded_sphere_wire import observe_grounded_sphere_wire
-from .model import ElectrostaticProblem, Grounded, PointCharge, SolidSphere, Vector3
+from .model import EPSILON_0, ElectrostaticProblem, Grounded, PointCharge, SolidSphere, Vector3
 from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .solver import UnsupportedProblem
 
@@ -32,6 +32,41 @@ def _real(value, label, *, positive=False):
     if positive and value <= 0:
         raise ValueError(f"{label} must be strictly positive")
     return float(value)
+
+
+def author_prescribed_grounded_sphere(
+    source_charge_c: float,
+    source_position_m: Vector3,
+    sphere_radius_m: float,
+    *,
+    sphere_center_m: Vector3 = (0., 0., 0.),
+    sphere_name: str = "Sphere A",
+    permittivity_f_per_m: float = EPSILON_0,
+) -> ElectrostaticProblem:
+    """Strict raw-SI authoring path for teacher/LLM input before legacy coercion.
+
+    In contrast, PointCharge/SolidSphere are old public components which
+    normalize coordinate Booleans to floats at construction: that original
+    type information cannot be recovered from an existing model. Use this
+    factory when validating *untrusted raw* problem specifications.
+    """
+    def authored_position(values, label):
+        if type(values) not in (tuple, list) or len(values) != 3:
+            raise ValueError(f"{label} requires three finite SI coordinates")
+        return tuple(_real(v, label) for v in values)
+
+    q = _real(source_charge_c, "source charge")
+    radius = _real(sphere_radius_m, "sphere radius", positive=True)
+    epsilon = _real(permittivity_f_per_m, "permittivity", positive=True)
+    source = authored_position(source_position_m, "source position")
+    centre = authored_position(sphere_center_m, "sphere centre")
+    if q == 0:
+        raise UnsupportedProblem("authored source charge must be nonzero")
+    return ElectrostaticProblem(
+        charges=(PointCharge(q,source),),
+        conductors=(SolidSphere(radius,Grounded(),centre,sphere_name),),
+        permittivity_f_per_m=epsilon,
+    )
 
 
 @dataclass(frozen=True, slots=True)

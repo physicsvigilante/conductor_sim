@@ -231,9 +231,9 @@ __all__ += [
 
 from .prescribed_ground_wire import (
     PrescribedSphereRadialSpec, PrescribedSphereSample, PrescribedSphereTrace,
-    sample_prescribed_sphere_radial,
+    sample_prescribed_sphere_radial, author_prescribed_grounded_sphere,
 )
 __all__ += [
-    "PrescribedSphereRadialSpec", "PrescribedSphereSample", "PrescribedSphereTrace",
+    "author_prescribed_grounded_sphere", "PrescribedSphereRadialSpec", "PrescribedSphereSample", "PrescribedSphereTrace",
     "sample_prescribed_sphere_radial",
 ]

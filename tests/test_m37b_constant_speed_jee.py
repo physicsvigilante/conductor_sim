@@ -230,23 +230,48 @@ def test_viewer_refuses_constructed_forged_physics_even_with_valid_dataclass_typ
 
 
 
-def test_m37b_refuses_boolean_si_geometry_at_public_authoring_boundary():
-    """Provenance safety is required even for permissive legacy geometry types."""
-    from conductor_sim import PrescribedSphereRadialSpec
+def test_m37b_strict_raw_authoring_factory_rejects_boolean_coordinates_before_coercion():
+    """The old model coerces coordinates; strict input checks must run FIRST."""
+    from conductor_sim import author_prescribed_grounded_sphere
+
     for position in ((True, 0., .25), (.0, False, .25)):
-        with pytest.raises((ValueError, TypeError)):
-            p=ElectrostaticProblem(
-                (PointCharge(1e-9,position),),
-                (SolidSphere(.1,Grounded(),name="Sphere A"),),
-            )
-            PrescribedSphereRadialSpec(p,-.03,.5,7)
+        with pytest.raises(ValueError,match="source position"):
+            author_prescribed_grounded_sphere(1e-9,position,.1)
     for centre in ((True,0.,0.), (0.,False,0.)):
-        with pytest.raises((ValueError, TypeError)):
-            p=ElectrostaticProblem(
-                (PointCharge(1e-9,(0.,0.,.25)),),
-                (SolidSphere(.1,Grounded(),center_m=centre,name="Sphere A"),),
-            )
-            PrescribedSphereRadialSpec(p,-.03,.5,7)
+        with pytest.raises(ValueError,match="sphere centre"):
+            author_prescribed_grounded_sphere(
+                1e-9,(0.,0.,.25),.1,sphere_center_m=centre)
+
+    for bad in (True,False,float("nan")):
+        with pytest.raises((ValueError,UnsupportedProblem)):
+            author_prescribed_grounded_sphere(bad,(0.,0.,.25),.1)
+        with pytest.raises(ValueError):
+            author_prescribed_grounded_sphere(1e-9,(0.,0.,.25),bad)
+        with pytest.raises(ValueError):
+            author_prescribed_grounded_sphere(
+                1e-9,(0.,0.,.25),.1,permittivity_f_per_m=bad)
+
+    canonical=author_prescribed_grounded_sphere(
+        1e-9,(0.,0.,.25),.1,sphere_center_m=(0.,0.,0.))
+    assert all(type(v) is float for v in canonical.charges[0].position_m)
+    trace=sample_prescribed_sphere_radial(PrescribedSphereRadialSpec(
+        canonical,-.03,.5,7))
+    assert all(type(v) is float for v in trace.samples[0].source_position_m)
+
+
+def test_m37b_existing_model_normalization_is_explicit_not_false_raw_attestation():
+    """Original raw bool coordinates cannot be reconstructed after coercion."""
+    p=ElectrostaticProblem(
+        (PointCharge(1e-9,(True,0.,.25)),),
+        (SolidSphere(.1,Grounded(),name="Sphere A"),),
+    )
+    assert p.charges[0].position_m == (1.,0.,.25)
+    assert type(p.charges[0].position_m[0]) is float
+    # M37b may accept the canonicalized physical model; it MUST NOT claim
+    # the raw author-supplied coordinate type was recovered.
+    result=sample_prescribed_sphere_radial(PrescribedSphereRadialSpec(
+        p,-.03,.5,7))
+    assert result.samples[0].source_position_m == (1.,0.,.25)
 
 
 def test_original_workbook_role_cannot_be_assigned_to_teacher_negative_or_outward_world():

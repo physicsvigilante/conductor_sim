@@ -11,8 +11,8 @@ import json
 from pathlib import Path
 
 from conductor_sim import (
-    ElectrostaticProblem, Grounded, PointCharge, SolidSphere,
     PrescribedSphereRadialSpec, sample_prescribed_sphere_radial,
+    author_prescribed_grounded_sphere,
 )
 from conductor_sim.prescribed_wire_viewer import (
     render_prescribed_ground_wire, viewer_manifest,
@@ -44,9 +44,11 @@ SOURCE = {
 
 
 def make_example():
-    problem = ElectrostaticProblem(
-        charges=(PointCharge(1e-9, (0., 0., .30)),),
-        conductors=(SolidSphere(.10, Grounded(), name="Sphere A"),),
+    problem = author_prescribed_grounded_sphere(
+        source_charge_c=1e-9,
+        source_position_m=(0., 0., .30),
+        sphere_radius_m=.10,
+        sphere_name="Sphere A",
     )
     # Original workbook supplies the *type* of protocol, not these numbers.
     return PrescribedSphereRadialSpec(
