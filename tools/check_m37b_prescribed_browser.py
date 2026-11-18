@@ -14,6 +14,94 @@ from pathlib import Path
 from tools.m37b_source_reference import check as independent_jee_si
 
 
+
+def _verify_nojs_first_frame(page, manifest):
+    """Attest the literal, never-JS-repaired first frame in REAL Chromium.
+
+    Full visible physical state and drawn geometry must match the separately
+    independently SI-checked native record, not merely an embedded JSON blob.
+    JS-enabled startup calls show(0) and can conceal false ORIGINAL HTML
+    attributes; checking the no-JS DOM catches that distinct forgery.
+    """
+    first = manifest["readouts"][0]
+    layout = manifest["layout"]
+    native = manifest["trace"]
+    if not page.locator("#m37b-nojs").is_visible():
+        raise AssertionError("no-JS static fallback description missing or hidden")
+    for name in ("#m37b-source", "#m37b-original-statement",
+                 "#m37b-teacher-attribution", "#m37b-scene",
+                 "#m37b-current-chart"):
+        if not page.locator(name).is_visible():
+            raise AssertionError(f"no-JS source/teacher/physical scene is hidden: {name}")
+    if page.locator("#m37b-source h1").inner_text().strip() != "PRINTED WORKBOOK p8 · Multiple Correct Q21":
+        raise AssertionError("no-JS workbook source heading falsified")
+    if page.locator("#m37b-original-statement").inner_text().strip() != (
+            "SOURCE-GIVEN: positive q approaches a grounded metallic sphere of radius R "
+            "at externally maintained constant small speed v. Workbook answer key: "
+            "options (1) and (3), conventional sphere→ground current increasing."):
+        raise AssertionError("no-JS original source claim falsified")
+    if page.locator("#m37b-teacher-attribution").inner_text().strip() != (
+            "ALL numbers (q, R, d₀, v, duration, ε) displayed here are TEACHER-CHOSEN "
+            "illustrations, NOT printed workbook numerical givens."):
+        raise AssertionError("no-JS teacher numerical provenance falsified")
+    slider = page.locator("#m37b-index")
+    if slider.input_value() != "0" or slider.get_attribute("min") != "0" or (
+            slider.get_attribute("max") != str(len(manifest["readouts"])-1)):
+        raise AssertionError("no-JS first physical time index/slider range is falsified")
+    if not slider.is_disabled() or not page.locator("#m37b-start").is_disabled() or (
+            not page.locator("#m37b-play").is_disabled()):
+        raise AssertionError("no-JS inert playback controls must all remain disabled")
+    for selector,key in (
+        ("#m37b-time","time_label"),
+        ("#m37b-distance","distance_label"),
+        ("#m37b-Q","induced_charge_label"),
+        ("#m37b-current","wire_current_label"),
+        ("#m37b-opposite","opposite_current_label"),
+    ):
+        if page.locator(selector).inner_text().strip() != first[key]:
+            raise AssertionError(f"no-JS first physical SI label {selector} falsified")
+    expected_sign = "+q" if native["source_charge_c"] > 0 else "−q"
+    if page.locator("#m37b-q-sign").text_content().strip() != expected_sign:
+        raise AssertionError("no-JS source charge sign label contradicts physical q")
+    for selector,attribute,physical_value in (
+        ("#m37b-sphere","cx",layout["sphere_cx_px"]),
+        ("#m37b-sphere","cy",layout["sphere_cy_px"]),
+        ("#m37b-sphere","r",layout["sphere_radius_px"]),
+        ("#m37b-charge","cx",first["charge_x_px"]),
+        ("#m37b-charge","cy",layout["charge_cy_px"]),
+        ("#m37b-q-sign","x",first["charge_x_px"]),
+        ("#m37b-current-marker","cx",first["chart_x_px"]),
+        ("#m37b-current-marker","cy",first["chart_y_px"]),
+    ):
+        raw = page.locator(selector).get_attribute(attribute)
+        try:
+            valid = (raw is not None and
+                     isclose(float(raw),physical_value,rel_tol=2e-12,abs_tol=5e-9))
+        except (ValueError,OverflowError,TypeError):
+            valid = False
+        if not valid:
+            raise AssertionError(
+                f"no-JS physical scene/graph coordinate {selector}.{attribute} "
+                "does not match the verified first saved Kelvin sample"
+            )
+    # The no-JS entire drawn curve is itself an executable teaching claim.
+    # Verify its 31 actual values rather than relying on JS startup behavior.
+    points = page.locator("#m37b-current-line").get_attribute("points")
+    plotted = points.split() if points is not None else []
+    if len(plotted) != len(manifest["readouts"]):
+        raise AssertionError("no-JS physical current curve length falsified")
+    for i,(point,row) in enumerate(zip(plotted,manifest["readouts"])):
+        xy = point.split(",")
+        try:
+            correct = len(xy)==2 and all(
+                isclose(float(xy[coord]),row[key],rel_tol=3e-10,abs_tol=2e-7)
+                for coord,key in ((0,"chart_x_px"),(1,"chart_y_px"))
+            )
+        except (ValueError,OverflowError,TypeError):
+            correct = False
+        if not correct:
+            raise AssertionError(f"no-JS physical current graph point {i} falsified")
+
 def check(directory: Path):
     from playwright.sync_api import sync_playwright
 
@@ -147,18 +235,7 @@ def check(directory: Path):
             try:
                 fallback=offline.new_page()
                 fallback.goto(target.resolve().as_uri(),wait_until="load",timeout=45000)
-                if not fallback.locator("#m37b-nojs").is_visible():
-                    raise AssertionError("broken/hidden no-JavaScript first-frame fallback")
-                if not fallback.locator("#m37b-index").is_disabled():
-                    raise AssertionError("no-JS slider misleadingly changes without live readout")
-                if not fallback.locator("#m37b-start").is_disabled() or not fallback.locator("#m37b-play").is_disabled():
-                    raise AssertionError("no-JS playback buttons falsely claim a working timeline")
-                if fallback.locator("#m37b-current").inner_text()!=positions[0]["wire_current_label"]:
-                    raise AssertionError("no-JS source default current falsified")
-                if fallback.locator("#m37b-Q").inner_text()!=positions[0]["induced_charge_label"]:
-                    raise AssertionError("no-JS original induced charge falsified")
-                if not fallback.locator("#m37b-source").is_visible():
-                    raise AssertionError("source provenance not available without JavaScript")
+                _verify_nojs_first_frame(fallback,manifest)
                 fallback.screenshot(path=str(screenshots/"no-javascript-first.png"),full_page=True)
             finally:
                 offline.close()

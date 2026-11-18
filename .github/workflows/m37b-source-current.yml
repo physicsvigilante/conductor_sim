@@ -91,6 +91,10 @@ jobs:
         run: |
           set -euo pipefail
           python -m tools.check_m37b_prescribed_browser --output-dir review-artifacts/m37b
+      - name: Adversarial real Chromium proof that JS-off fallback falsifications are detected
+        run: |
+          set -euo pipefail
+          python -m tools.check_m37b_nojs_hostility --output-dir review-artifacts/m37b
       - name: Preserve genuine browser screenshots and physical dataset
         if: always()
         uses: actions/upload-artifact@v4
