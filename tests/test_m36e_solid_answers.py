@@ -147,3 +147,91 @@ def test_real_rendered_field_grid_is_denser_than_previous_37(native):
         assert frame["geometry"][0]["inner_radius_m"]==0
         assert [p["surface"] for p in frame["profiles"]]==["outer"]
     assert report["actual_rendered_geometry"][0]["inner_radius_m"]==0.
+
+
+
+def test_R2_full_embedded_grid_matches_independent_gauss_potential_and_E(native):
+    folder,manifest=native
+    from tools.m36e_embedded_grid_reference import check_embedded_solid_grid
+    import json
+    html=(folder/manifest["viewer_file"]).read_text(encoding="utf-8")
+    script=re.search(
+        r'<script id="simulation-data" type="application/json">(.*?)</script>',
+        html,re.DOTALL,
+    )
+    assert script is not None
+    bundle=json.loads(script.group(1))
+    result=check_embedded_solid_grid(manifest,bundle)
+    assert result["actual_checked_potential_and_E_points"]==3*65*65
+    assert len(result["states"])==3
+    assert all(s["metal_points"]>0 and s["vacuum_points"]>0 for s in result["states"])
+
+
+@pytest.mark.parametrize("kind",["potential","field","physical-region"])
+def test_R2_rejects_authentic_grid_with_one_unphysical_sample(native,kind):
+    folder,manifest=native
+    from tools.m36e_embedded_grid_reference import check_embedded_solid_grid
+    import json
+    html=(folder/manifest["viewer_file"]).read_text(encoding="utf-8")
+    script=re.search(
+        r'<script id="simulation-data" type="application/json">(.*?)</script>',
+        html,re.DOTALL,
+    )
+    assert script is not None
+    bundle=json.loads(script.group(1))
+    actual=bundle["frames"][0]["grid"]
+    if kind=="potential":
+        actual["potential_v"][2][2]=1_000_000.
+        match="embedded grid SI mismatch"
+    elif kind=="field":
+        actual["electric_field_v_per_m"][2][2]=[123_456.,0.,0.]
+        match="embedded grid SI mismatch"
+    else:
+        actual["region"][2][2]="metal"
+        match="incorrectly paints solid interior|falsely labels outside metal"
+    with pytest.raises(AssertionError,match=match):
+        check_embedded_solid_grid(manifest,bundle)
+
+
+def test_R2_true_visible_charge_radius_and_centre_all_three_states(native):
+    _folder,manifest=native
+    from html import unescape
+    from tools.check_m36d_solid_browser import _check_source_caption
+    from tools.m36d_true_solid_sphere import _source_answer_panel
+    panel=_source_answer_panel(manifest["native_states"])
+    captions=[
+        unescape(x) for x in re.findall(
+            r'<p style="margin:5px 0">(.*?)</p>',panel,re.DOTALL
+        )
+    ]
+    assert len(captions)==3
+    for i,caption in enumerate(captions):
+        _check_source_caption(caption,manifest["native_states"][i],i)
+
+
+@pytest.mark.parametrize("state_index,before,after",[
+    (1,"Isolated net Q=-2 nC","Isolated net Q=2 nC"),
+    (2,"Grounded · actual solved Q=0 C","Grounded · actual solved Q=7 nC"),
+    (1,"R=0.12 m","R=1.2 m"),
+    (1,"center=(0.025, 0, 0) m","center=(0.25, 0, 0) m"),
+])
+def test_R2_false_visible_source_captions_are_rejected_even_with_real_native(
+    native,state_index,before,after,
+):
+    _folder,manifest=native
+    from html import unescape
+    from tools.check_m36d_solid_browser import _check_source_caption
+    from tools.m36d_true_solid_sphere import _source_answer_panel
+    panel=_source_answer_panel(manifest["native_states"])
+    captions=[
+        unescape(x) for x in re.findall(
+            r'<p style="margin:5px 0">(.*?)</p>',panel,re.DOTALL
+        )
+    ]
+    caption=captions[state_index]
+    assert caption.count(before)==1
+    with pytest.raises(AssertionError,match="visible"):
+        _check_source_caption(
+            caption.replace(before,after,1),
+            manifest["native_states"][state_index],state_index,
+        )
