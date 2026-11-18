@@ -196,7 +196,11 @@ def notes(card,id_):
         demand(row["kind"]==kind and row["state_index"]==state,
                f"original source kind/state #{i} changed")
         if point is not None:
-            demand(row["point_m"]==list(point),f"original probe world coordinate #{i}")
+            demand(isinstance(row["point_m"],list) and len(row["point_m"])==3,
+                   f"original probe world vector #{i} missing")
+            for axis,(observed_m,expected_m) in enumerate(zip(row["point_m"],point)):
+                close(observed_m,expected_m,tol=2e-14,abs_tol=2e-15,
+                      label=f"actual source world probe #{i} axis {axis}")
         close(row["native_value"],value,tol=5e-9,abs_tol=2e-14,
               label=f"independent {id_} physical native observable #{i}")
     return {"kind":"static_spherical_conductor","independent_observations":len(expected)}
