@@ -1,0 +1,105 @@
+name: M37b original workbook constant-speed grounding current physics and offline Chromium
+
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/prescribed_ground_wire.py'
+      - 'src/conductor_sim/prescribed_wire_viewer.py'
+      - 'src/conductor_sim/grounded_sphere_wire.py'
+      - 'src/conductor_sim/__init__.py'
+      - 'tests/test_m37b_constant_speed_jee.py'
+      - 'tools/m37b*'
+      - 'tools/check_m37b_prescribed_browser.py'
+      - 'docs/m37b*'
+      - '.github/workflows/m37b-source-current.yml'
+  push:
+    branches: [m37b-source-faithful-constant-speed, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-and-independent-reference:
+    name: actual prescribed current, SI source and refusals (${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 13
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pure-Python engine and test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Pin exact source and original source artifact SHA256
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m37b
+          git rev-parse HEAD | tee review-artifacts/m37b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m37b/source-git-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/m37b/source-pdf-hash.txt
+      - name: Real signed Kelvin and workbook source-specific hostile tests
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m37a_grounded_wire_current.py tests/test_m37b_constant_speed_jee.py -q --junitxml=review-artifacts/m37b/native-tests.xml
+      - name: Generate real 31-state prescribed time snapshots (not Newtonian)
+        run: |
+          set -euo pipefail
+          python -m tools.m37b_source_approach --output-dir review-artifacts/m37b
+      - name: Check all source states independently with stdlib-only Kelvin SI oracle
+        run: |
+          set -euo pipefail
+          python -m tools.m37b_source_reference --input review-artifacts/m37b/p8-ground-current.json --output review-artifacts/m37b/independent-source-reference.json
+      - name: Retain source-attested physics and independent first-run failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m37b-physical-reference-py${{ matrix.python-version }}
+          path: review-artifacts/m37b/
+          if-no-files-found: warn
+          retention-days: 21
+
+  actual-offline-chromium:
+    name: real Chromium visible source/current and no-JS fallback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install engine and offline Playwright Chromium
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Create actual source/prescribed-time viewer
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m37b
+          git rev-parse HEAD | tee review-artifacts/m37b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m37b/source-git-tree.txt
+          python -m tools.m37b_source_approach --output-dir review-artifacts/m37b
+          python -m tools.m37b_source_reference --input review-artifacts/m37b/p8-ground-current.json --output review-artifacts/m37b/independent-source-reference.json
+      - name: Inspect actual visible numbers/source claims/slider and disabled-JS fallback
+        run: |
+          set -euo pipefail
+          python -m tools.check_m37b_prescribed_browser --output-dir review-artifacts/m37b
+      - name: Adversarial real Chromium proof that JS-off fallback falsifications are detected
+        run: |
+          set -euo pipefail
+          python -m tools.check_m37b_nojs_hostility --output-dir review-artifacts/m37b
+      - name: Preserve genuine browser screenshots and physical dataset
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m37b-original-source-chromium
+          path: review-artifacts/m37b/
+          if-no-files-found: warn
+          retention-days: 21

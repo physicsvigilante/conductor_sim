@@ -227,3 +227,13 @@ __all__ += [
     "GroundedSphereWireObservation", "GroundedSphereWireTrace",
     "observe_grounded_sphere_wire", "observe_grounded_sphere_motion",
 ]
+
+
+from .prescribed_ground_wire import (
+    PrescribedSphereRadialSpec, PrescribedSphereSample, PrescribedSphereTrace,
+    sample_prescribed_sphere_radial, author_prescribed_grounded_sphere,
+)
+__all__ += [
+    "author_prescribed_grounded_sphere", "PrescribedSphereRadialSpec", "PrescribedSphereSample", "PrescribedSphereTrace",
+    "sample_prescribed_sphere_radial",
+]
