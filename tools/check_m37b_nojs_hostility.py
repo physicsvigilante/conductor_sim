@@ -35,7 +35,7 @@ ATTACKS = (
      r'(<strong class="value" id="m37b-opposite">)[^<]+', "+9 A",
      "no-JS first physical SI label #m37b-opposite"),
     ("false-initial-charge-sign", r'(<text id="m37b-q-sign"[^>]*>)[^<]+', "−q",
-     "no-JS source charge sign label"),
+     "source says q positive but actual plotted charge sign differs"),
     ("false-initial-sphere-radius", r'(<circle id="m37b-sphere"[^>]* r=")[^"]+', "7",
      "no-JS physical scene/graph coordinate #m37b-sphere.r"),
     ("false-initial-slider-time", r'(<input id="m37b-index"[^>]* value=")[^"]+', "15",
