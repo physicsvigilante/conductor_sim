@@ -1,0 +1,49 @@
+name: M36b real source-JEE replays, independent physics and Chromium
+on:
+  push:
+    branches: [m36b-jee-source-replay, main]
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  jee-source-replays:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install actual engine and offline Chromium
+        run: |
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Record literal execution source
+        run: |
+          mkdir -p review-artifacts/m36b
+          git rev-parse HEAD | tee review-artifacts/m36b/source-commit.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m36b/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf > review-artifacts/m36b/source-pdfs-sha256.txt
+      - name: Run all real source-anchored native tests and adversarial counterexamples
+        run: python -m pytest tests/test_m36b_jee_replays.py tests/test_m36b_transfer.py -q --junitxml=review-artifacts/m36b/m36b-tests.xml
+      - name: Export seven actual source cases with genuine native physics and views
+        run: python -m tools.m36b_jee_replay --output-dir review-artifacts/m36b
+      - name: Check independently expressed analytical references (NO engine imports)
+        run: python -m tools.m36b_jee_reference --input review-artifacts/m36b/native-replays.json --output review-artifacts/m36b/independent-reference.json
+      - name: Run three true teacher-hypothetical native transfer worlds (not extra JEE cases)
+        run: python -m tools.m36b_transfer --output review-artifacts/m36b/actual-teacher-transfer.json
+      - name: Independently check teacher native variants without production imports
+        run: python -m tools.m36b_transfer_reference --input review-artifacts/m36b/actual-teacher-transfer.json --output review-artifacts/m36b/teacher-transfer-independent-reference.json
+      - name: Open all seven actual source-anchored views in real offline Chromium
+        run: python -m tools.check_m36b_jee_browser --output-dir review-artifacts/m36b
+      - name: Retain full run evidence and images, including original failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m36b-jee-real-source-physics-and-browser
+          path: review-artifacts/m36b/
+          retention-days: 21
+          if-no-files-found: warn
