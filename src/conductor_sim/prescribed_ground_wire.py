@@ -158,7 +158,8 @@ def sample_prescribed_sphere_radial(spec: PrescribedSphereRadialSpec) -> Prescri
         distance = d0 + spec.radial_speed_m_s*time_s
         if not isfinite(distance) or distance <= sphere.radius_m+spec.surface_guard_m:
             raise UnsupportedProblem("source approaches the ideal metal/surface guard")
-        point = tuple(sphere.center_m[k]+distance*axis[k] for k in range(3))
+        point = (source.position_m if i == 0 else
+                 tuple(sphere.center_m[k]+distance*axis[k] for k in range(3)))
         if not all(isfinite(x) for x in point):
             raise ValueError("world-space physical source position overflowed")
         moved = replace(problem, charges=(PointCharge(source.charge_c,point),))
