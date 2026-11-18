@@ -153,8 +153,9 @@ def observe_grounded_sphere_motion(motion: Motion1DResult) -> GroundedSphereWire
     """Augment a valid radial grounded-sphere M16a history, not an M13 sweep.
 
     Check positions, observable physics, K/U and termination of saved samples.
-    This does NOT independently re-integrate the trajectory or authenticate
-    arbitrarily constructed Python objects; the source solver must be trusted.
+    The saved input is checked against fresh M16a reintegration with the exact
+    qualified Kelvin backend. This incurs deliberate duplicate numerical work;
+    it is not cryptographic attestation against an altered execution engine.
     """
     if type(motion) is not Motion1DResult or type(motion.spec) is not Motion1DSpec:
         raise TypeError("expected an actual Motion1DResult with a Motion1DSpec")
@@ -255,4 +256,17 @@ def observe_grounded_sphere_motion(motion: Motion1DResult) -> GroundedSphereWire
             raise ValueError("surface-guard event time and final saved observation disagree")
     elif any(e.kind == "surface-guard" for e in motion.events):
         raise ValueError("duration-complete history contains an impossible surface guard")
+    # Independently sampled physical snapshots alone do not bind elapsed time
+    # or certify the ODE: a forged history could contain valid positions,
+    # velocities and forces at entirely invented timestamps. Re-execute the
+    # already qualified M16a initial-value problem against the actual Kelvin
+    # backend, then require its exact numerical history, events and guard.
+    # This is deliberate extra work, NOT a new integrator or a cryptographic
+    # attestation against a compromised source implementation.
+    from .motion_1d import integrate_motion_1d
+    recomputed = integrate_motion_1d(spec, ExternalGroundedSphereBackend())
+    if (motion.samples != recomputed.samples or motion.events != recomputed.events
+            or motion.termination != recomputed.termination
+            or motion.max_abs_energy_drift_j != recomputed.max_abs_energy_drift_j):
+        raise ValueError("saved elapsed-time motion differs from independently rerun M16a integration")
     return GroundedSphereWireTrace(motion, tuple(observations))
