@@ -15,13 +15,15 @@ EXPECTED=(
     "p69-cavity-central-vs-shifted","p09-multiple-27",
 )
 SOURCE_MARKERS={
-    "p03-single-27":("Concentric","connected"),
-    "p10-linked-13+p10-linked-14":("Concentric","connected"),
-    "p14-numerical-07":("Connected","shell"),
-    "p26-conductor-potential":("PDF","potential"),
-    "p27-cavity-two-shells":("PDF","shell"),
-    "p69-cavity-central-vs-shifted":("PDF","cavity"),
-    "p09-multiple-27":("source","p09-multiple-27"),
+    # These are actual visible title/labels in the accepted M5 offline viewer,
+    # not hidden source JSON metadata or guessed descriptive prose.
+    "p03-single-27":("p03-single-27","Stored state"),
+    "p10-linked-13+p10-linked-14":("p10-linked-13+p10-linked-14","Stored state"),
+    "p14-numerical-07":("p14-numerical-07","Stored state"),
+    "p26-conductor-potential":("PDF p.26","Potential"),
+    "p27-cavity-two-shells":("PDF p.27","Potential"),
+    "p69-cavity-central-vs-shifted":("PDF p.69","Potential"),
+    "p09-multiple-27":("p09-multiple-27","Potential"),
 }
 
 
