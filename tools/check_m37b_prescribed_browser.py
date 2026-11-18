@@ -100,7 +100,7 @@ def check(directory: Path):
                                                 rel_tol=3e-10,abs_tol=2e-7)
                                       for j,k in ((0,"chart_x_px"),(1,"chart_y_px"))):
                     raise AssertionError(f"drawn current graph point {i} contradicts verified physical series")
-            if page.locator("#m37b-q-sign").inner_text().strip()!="+q":
+            if page.locator("#m37b-q-sign").text_content().strip()!="+q":
                 raise AssertionError("source says q positive but actual plotted charge sign differs")
             for i in (0,1,10,15,25,30):
                 slider.evaluate("(el,i) => {el.value=String(i);el.dispatchEvent(new Event('input',{bubbles:true}));}",i)
