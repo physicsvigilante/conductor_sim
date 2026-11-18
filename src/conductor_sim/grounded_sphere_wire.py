@@ -95,14 +95,24 @@ def observe_grounded_sphere_wire(
     if type(problem) is not ElectrostaticProblem or len(problem.charges) != 1 or len(problem.conductors) != 1:
         raise UnsupportedProblem("wire current requires one point charge and one grounded solid sphere")
     sphere, source = problem.conductors[0], problem.charges[0]
-    if type(sphere) is not SolidSphere or type(sphere.constraint) is not Grounded or source.charge_c == 0:
-        raise UnsupportedProblem("wire current requires a nonzero point charge outside a grounded solid sphere")
+    if type(sphere) is not SolidSphere or type(sphere.constraint) is not Grounded:
+        raise UnsupportedProblem("wire current requires a point charge outside one grounded solid sphere")
+    # The older immutable-model constructors intentionally preserve their
+    # historical numeric acceptance. Close that gap at this new public
+    # observation/export boundary: Python True is not a charge, radius or epsilon.
+    q = _number(source.charge_c, "source charge")
+    radius = _number(sphere.radius_m, "sphere radius")
+    epsilon = _number(problem.permittivity_f_per_m, "permittivity")
+    if q == 0:
+        raise UnsupportedProblem("wire current requires a nonzero external point charge")
+    if radius <= 0 or epsilon <= 0:
+        raise ValueError("sphere radius and permittivity must be strictly positive")
     velocity = _vector(source_velocity_m_s, "source velocity")
     if hypot(*velocity) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
         raise UnsupportedProblem("ideal quasistatic current requires velocity below the classical speed cutoff")
     dx = tuple(source.position_m[i] - sphere.center_m[i] for i in range(3))
     d = hypot(*dx)
-    if not isfinite(d) or not d > sphere.radius_m:
+    if not isfinite(d) or not d > radius:
         raise UnsupportedProblem("source must be strictly outside the grounded solid sphere")
     radial_velocity = fsum(dx[i] * velocity[i] / d for i in range(3))
 
@@ -112,7 +122,7 @@ def observe_grounded_sphere_wire(
         raise UnsupportedProblem("moving source identity is not uniquely retained")
     charge_on_sphere = native.conductor_results[0].net_charge_c
     # If d increases, negative induced charge becomes less negative.
-    charge_rate = source.charge_c * (sphere.radius_m / d) * (radial_velocity / d)
+    charge_rate = q * (radius / d) * (radial_velocity / d)
     # The ground terminal has the opposite sign of the sphere-charge rate.
     sphere_to_ground = -charge_rate
     values = (d, radial_velocity, charge_on_sphere, charge_rate,
@@ -121,8 +131,8 @@ def observe_grounded_sphere_wire(
     if not all(isfinite(x) for x in values):
         raise ValueError("Kelvin charge, current, force or energy overflowed")
     return GroundedSphereWireObservation(
-        sphere.name, sphere.center_m, sphere.radius_m, source.charge_c,
-        problem.permittivity_f_per_m, source.position_m, velocity, d, radial_velocity, charge_on_sphere,
+        sphere.name, sphere.center_m, radius, q,
+        epsilon, source.position_m, velocity, d, radial_velocity, charge_on_sphere,
         charge_rate, sphere_to_ground, charge_rate,
         force_data.charges[0].total_force_n, force_data.energy.total_j,
     )

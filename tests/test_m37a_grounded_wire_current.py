@@ -243,3 +243,62 @@ def test_source_free_independent_si_reference_accepts_genuine_and_rejects_forged
         edit(hostile)
         with pytest.raises(ValueError):
             validate_examples(hostile)
+
+
+
+@pytest.mark.parametrize("scalar", ["source charge", "sphere radius", "permittivity"])
+def test_m37a_public_observer_rejects_boolean_physical_scalars_before_kelvin_solve(scalar):
+    # Older immutable components accept Boolean values as Python numbers;
+    # this new public scientific export boundary must not interpret True as 1 SI.
+    if scalar == "source charge":
+        p = replace(model(), charges=(PointCharge(True, (0., 0., .2)),))
+    elif scalar == "sphere radius":
+        p = ElectrostaticProblem(
+            (PointCharge(1e-9, (0., 0., 2.)),),
+            (SolidSphere(True, Grounded(), name="Sphere A"),),
+        )
+    else:
+        p = replace(model(), permittivity_f_per_m=True)
+    with pytest.raises(ValueError, match=scalar):
+        observe_grounded_sphere_wire(p, (0., 0., -.07))
+
+
+def test_m37a_instantaneous_boolean_refusal_does_not_break_valid_si_roundtrip():
+    from tools.m37a_ground_wire_reference import check_instant
+    p = model(q=-2e-9, r=.247, a=.083)
+    observation = observe_grounded_sphere_wire(p, (0., .004, -.073))
+    record = observation.as_dict()
+    assert type(record["point_charge_c"]) is float
+    assert type(record["sphere_radius_m"]) is float
+    assert type(record["permittivity_f_per_m"]) is float
+    assert record["units"]["current"] == "A"
+    assert check_instant(record)[0] == pytest.approx(.247)
+
+
+def test_m37a_reference_checker_rejects_exact_reviewed_schema_and_identity_forgery_attacks():
+    import json
+    from copy import deepcopy
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+    genuine = json.loads(json.dumps(example_data(), allow_nan=False))
+    assert validate_examples(genuine)["actual_time_samples"] == 6
+    attacks = (
+        ("unit current", lambda d: d["instantaneous_prescribed"][0]["units"].__setitem__("current", "mA"), "SI units"),
+        ("unit energy", lambda d: d["instantaneous_prescribed"][0]["units"].__setitem__("energy", "eV"), "SI units"),
+        ("unit time", lambda d: d["actual_elapsed_time"]["motion"]["units"].__setitem__("time", "ms"), "SI units"),
+        ("missing instant units", lambda d: d["instantaneous_prescribed"][0].pop("units"), "SI units"),
+        ("missing motion units", lambda d: d["actual_elapsed_time"]["motion"].pop("units"), "SI units"),
+        ("sphere identity", lambda d: d["actual_elapsed_time"]["observations"][2].__setitem__("sphere_name", "Different physical conductor"), "conductor identity"),
+        ("sphere center", lambda d: d["actual_elapsed_time"]["observations"][2].__setitem__("sphere_center_m", [0., 0., .001]), "physical|conductor"),
+        ("sphere radius", lambda d: d["actual_elapsed_time"]["observations"][2].__setitem__("sphere_radius_m", .14), "physical|conductor|radius"),
+        ("permittivity", lambda d: d["actual_elapsed_time"]["observations"][2].__setitem__("permittivity_f_per_m", 2*EPSILON_0), "physical|conductor|force"),
+        ("motion method", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("method", "FEMM time-dependent electron drift"), "motion method"),
+        ("motion mode", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("mode", "prescribed animation, not dynamics"), "motion mode"),
+        ("trace current sign", lambda d: d["actual_elapsed_time"].__setitem__("current_sign", "sphere_to_ground positive for electron flux"), "trace current sign"),
+        ("trace physical regime", lambda d: d["actual_elapsed_time"].__setitem__("physics_regime", "full Maxwell transient with wire inductance"), "physical regime"),
+    )
+    for label, mutate, reason in attacks:
+        forged = deepcopy(genuine)
+        mutate(forged)
+        with pytest.raises(ValueError, match=reason):
+            validate_examples(forged)

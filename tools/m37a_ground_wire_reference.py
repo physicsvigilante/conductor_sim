@@ -12,6 +12,24 @@ from pathlib import Path
 
 EPSILON_0 = 8.8541878128e-12
 
+# Authoritatively declared SI units for these fixed schema revisions.
+# Different display units require an explicit conversion and schema version;
+# never silently bless amperes as milliamperes or seconds as milliseconds.
+INSTANT_SI_UNITS = {
+    "length": "m", "velocity": "m/s", "charge": "C",
+    "current": "A", "force": "N", "energy": "J",
+}
+MOTION_SI_UNITS = {
+    "time": "s", "displacement": "m", "velocity": "m/s",
+    "acceleration": "m/s^2", "force": "N", "energy": "J",
+}
+M16A_METHOD = "Adaptive RK4 step doubling; existing analytical force_energy at each RHS evaluation"
+
+
+def _check_units(record, expected, label):
+    if type(record.get("units")) is not dict or record["units"] != expected:
+        raise ValueError(f"{label}: declared SI units missing or inconsistent with stored physical numbers")
+
 
 def _number(v, label):
     if type(v) not in (int, float) or not isfinite(v):
@@ -41,6 +59,7 @@ def check_instant(record):
         raise ValueError("prescribed instant falsely claims time evolution")
     if record.get("current_sign") != "positive sphere_to_ground is conventional +charge flux":
         raise ValueError("ground-wire current sign convention missing or false")
+    _check_units(record, INSTANT_SI_UNITS, "instantaneous observation")
     if not isinstance(record.get("sphere_name"), str) or not record["sphere_name"]:
         raise ValueError("physical sphere name missing")
     c = _vector(record.get("sphere_center_m"), "center")
@@ -99,9 +118,18 @@ def validate_examples(document):
         raise ValueError("missing qualified actual-motion trace")
     if trace.get("mode") != "actual elapsed-time M16a motion; instant Kelvin response":
         raise ValueError("saved teacher time trace does not declare actual integrated origin")
+    if trace.get("current_sign") != "sphere_to_ground positive for conventional +charge flux":
+        raise ValueError("trace current sign must denote conventional positive-charge flux")
+    if trace.get("physics_regime") != "ideal quasistatic, classical point charge; no wire impedance or impact":
+        raise ValueError("trace physical regime misrepresents an ideal quasistatic conductor")
     motion = trace.get("motion")
     if not isinstance(motion, dict) or motion.get("schema") != "conductor_sim.motion_1d.v1":
         raise ValueError("M16a motion schema missing")
+    if motion.get("mode") != "elapsed-time classical dynamics":
+        raise ValueError("nested motion mode falsely represents the M16a integration")
+    if motion.get("method") != M16A_METHOD:
+        raise ValueError("nested motion method falsely attributes M16a integration")
+    _check_units(motion, MOTION_SI_UNITS, "M16a saved motion")
     rows, observations = motion.get("samples"), trace.get("observations")
     if not isinstance(rows, list) or not isinstance(observations, list) or len(rows) != len(observations) or len(rows) < 2:
         raise ValueError("actual motion time/current sample lengths disagree")
@@ -113,6 +141,7 @@ def validate_examples(document):
         raise ValueError("invalid physical mass or radial motion axis")
     prev_time = -1.
     firstK = firstU = None
+    fixed_sphere_identity = None
     for row, record in zip(rows, observations):
         if not isinstance(row, dict) or not isinstance(record, dict):
             raise ValueError("malformed physical time sample")
@@ -122,6 +151,17 @@ def validate_examples(document):
         prev_time = t
         _same(record.get("time_s"), t, "current snapshot elapsed time")
         d, vr, U, force = check_instant(record)
+        # A single fixed grounded metal must not change identity or geometry
+        # between genuinely elapsed-time samples. Numeric sample physics alone
+        # does not authenticate the authored conductor name.
+        identity = (
+            record["sphere_name"], tuple(record["sphere_center_m"]),
+            record["sphere_radius_m"], record["permittivity_f_per_m"],
+        )
+        if fixed_sphere_identity is None:
+            fixed_sphere_identity = identity
+        elif identity != fixed_sphere_identity:
+            raise ValueError("time trace changes the fixed conductor identity, centre, radius or permittivity")
         delta = _number(row.get("displacement_m"), "actual motion displacement")
         vscalar = _number(row.get("velocity_m_s"), "signed particle velocity")
         position = _vector(row.get("position_m"), "actual saved position")
