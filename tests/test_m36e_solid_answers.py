@@ -54,8 +54,8 @@ def test_source_specific_readout_panel_has_three_native_physical_states(native):
     assert "Induced surface-charge profile" in TEMPLATE
     assert "Surface-charge density (one real outer face)" not in TEMPLATE
     assert 'data-m36e-state="0"' in text
-    assert 'data-m36e-state="1" hidden' in text
-    assert 'data-m36e-state="2" hidden' in text
+    assert re.search(r'data-m36e-state="1" data-m36e-role="[^"]+" hidden',text)
+    assert re.search(r'data-m36e-state="2" data-m36e-role="[^"]+" hidden',text)
 
 
 def test_each_original_or_teacher_readout_is_actually_from_saved_native_observables(native):
