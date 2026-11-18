@@ -168,8 +168,8 @@ hr {{border:0;border-top:1px solid #d7e1e7}}
 <section class="pane">
 <h2>Selected precomputed physical observation</h2>
 <label for="m37b-index">Teacher-prescribed elapsed time (s): <strong id="m37b-time">{first["time_label"]}</strong></label>
-<input id="m37b-index" type="range" min="0" max="{len(rows)-1}" value="0" step="1" aria-label="Select precomputed prescribed time snapshot">
-<p class="small"><button type="button" id="m37b-start">Restart</button> <button type="button" id="m37b-play">Play saved snapshots</button> Playback speed is display compression, NOT physical real-time.</p>
+<input id="m37b-index" type="range" min="0" max="{len(rows)-1}" value="0" step="1" disabled aria-label="Select precomputed prescribed time snapshot">
+<p class="small"><button type="button" id="m37b-start" disabled>Restart</button> <button type="button" id="m37b-play" disabled>Play saved snapshots</button> Playback speed is display compression, NOT physical real-time.</p>
 <div class="metrics" aria-live="polite">
 <div class="metric">Radial separation d <strong class="value" id="m37b-distance">{first["distance_label"]}</strong></div>
 <div class="metric">Net induced sphere Q <strong class="value" id="m37b-Q">{first["induced_charge_label"]}</strong></div>
@@ -214,6 +214,9 @@ document.getElementById("m37b-play").addEventListener("click",()=>{{
     show(i);
   }},100);
 }});
+slider.disabled=false;
+document.getElementById("m37b-start").disabled=false;
+document.getElementById("m37b-play").disabled=false;
 show(0);
 window.m37bPrescribedViewer={{get mode(){{return payload.trace.actual_time_origin;}},get sampleCount(){{return rows.length;}},get selectedIndex(){{return Number(slider.value);}}}};
 }})();
