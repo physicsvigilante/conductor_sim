@@ -1,0 +1,159 @@
+"""Real offline Chromium verification of M37b original-source constant-speed viewer.
+
+The standalone Kelvin SI checker is the physical oracle, not Chromium.
+Browser evidence checks the *actual embedded payload*, visible original/
+teacher attribution, all stored-state controls and no-JS first snapshot.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from math import isclose
+from pathlib import Path
+
+from tools.m37b_source_reference import check as independent_jee_si
+
+
+def check(directory: Path):
+    from playwright.sync_api import sync_playwright
+
+    manifest=json.loads((directory/"p8-ground-current.json").read_text(encoding="utf-8"))
+    oracle=independent_jee_si(manifest)
+    target=directory/"p8-ground-current.html"
+    if not target.is_file():
+        raise AssertionError("source-specific offline viewer absent")
+    screenshots=directory/"screenshots"
+    screenshots.mkdir(parents=True,exist_ok=True)
+    views=[]
+    external_requests=[]
+    js_errors=[]
+    with sync_playwright() as browser_tool:
+        browser=browser_tool.chromium.launch(headless=True)
+        try:
+            page=browser.new_page(viewport={"width":1210,"height":840},device_scale_factor=1)
+            page.on("request",lambda r: external_requests.append(r.url)
+                    if r.url.startswith(("https://","http://")) else None)
+            page.on("pageerror",lambda e: js_errors.append(str(e)))
+            page.goto(target.resolve().as_uri(),wait_until="load",timeout=45000)
+            if not page.locator("#m37b-source").is_visible():
+                raise AssertionError("original workbook/source role not visible")
+            if page.locator("#m37b-source h1").inner_text()!="PRINTED WORKBOOK p8 · Multiple Correct Q21":
+                raise AssertionError("visible source page and printed question false")
+            if not page.locator("#m37b-original-statement").is_visible():
+                raise AssertionError("original constant-speed protocol hidden")
+            source_text=page.locator("#m37b-original-statement").inner_text()
+            for part in ("SOURCE-GIVEN","constant small speed","(1) and (3)","sphere→ground"):
+                if part not in source_text:
+                    raise AssertionError("source original symbolic protocol/options falsified")
+            attribution=page.locator("#m37b-teacher-attribution").inner_text()
+            if not attribution.startswith("ALL numbers"):
+                raise AssertionError("teacher numerical inputs passed off as workbook givens")
+            for part in ("TEACHER-CHOSEN","NOT printed workbook numerical givens"):
+                if part not in attribution:
+                    raise AssertionError("teacher numerical source attribution absent")
+            if not page.locator("#m37b-scene").is_visible() or not page.locator("#m37b-current-chart").is_visible():
+                raise AssertionError("physical radial scene/current curve not actually visible")
+            embedded=page.evaluate("() => JSON.parse(document.getElementById('m37b-data').textContent)")
+            if embedded!=manifest:
+                raise AssertionError("embedded viewer data differs from verified native SI JSON")
+            if independent_jee_si(embedded)!=oracle:
+                raise AssertionError("browser embedded SI proof failed")
+            if page.evaluate("() => window.m37bPrescribedViewer?.sampleCount")!=31:
+                raise AssertionError("not 31 actual Python-solved prescribed physical states")
+            if "teacher-prescribed constant-speed" not in page.evaluate(
+                "() => window.m37bPrescribedViewer?.mode"
+            ):
+                raise AssertionError("time slider misrepresented free Newtonian integration")
+            slider=page.locator("#m37b-index")
+            if slider.is_disabled():
+                raise AssertionError("script-enabled offline slider still disabled")
+            positions=manifest["readouts"]
+            for i in (0,1,10,15,25,30):
+                slider.evaluate("(el,i) => {el.value=String(i);el.dispatchEvent(new Event('input',{bubbles:true}));}",i)
+                if page.evaluate("() => window.m37bPrescribedViewer?.selectedIndex")!=i:
+                    raise AssertionError("slider did not select the requested real source index")
+                expected=positions[i]
+                labels=(
+                    ("#m37b-time","time_label"),
+                    ("#m37b-distance","distance_label"),
+                    ("#m37b-Q","induced_charge_label"),
+                    ("#m37b-current","wire_current_label"),
+                    ("#m37b-opposite","opposite_current_label"),
+                )
+                for locator,key in labels:
+                    if page.locator(locator).inner_text().strip()!=expected[key]:
+                        raise AssertionError(f"visible snapshot #{i} {key} mismatches native Kelvin SI value")
+                for locator,axis,key in (
+                    ("#m37b-charge","cx","charge_x_px"),
+                    ("#m37b-current-marker","cx","chart_x_px"),
+                    ("#m37b-current-marker","cy","chart_y_px"),
+                    ("#m37b-q-sign","x","charge_x_px"),
+                ):
+                    raw=page.locator(locator).get_attribute(axis)
+                    if raw is None or not isclose(float(raw),expected[key],rel_tol=2e-12,abs_tol=5e-9):
+                        raise AssertionError(f"visible scene/chart element {locator}.{axis} not at actual Python display position")
+                if i in (0,15,30):
+                    img=screenshots/f"prescribed-time-{i:02}.png"
+                    page.screenshot(path=str(img),full_page=True)
+                    views.append({"sample_index":i,"time_s":manifest["trace"]["samples"][i]["time_s"],
+                                  "current_a":manifest["trace"]["samples"][i]["wire_current_sphere_to_ground_a"],
+                                  "screenshot":img.name})
+            page.locator("#m37b-start").click()
+            if page.locator("#m37b-index").input_value()!="0":
+                raise AssertionError("restart does not return to actual t=0")
+            small=browser.new_page(viewport={"width":390,"height":720},device_scale_factor=1)
+            small.goto(target.resolve().as_uri(),wait_until="load",timeout=45000)
+            body_width=small.evaluate("document.body.scrollWidth")
+            if body_width>395:
+                raise AssertionError("source viewer overflows a 390px mobile screen")
+            small.screenshot(path=str(screenshots/"mobile-first.png"),full_page=True)
+            small.close()
+            offline=browser.new_context(java_script_enabled=False,
+                                        viewport={"width":940,"height":740})
+            try:
+                fallback=offline.new_page()
+                fallback.goto(target.resolve().as_uri(),wait_until="load",timeout=45000)
+                if not fallback.locator("#m37b-nojs").is_visible():
+                    raise AssertionError("broken/hidden no-JavaScript first-frame fallback")
+                if not fallback.locator("#m37b-index").is_disabled():
+                    raise AssertionError("no-JS slider misleadingly changes without live readout")
+                if not fallback.locator("#m37b-start").is_disabled() or not fallback.locator("#m37b-play").is_disabled():
+                    raise AssertionError("no-JS playback buttons falsely claim a working timeline")
+                if fallback.locator("#m37b-current").inner_text()!=positions[0]["wire_current_label"]:
+                    raise AssertionError("no-JS source default current falsified")
+                if fallback.locator("#m37b-Q").inner_text()!=positions[0]["induced_charge_label"]:
+                    raise AssertionError("no-JS original induced charge falsified")
+                if not fallback.locator("#m37b-source").is_visible():
+                    raise AssertionError("source provenance not available without JavaScript")
+                fallback.screenshot(path=str(screenshots/"no-javascript-first.png"),full_page=True)
+            finally:
+                offline.close()
+            page.close()
+        finally:
+            browser.close()
+    if external_requests or js_errors:
+        raise AssertionError(f"offline browser had external HTTP or JS errors: {external_requests} / {js_errors}")
+    result={
+        "native_source_scenarios":1,
+        "independently_verified_sample_count":oracle["verified_python_kelvin_states"],
+        "actual_playwright_chromium_states":len(views),
+        "no_javascript_original_state":True,
+        "mobile_render_checked":True,
+        "external_http_requests":0,
+        "javascript_errors":0,
+        "browser_views":views,
+    }
+    (directory/"chromium-source-report.json").write_text(
+        json.dumps(result,indent=2)+"\n",encoding="utf-8")
+    return result
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir",type=Path,default=Path("output/m37b"))
+    args=parser.parse_args()
+    print(json.dumps(check(args.output_dir),sort_keys=True))
+
+
+if __name__=="__main__":
+    main()
