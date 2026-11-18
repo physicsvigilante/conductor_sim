@@ -80,6 +80,8 @@ def _render_with_truth(bundle,output):
         'of a charged SOLID conductor, and zero E inside its metal. '
         'The first stored state uses REAL SolidSphere physics and a solid '
         'disk cross-section, NOT the historical hollow-shell proxy. '
+        'A TRUE SOLID has ONE outer charged face and NO physical inner face; '
+        'an inner charge of zero is only a result bookkeeping value. '
         'Printed values R and Q are SYMBOLIC. The R=0.10m, Q=+1nC '
         'numbers are TEACHER illustration choices. '
         'Further stored states are labelled TEACHER HYPOTHETICAL: '
