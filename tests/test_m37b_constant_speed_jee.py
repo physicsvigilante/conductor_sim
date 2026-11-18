@@ -332,3 +332,28 @@ def test_independent_si_checker_rejects_unknown_scientific_claim_fields(genuine)
         cursor[key]=value
         with pytest.raises(ValueError):
             independent_si_check(mutated)
+
+
+
+def test_m37b_original_teacher_numeric_caption_cannot_be_reused_on_changed_physical_model():
+    from conductor_sim.prescribed_wire_viewer import viewer_manifest
+    from conductor_sim import author_prescribed_grounded_sphere
+    for changed in (
+        dict(source_charge_c=2e-9, source_position_m=(0.,0.,.30),
+             sphere_radius_m=.10),
+        dict(source_charge_c=1e-9, source_position_m=(0.,0.,.35),
+             sphere_radius_m=.10),
+        dict(source_charge_c=1e-9, source_position_m=(0.,0.,.30),
+             sphere_radius_m=.12),
+    ):
+        model=author_prescribed_grounded_sphere(**changed)
+        spec=PrescribedSphereRadialSpec(model,-.04,3.,31,1e-4)
+        result=sample_prescribed_sphere_radial(spec)
+        with pytest.raises(ValueError,match="teacher numerical example caption"):
+            viewer_manifest(result,SOURCE)
+        teacher={
+            "role":"teacher_hypothetical",
+            "statement":"Teacher changed a physical parameter from the original labelled numerical example",
+            "numeric_attribution":"All parameters TEACHER-CHOSEN; NONE is a printed numerical given.",
+        }
+        assert viewer_manifest(result,teacher)["source"]["role"] == "teacher_hypothetical"

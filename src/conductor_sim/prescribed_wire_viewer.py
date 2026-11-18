@@ -23,6 +23,11 @@ _ORIGINAL_Q21_SYMBOLS = [
     "q > 0", "R > 0", "grounded metal sphere",
     "constant small inward v > 0",
 ]
+_ORIGINAL_Q21_TEACHER_NUMERIC = (
+    "R=0.10m, q=+1nC, d0=0.30m, speed=0.04m/s, "
+    "duration=3.0s and all additional numeric quantities "
+    "are TEACHER-CHOSEN; NONE is a printed numerical given."
+)
 
 
 def _fmt(value):
@@ -67,6 +72,7 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
                 or source.get("case_id") != "p08-multiple-21"
                 or source.get("source_kind") != "workbook exercise, NOT an asserted official JEE exam question"
                 or source.get("statement") != _ORIGINAL_Q21_STATEMENT
+                or source.get("numeric_attribution") != _ORIGINAL_Q21_TEACHER_NUMERIC
                 or source.get("original_symbolic_givens") != _ORIGINAL_Q21_SYMBOLS
                 or type(source.get("original_correct_option_indices")) is not list
                 or [(type(x),x) for x in source["original_correct_option_indices"]] != [(int,1),(int,3)]
@@ -77,6 +83,18 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
             raise ValueError("original workbook identity, option indices or source attribution is false")
         if trace.spec.problem.charges[0].charge_c <= 0 or trace.spec.radial_speed_m_s >= 0:
             raise ValueError("original workbook q>0 inward protocol cannot label a changed teacher world")
+        # The original-labelled view uses ONE concrete teacher numerical
+        # illustration. Changes to its numerical values are genuinely
+        # supported, but must be visibly labelled TEACHER HYPOTHETICAL rather
+        # than inheriting a false 1-nC/10-cm example caption.
+        sphere = trace.spec.problem.conductors[0]
+        source_charge = trace.spec.problem.charges[0]
+        if (source_charge.charge_c != 1e-9
+                or sphere.radius_m != .10
+                or trace.spec.distance_initial_m != .30
+                or trace.spec.radial_speed_m_s != -.04
+                or trace.spec.duration_s != 3.):
+            raise ValueError("original workbook teacher numerical example caption contradicts physical inputs")
         if not all(row.wire_current_sphere_to_ground_a > 0 for row in trace.samples):
             raise ValueError("original positive approaching charge has impossible current direction")
         if not all(after.wire_current_sphere_to_ground_a > before.wire_current_sphere_to_ground_a
