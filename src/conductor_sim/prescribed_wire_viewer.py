@@ -9,7 +9,7 @@ from html import escape
 import json
 from math import isfinite
 
-from .prescribed_ground_wire import PrescribedSphereTrace, SCHEMA
+from .prescribed_ground_wire import PrescribedSphereTrace, SCHEMA, sample_prescribed_sphere_radial
 
 
 def _fmt(value):
@@ -22,6 +22,13 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
     """Bind original-source symbolic statements separately from teacher values."""
     if type(trace) is not PrescribedSphereTrace or not trace.samples:
         raise TypeError("viewer needs a real nonempty prescribed Kelvin trace")
+    # A caller can construct an arbitrary dataclass. A scientific viewer must
+    # not attach a trusted scene/graph to forged saved state observations.
+    # Re-run the existing native static Kelvin observer at every authored
+    # prescribed time and require exact typed evidence before drawing.
+    expected = sample_prescribed_sphere_radial(trace.spec)
+    if trace.samples != expected.samples:
+        raise ValueError("viewer refuses altered prescribed Kelvin current/charge/time samples")
     if type(source) is not dict or source.get("role") not in ("original_workbook_teacher_example", "teacher_hypothetical"):
         raise ValueError("source provenance role is required")
     if type(source.get("statement")) is not str or not source["statement"].strip():

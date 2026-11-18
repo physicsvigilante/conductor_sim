@@ -211,3 +211,19 @@ def test_unchanged_source_fixture_is_teacher_not_fabricated_original_numerics(ge
     assert m["source"]["teacher_hypotheticals_counted_as_original"]==0
     assert "TEACHER-CHOSEN" in m["source"]["numeric_attribution"]
     assert "constant" in m["source"]["statement"]
+
+
+
+def test_viewer_refuses_constructed_forged_physics_even_with_valid_dataclass_types():
+    from conductor_sim.prescribed_ground_wire import PrescribedSphereTrace
+    from conductor_sim.prescribed_wire_viewer import viewer_manifest
+    valid = sample_prescribed_sphere_radial(make_example())
+    forged = replace(
+        valid,
+        samples=(replace(valid.samples[0],
+                         wire_current_sphere_to_ground_a=-1e-8),*valid.samples[1:]),
+    )
+    assert type(forged) is PrescribedSphereTrace
+    with pytest.raises(ValueError, match="viewer refuses altered prescribed Kelvin"):
+        viewer_manifest(forged,SOURCE)
+    assert viewer_manifest(valid,SOURCE)["source"]["original_correct_option_indices"]==[1,3]

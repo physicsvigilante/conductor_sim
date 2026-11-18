@@ -41,16 +41,21 @@ def check(directory: Path):
                 raise AssertionError("visible source page and printed question false")
             if not page.locator("#m37b-original-statement").is_visible():
                 raise AssertionError("original constant-speed protocol hidden")
-            source_text=page.locator("#m37b-original-statement").inner_text()
-            for part in ("SOURCE-GIVEN","constant small speed","(1) and (3)","sphere→ground"):
-                if part not in source_text:
-                    raise AssertionError("source original symbolic protocol/options falsified")
-            attribution=page.locator("#m37b-teacher-attribution").inner_text()
-            if not attribution.startswith("ALL numbers"):
-                raise AssertionError("teacher numerical inputs passed off as workbook givens")
-            for part in ("TEACHER-CHOSEN","NOT printed workbook numerical givens"):
-                if part not in attribution:
-                    raise AssertionError("teacher numerical source attribution absent")
+            source_text=page.locator("#m37b-original-statement").inner_text().strip()
+            exact_original=(
+                "SOURCE-GIVEN: positive q approaches a grounded metallic sphere of radius R "
+                "at externally maintained constant small speed v. Workbook answer key: "
+                "options (1) and (3), conventional sphere→ground current increasing."
+            )
+            if source_text!=exact_original:
+                raise AssertionError("visible original Q21 symbolic source/current claim altered")
+            attribution=page.locator("#m37b-teacher-attribution").inner_text().strip()
+            exact_teacher=(
+                "ALL numbers (q, R, d₀, v, duration, ε) displayed here are TEACHER-CHOSEN "
+                "illustrations, NOT printed workbook numerical givens."
+            )
+            if attribution!=exact_teacher:
+                raise AssertionError("visible teacher-source numeric attribution altered or falsified")
             if not page.locator("#m37b-scene").is_visible() or not page.locator("#m37b-current-chart").is_visible():
                 raise AssertionError("physical radial scene/current curve not actually visible")
             embedded=page.evaluate("() => JSON.parse(document.getElementById('m37b-data').textContent)")
@@ -68,6 +73,33 @@ def check(directory: Path):
             if slider.is_disabled():
                 raise AssertionError("script-enabled offline slider still disabled")
             positions=manifest["readouts"]
+            # The entire plotted current curve and conductor circle are
+            # actual DOM geometry, not trustworthy just because the embedded
+            # JSON is correct. Check them before any slider interaction.
+            phys=manifest["layout"]
+            for name,attr,key in (
+                ("#m37b-sphere","cx","sphere_cx_px"),
+                ("#m37b-sphere","cy","sphere_cy_px"),
+                ("#m37b-sphere","r","sphere_radius_px"),
+                ("#m37b-charge","cy","charge_cy_px"),
+            ):
+                value=page.locator(name).get_attribute(attr)
+                if value is None or not isclose(float(value),phys[key],rel_tol=3e-12,abs_tol=1e-9):
+                    raise AssertionError(f"visible drawn physical geometry {name}.{attr} contradicts native model")
+            points=page.locator("#m37b-current-line").get_attribute("points")
+            if points is None:
+                raise AssertionError("missing actual drawn current-versus-prescribed-time curve")
+            plotted=points.split()
+            if len(plotted)!=len(positions):
+                raise AssertionError("graph lost genuine stored current observations")
+            for i,(point,row) in enumerate(zip(plotted,positions)):
+                xy=point.split(",")
+                if len(xy)!=2 or any(not isclose(float(xy[j]),row[k],
+                                                rel_tol=3e-10,abs_tol=2e-7)
+                                      for j,k in ((0,"chart_x_px"),(1,"chart_y_px"))):
+                    raise AssertionError(f"drawn current graph point {i} contradicts verified physical series")
+            if page.locator("#m37b-q-sign").inner_text().strip()!="+q":
+                raise AssertionError("source says q positive but actual plotted charge sign differs")
             for i in (0,1,10,15,25,30):
                 slider.evaluate("(el,i) => {el.value=String(i);el.dispatchEvent(new Event('input',{bubbles:true}));}",i)
                 if page.evaluate("() => window.m37bPrescribedViewer?.selectedIndex")!=i:
