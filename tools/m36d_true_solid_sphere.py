@@ -8,6 +8,7 @@ Teacher numeric values and hypothetical models are NEVER source-given facts.
 from __future__ import annotations
 import argparse
 from dataclasses import asdict
+from html import escape
 from math import hypot
 import json
 from pathlib import Path
@@ -66,7 +67,98 @@ def _sample(solution, sphere):
     return probes
 
 
-def _render_with_truth(bundle,output):
+def _source_answer_panel(states):
+    """Render true NATIVE observation numbers, never prefilled answer formulas.
+
+    Exactly one section is displayed at a time. The original-source section
+    remains readable when JavaScript is disabled. The existing M5 state
+    slider drives the source-scoped panel; it does not integrate physics.
+    """
+    def fmt(x):
+        return format(x, ".11g")
+
+    sections=[]
+    for index,state in enumerate(states):
+        samples=state["native_samples"]
+        geom=state["physical_geometry"]
+        net=state["observed_conductor_results"][0]["net_charge_c"]
+        grounded=state["constraint_type"]=="Grounded"
+        role=(
+            "PRINTED ORIGINAL GEOMETRY · TEACHER numerical example"
+            if index==0 else
+            "TEACHER HYPOTHETICAL · NOT printed source data"
+        )
+        charge=(
+            "Grounded · actual solved Q=0 C in empty space"
+            if grounded else
+            f"Isolated net Q={fmt(net*1e9)} nC (authored teacher value)"
+        )
+        number_values=(
+            ("V(R/2)","V_half_R",samples["half_radius_potential_v"],"V"),
+            ("V(3R/2)","V_three_half_R",samples["three_half_radius_potential_v"],"V"),
+            ("|E(R/2)|","E_inside",
+             sum(v*v for v in samples["metal_half_radius_e_v_m"])**.5,"V/m"),
+            ("Outer-face sigma","sigma_outer",samples["outer_sigma_c_m2"],"C/m²"),
+        )
+        elements=[]
+        for label,key,value,unit in number_values:
+            elements.append(
+                '<div class="m36e-answer-observation" '
+                'style="padding:7px 10px;border:1px solid #cbd9e0;border-radius:6px">'
+                f'<div style="font-size:13px;color:#345">{escape(label)}</div>'
+                f'<strong data-m36e-number="{escape(key,quote=True)}" '
+                f'data-native-value="{format(value,".17g")}">'
+                f'{escape(fmt(value))} {escape(unit)}</strong>'
+                '</div>'
+            )
+        hidden=" hidden" if index else ""
+        cx,cy,cz=geom["center_m"]
+        sections.append(
+            f'<section data-m36e-state="{index}" data-m36e-role="{escape(state["case_role"],quote=True)}"{hidden}>'
+            f'<p style="font-weight:650;margin:6px 0">{escape(role)}</p>'
+            f'<p style="margin:5px 0">TRUE SOLID Sphere A: '
+            f'R={escape(fmt(geom["radius_m"]))} m; '
+            f'{escape(charge)}; '
+            f'center=({escape(fmt(cx))}, {escape(fmt(cy))}, {escape(fmt(cz))}) m. '
+            'Only one physical OUTER charge-density face exists.</p>'
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px">'
+            + "".join(elements) + '</div></section>'
+        )
+    return (
+        '<section id="m36e-source-observations" aria-live="polite" '
+        'style="max-width:1220px;margin:16px auto;padding:14px 18px;'
+        'background:#fff;border:1px solid #b4cad0;border-radius:9px;'
+        'color:#142334;box-shadow:0 2px 12px #14233412">'
+        '<h2 style="font-size:19px;margin:0">Original JEE p26: native potential observations</h2>'
+        '<p style="margin:5px 0;color:#3d5462">The printed source supplies SYMBOLIC R and Q. '
+        'All numerical inputs are teacher-chosen. Switching the stored-state slider '
+        'updates these values to the selected genuine static solution, '
+        'NOT a time trajectory.</p>'
+        + "".join(sections) + '</section>'
+    )
+
+
+def _source_answer_sync_script():
+    """Bind additional source-only readouts after the existing M5 JS starts."""
+    return (
+        '<script id="m36e-static-answer-synchronizer">'
+        '(function(){'
+        'const frameInput=document.getElementById("frame");'
+        'const panels=[...document.querySelectorAll("[data-m36e-state]")];'
+        'function update(){'
+        'const index=Number(frameInput.value);'
+        'panels.forEach((panel)=>{'
+        'panel.hidden=Number(panel.dataset.m36eState)!==index;'
+        '});'
+        '}'
+        'frameInput.addEventListener("input",update);'
+        'update();'
+        '})();'
+        '</script>'
+    )
+
+
+def _render_with_truth(bundle,output,states):
     write_visualization(
         bundle,output,
         title="JEE original p26 Illustration 1 · TRUE SOLID conducting sphere",
@@ -91,10 +183,27 @@ def _render_with_truth(bundle,output):
         '</section>'
     )
     html=output.read_text(encoding="utf-8")
-    if "</header>" not in html:
-        raise ValueError("could not insert genuinely solid-source educational label")
-    output.write_text(html.replace("</header>",source_banner+"</header>",1),
-                      encoding="utf-8")
+    if "</header>" not in html or "</body>" not in html:
+        raise ValueError("source viewer is missing required HTML regions")
+    if "<h2>Induced surface-charge profile</h2>" not in html:
+        raise ValueError("cannot truthfully label isolated outer surface-charge density")
+    if 'aria-label="Induced charge density along a great circle"' not in html:
+        raise ValueError("isolated charge-density viewer label unexpectedly changed")
+    # This refinement is scoped ONLY to this source-authentic single solid
+    # sphere. Induced-charge density headings in other source viewers remain.
+    html=html.replace(
+        "<h2>Induced surface-charge profile</h2>",
+        "<h2>Surface-charge density (one real outer face)</h2>",1,
+    ).replace(
+        'aria-label="Induced charge density along a great circle"',
+        'aria-label="Surface-charge density along a great circle"',1,
+    )
+    html=html.replace(
+        "</header>",source_banner+"</header>"+_source_answer_panel(states),1,
+    ).replace(
+        "</body>",_source_answer_sync_script()+"</body>",1,
+    )
+    output.write_text(html,encoding="utf-8")
 
 
 def run_all(directory: Path) -> dict:
@@ -141,7 +250,9 @@ def run_all(directory: Path) -> dict:
         }
         source_cases.append((label,problem))
         states.append(state)
-    plane=SliceSpec.meridian(models[0][1],extent_m=.31,resolution=37)
+    # Denser ACTUAL stored physical field samples improve circular edge
+    # display. No invented interpolation or unverified subpixel surface E.
+    plane=SliceSpec.meridian(models[0][1],extent_m=.31,resolution=65)
     bundle=sample_sweep(source_cases,backend,plane=plane,line_steps=85,profile_samples=33)
     if len(bundle["frames"])!=3:
         raise AssertionError("real static source and two teacher state slices absent")
@@ -151,7 +262,7 @@ def run_all(directory: Path) -> dict:
                 or not item["visible"]):
             raise AssertionError("the drawn source is not genuinely SOLID")
     output=directory/"p26-true-solid-sphere.html"
-    _render_with_truth(bundle,output)
+    _render_with_truth(bundle,output,states)
     report={
         "schema":"conductor_sim.m36d_real_solid_p26.v1",
         "printed_source":{"filename":PDF,"page":26,
