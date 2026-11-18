@@ -1,0 +1,239 @@
+"""M36c: seven *real* original-source conductor apparatus, eight question anchors.
+
+Each output is a native analytic conductor-solution observation. This is
+static electrostatics: frame switches are NEVER wire-time or particle motion.
+A second, source-free SI reference checker and Chromium run are separate gates.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict
+from hashlib import sha256
+from math import pi
+from pathlib import Path
+
+from conductor_sim import ConnectedShellBackend, NestedShellBackend, ExternalSphereBackend
+from conductor_sim.solver import SingularField
+from conductor_sim.visualization import write_visualization
+from conductor_sim.pdf_benchmark import load_case, measure, export_case
+from conductor_sim.pdf_benchmark import PDF_NAME, PDF_SHA256
+from examples.solid_sphere_connected import scenario as solid_connection
+from examples.connected_shells import scenario as shell_connection
+from m13c.pdf_cases import authored as external_case, export_pdf as export_external
+from tools.m36a_jee30_audit import audit_inventory, load_inventory, ROOT
+
+SOURCE_CASES = (
+    "p03-single-27",
+    "p10-linked-13+p10-linked-14",
+    "p14-numerical-07",
+    "p26-conductor-potential",
+    "p27-cavity-two-shells",
+    "p69-cavity-central-vs-shifted",
+    "p09-multiple-27",
+)
+M36A_ANCHORS = (
+    "p03-single-27", "p10-linked-13", "p10-linked-14",
+    "p14-numerical-07", "p26-conductor-potential",
+    "p27-cavity-two-shells", "p69-cavity-central-vs-shifted",
+    "p09-multiple-27",
+)
+NOT_FULLY_MODELED = ("p08-multiple-21","p70-three-cavities")
+
+
+def _results(solution):
+    return [asdict(c) for c in solution.conductor_results]
+
+
+def _connected(case_id: str, authored_case: str, directory: Path) -> dict:
+    if case_id == "p14-numerical-07":
+        plan = shell_connection(authored_case)
+    else:
+        plan = solid_connection(authored_case)
+    native=ConnectedShellBackend().solve(plan)
+    output=directory/(case_id+".html")
+    bundle=native.visualization(resolution=19,line_steps=55,profile_samples=15)
+    if len(bundle["frames"])!=2:
+        raise AssertionError("conductor connection must show two actual equilibria")
+    bundle["source_replay_case_id"]=case_id
+    write_visualization(bundle,output,title="JEE conductor replay: "+case_id)
+    bodies=[]
+    for body in plan.initial.conductors:
+        bodies.append({
+            "name":body.name,
+            "kind":type(body).__name__,
+            "inner_radius_m":getattr(body,"inner_radius_m",None),
+            "outer_radius_m":body.outer_radius_m,
+        })
+    sample_r=.15
+    return {
+        "source_case_id":case_id,
+        "kind":"two_physical_static_equilibria_not_wire_current_time",
+        "native":True,
+        "viewer_file":output.name,
+        "source_authored_case":authored_case,
+        "source_input_bodies":bodies,
+        "links":[{"mode":link.mode,"members":list(link.members)} for link in plan.links],
+        "before":_results(native.before),
+        "after":_results(native.after),
+        "transfers":[asdict(x) for x in native.transfers],
+        "radial_energy_before_j":native.radial_field_energy_before_j,
+        "radial_energy_after_j":native.radial_field_energy_after_j,
+        "released_energy_j":native.released_field_energy_j,
+        "gap_radius_m":sample_r,
+        "gap_field_before_v_m":list(native.before.electric_field_at((sample_r,0.,0.))),
+        "gap_field_after_v_m":list(native.after.electric_field_at((sample_r,0.,0.))),
+    }
+
+
+def _notes_case(id_: str, name: str, directory: Path) -> dict:
+    case=load_case(name)
+    if not case.runnable or case.author is None:
+        raise ValueError("selected JEE original source author unavailable: "+name)
+    original=case.author()
+    backend=NestedShellBackend()
+    states=[]
+    for state_index,(title,problem) in enumerate(original.states):
+        if not backend.supports(problem):
+            raise AssertionError("source-constrained nested conductor unsupported: "+name)
+        sol=backend.solve(problem)
+        states.append({
+            "index":state_index,
+            "title":title,
+            "conductors":[{
+                "name":c.name,"inner_radius_m":c.inner_radius_m,
+                "outer_radius_m":c.outer_radius_m,
+                "initial_constraint":type(c.constraint).__name__,
+            } for c in problem.conductors],
+            "charges":[{"position_m":list(q.position_m),"charge_c":q.charge_c}
+                       for q in problem.charges],
+            "native_conductor_results":_results(sol),
+        })
+    observations=[]
+    for check in original.checks:
+        label,problem=original.states[check.state]
+        sol=backend.solve(problem)
+        # Do NOT copy check.expected into recorded measured output.
+        # It is an old exercise reference, not a fresh physical observation.
+        observed=measure(sol,check,problem)
+        observations.append({
+            "state_index":check.state,
+            "label":check.label,
+            "kind":check.kind,
+            "point_m":list(check.point_m) if check.point_m is not None else None,
+            "conductor":check.conductor,
+            "other_conductor":check.other_conductor,
+            "theta_rad":check.theta_rad,
+            "native_value":observed,
+        })
+    output=directory/(id_+".html")
+    export_case(name,output,backend_name="analytical",resolution=19)
+    if not output.is_file():
+        raise AssertionError("existing JEE source viewer did not render")
+    return {
+        "source_case_id":id_,"source_authoring_id":name,
+        "kind":"true_static_conductor_field_and_surface_observations",
+        "native":True,"viewer_file":output.name,
+        "source_pdf_page":case.page,"source_anchor":case.source_anchor,
+        "authored_states":states,"native_observations":observations,
+    }
+
+
+def _neutral_tangent(directory: Path) -> dict:
+    id_="p09-multiple-27"
+    spec=external_case(id_)
+    solution=ExternalSphereBackend().solve(spec.problem)
+    output=directory/(id_+".html")
+    export_external(id_,output,resolution=15)
+    sphere=spec.problem.conductors[0]
+    source=spec.problem.charges[0]
+    tangent=(3.,0.,0.)
+    direct_distance=4.
+    direct_k=1/(4*pi*spec.problem.permittivity_f_per_m)
+    induced=solution.potential_at(tangent)-direct_k*source.charge_c/direct_distance
+    return {
+        "source_case_id":id_,
+        "kind":"static_external_neutral_sphere_kelvin_induction_not_approach_time",
+        "native":True,
+        "viewer_file":output.name,
+        "source_page":9,"source_question":"Multiple Correct Q27",
+        "source_givens":{
+            "sphere_radius_m":sphere.radius_m,
+            "sphere_net_charge_c":solution.conductor_results[0].net_charge_c,
+            "point_source_charge_c":source.charge_c,
+            "point_source_position_m":list(source.position_m),
+            "tangent_segment_ab_m":4.,
+        },
+        "native_sphere_potential_v":solution.conductor_results[0].potential_v,
+        "native_total_potential_at_tangent_v":solution.potential_at(tangent),
+        "native_induced_only_at_tangent_v":induced,
+        "teacher_position_sweep":"Additional 5-point static sweep, not in original source",
+    }
+
+
+def run_all(directory: Path) -> dict:
+    audit_inventory()   # Real original PDFs and 30 source identities admitted.
+    inventory=load_inventory(ROOT/"docs/m36a_jee30_coverage.json")
+    by_id={x["id"]:x for x in inventory["cases"]}
+    if any(by_id[id_]["candidate_route"]!="supported_scoped" for id_ in M36A_ANCHORS):
+        raise ValueError("original conductor case is not scoped-supported")
+    if by_id[NOT_FULLY_MODELED[0]]["candidate_route"]!="partial":
+        raise ValueError("unspecified current history cannot become a solved conductor case")
+    if by_id[NOT_FULLY_MODELED[1]]["candidate_route"]!="unsupported":
+        raise ValueError("unqualified irregular 3D multicavity cannot become a solved case")
+    directory.mkdir(parents=True,exist_ok=True)
+    recorded={
+        "p03-single-27":_connected("p03-single-27","pdf-p03-q27",directory),
+        "p10-linked-13+p10-linked-14":_connected(
+            "p10-linked-13+p10-linked-14","pdf-p10-q13-q14",directory),
+        "p14-numerical-07":_connected(
+            "p14-numerical-07","pdf-p14-q7",directory),
+        "p26-conductor-potential":_notes_case(
+            "p26-conductor-potential","p26-conductor-potential",directory),
+        "p27-cavity-two-shells":_notes_case(
+            "p27-cavity-two-shells","p27-cavity-two-shells",directory),
+        "p69-cavity-central-vs-shifted":_notes_case(
+            "p69-cavity-central-vs-shifted","p69-cavity-central-vs-shifted",directory),
+        "p09-multiple-27":_neutral_tangent(directory),
+    }
+    if tuple(recorded)!=SOURCE_CASES:
+        raise AssertionError("unexpected 7-apparatus pilot composition")
+    for case in recorded.values():
+        if not case["native"] or not (directory/case["viewer_file"]).is_file():
+            raise AssertionError("missing real native original conductor source viewer")
+    refusals=[
+        {"id":"p08-multiple-21","kind":"PARTIAL","native":False,
+         "reason":"Static grounded sphere position sweep is NOT a source-given approach-time current dQ/dt."},
+        {"id":"p70-three-cavities","kind":"UNSUPPORTED","native":False,
+         "reason":"Nonconcentric three-cavity LOCAL 3D E and surface sigma remain outside certified physical domain."},
+    ]
+    manifest={
+        "schema":"conductor_sim.m36c_conductor_source_replays.v1",
+        "source_cohort":"M36a original 29+1 PDF apparatus",
+        "source_case_count":7,
+        "historical_anchors_used":list(M36A_ANCHORS),
+        "native_source_apparatus":recorded,
+        "non_success_controls":refusals,
+        "physical_reference":"PENDING separate standard-library SI reference checker",
+        "actual_browser_inspection":"PENDING actual offline Chromium",
+        "source_givens_vs_teacher":"Example authoring values must be explicit; two linked p10 questions count as ONE physical apparatus.",
+        "textbook_answer_completeness":"NOT attempted",
+    }
+    (directory/"native-conductors.json").write_text(
+        json.dumps(manifest,indent=2,allow_nan=False,ensure_ascii=False)+"\n",encoding="utf-8")
+    return manifest
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir",type=Path,default=Path("output/m36c"))
+    args=parser.parse_args()
+    data=run_all(args.output_dir)
+    print("M36c actual unique conductor apparatus:",data["source_case_count"])
+    print("M36c historical source-question anchors:",len(data["historical_anchors_used"]))
+    print("M36c truthfully limited/unsupported controls:",len(data["non_success_controls"]))
+    print("NATIVE ONLY; independent physics and real Chromium not self-certified")
+
+
+if __name__=="__main__":
+    main()
