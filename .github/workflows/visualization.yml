@@ -8,7 +8,9 @@ permissions:
 jobs:
   visualization:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Historic full Python + 60+ actual Chromium/source steps exceeded 10 min
+    # (M36a first attempt cancelled); retain every step, bound to 25 min.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
