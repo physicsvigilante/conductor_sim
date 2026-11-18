@@ -302,3 +302,103 @@ def test_m37a_reference_checker_rejects_exact_reviewed_schema_and_identity_forge
         mutate(forged)
         with pytest.raises(ValueError, match=reason):
             validate_examples(forged)
+
+
+
+def test_m37a_offline_si_checker_rejects_r2_f4_false_motion_summary_guard_and_events():
+    """R2 reviewer novelties + stronger schema/metadata boundary attacks."""
+    import json
+    from copy import deepcopy
+    from examples.grounded_sphere_wire_current import example_data
+    from tools.m37a_ground_wire_reference import validate_examples
+
+    genuine = json.loads(json.dumps(example_data(), allow_nan=False))
+    assert validate_examples(genuine)["motion_termination"] == "duration"
+
+    def fake_event(document, *, kind="surface-guard"):
+        record = document["actual_elapsed_time"]["motion"]
+        row = record["samples"][2]
+        record["events"].append(dict(
+            kind=kind, time_s=row["time_s"], displacement_m=row["displacement_m"],
+            position_m=row["position_m"],
+            description="Invented terminal event in otherwise genuine run",
+        ))
+
+    attacks = (
+        ("false maximum", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("max_abs_energy_drift_j", 1e9), "maximum absolute energy drift"),
+        ("negative maximum", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("max_abs_energy_drift_j", -1.), "maximum absolute energy drift"),
+        ("boolean maximum", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("max_abs_energy_drift_j", True), "maximum absolute energy drift"),
+        ("negative guard", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("guard_m", -.3), "approach guard"),
+        ("boolean guard", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("guard_m", True), "approach guard"),
+        ("missing guard", lambda d: d["actual_elapsed_time"]["motion"].pop("guard_m"), "approach guard"),
+        ("large guard", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("guard_m", .15), "surface-approach guard"),
+        ("duration forged guard event", fake_event, "impossible surface-guard event"),
+        ("unknown event", lambda d: fake_event(d, kind="collision"), "unsupported physical kind"),
+        ("events not a list", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("events", {}), "event history must be a list"),
+        ("false event position", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("events", [{
+            "kind":"turning-point", "time_s":.02, "displacement_m":.01,
+            "position_m":[0.,0.,.2], "description":"Fabricated unrelated position"}]), "event position"),
+        ("event beyond last sample", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("events", [{
+            "kind":"turning-point", "time_s":9., "displacement_m":0.,
+            "position_m":[0.,0.,.2], "description":"Impossible future turning"}]), "event time"),
+        ("empty description", lambda d: d["actual_elapsed_time"]["motion"].__setitem__("events", [{
+            "kind":"turning-point", "time_s":.02, "displacement_m":0.,
+            "position_m":[0.,0.,.2], "description":""}]), "event description"),
+    )
+    for label, mutate, expected in attacks:
+        bad = deepcopy(genuine)
+        mutate(bad)
+        with pytest.raises(ValueError, match=expected):
+            validate_examples(bad)
+
+
+def test_m37a_offline_si_checker_accepts_true_m16a_turning_and_guarded_terminations():
+    """Genuine M16a event timing and terminal guard must survive strict checks."""
+    import json
+    from examples.grounded_sphere_wire_current import example_data
+    from conductor_sim import observe_grounded_sphere_motion
+    from tools.m37a_ground_wire_reference import validate_examples
+    from copy import deepcopy
+
+    # A real turning point falls between saved regular output timestamps.
+    turn_problem = model(q=1e-9, r=.23, a=.08)
+    turn = integrate_motion_1d(Motion1DSpec(
+        turn_problem, 0, 1e-6, (0,0,1), .01, .35, .005
+    ), ExternalGroundedSphereBackend())
+    assert turn.termination == "duration"
+    assert any(event.kind == "turning-point" for event in turn.events)
+
+    # A genuine surface-guard ends before requested duration and the last
+    # event describes exactly the final pre-contact physical sample.
+    approach = ElectrostaticProblem(
+        (PointCharge(-1e-9, (0.,0.,-.14)),),
+        (SolidSphere(.1, Grounded(), name="Sphere A"),),
+    )
+    stop = integrate_motion_1d(Motion1DSpec(
+        approach, 0, 1e-6, (0.,0.,1.), .35, .25, .01,
+        surface_guard_m=2e-4
+    ), ExternalGroundedSphereBackend())
+    assert stop.termination == "surface-guard"
+    assert stop.events[-1].time_s == stop.samples[-1].time_s
+
+    template = example_data()
+    for motion in (turn, stop):
+        legitimate = deepcopy(template)
+        legitimate["actual_elapsed_time"] = observe_grounded_sphere_motion(motion).as_dict()
+        # Serialize/parse to test actual JSON, not trusted Python dataclass objects.
+        legitimate = json.loads(json.dumps(legitimate, allow_nan=False))
+        assert validate_examples(legitimate)["motion_termination"] == motion.termination
+
+    # Guard termination cannot silently omit or change the final guard event.
+    legitimate = deepcopy(template)
+    legitimate["actual_elapsed_time"] = observe_grounded_sphere_motion(stop).as_dict()
+    legitimate = json.loads(json.dumps(legitimate, allow_nan=False))
+    from copy import deepcopy as copy
+    missing = copy(legitimate)
+    missing["actual_elapsed_time"]["motion"]["events"].clear()
+    with pytest.raises(ValueError, match="final approach event"):
+        validate_examples(missing)
+    fake_position = copy(legitimate)
+    fake_position["actual_elapsed_time"]["motion"]["events"][-1]["displacement_m"] += .001
+    with pytest.raises(ValueError, match="terminal surface-guard displacement"):
+        validate_examples(fake_position)

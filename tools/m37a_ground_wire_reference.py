@@ -141,7 +141,11 @@ def validate_examples(document):
         raise ValueError("invalid physical mass or radial motion axis")
     prev_time = -1.
     firstK = firstU = None
+    max_saved_drift = 0.
     fixed_sphere_identity = None
+    guard = _number(motion.get("guard_m"), "numerical conductor approach guard")
+    if guard <= 0:
+        raise ValueError("numerical conductor approach guard must be strictly positive")
     for row, record in zip(rows, observations):
         if not isinstance(row, dict) or not isinstance(record, dict):
             raise ValueError("malformed physical time sample")
@@ -170,8 +174,8 @@ def validate_examples(document):
             _same(record["source_position_m"][i], position[i], "instant/current position")
             _same(record["source_velocity_m_s"][i], vscalar*axis[i], "instant/current velocity")
         _same(record["point_charge_c"], q0, "retained moving source Q")
-        if d <= record["sphere_radius_m"]:
-            raise ValueError("motion crosses metal")
+        if d <= record["sphere_radius_m"] + guard:
+            raise ValueError("motion sample crosses numerical sphere surface-approach guard")
         _same(row.get("force_n"), fsum(force[i]*axis[i] for i in range(3)), "actual force")
         _same(row.get("acceleration_m_s2"), row["force_n"]/mass, "actual acceleration")
         K = .5*mass*vscalar*vscalar
@@ -188,15 +192,66 @@ def validate_examples(document):
             firstK, firstU = K, saved_U
             if t != 0 or delta != 0:
                 raise ValueError("actual motion lacks original physical initial state")
-        _same(row.get("energy_drift_j"), fsum((K-firstK, saved_U-firstU)), "energy drift")
-    if motion.get("termination") not in ("duration", "surface-guard"):
+        saved_drift = _number(row.get("energy_drift_j"), "saved energy drift")
+        _same(saved_drift, fsum((K-firstK, saved_U-firstU)), "energy drift")
+        max_saved_drift = max(max_saved_drift, abs(saved_drift))
+
+    # This summary is computed from the saved, individually SI-checked
+    # samples. Exact equality is appropriate here: there is no new floating
+    # arithmetic, interpolation or independently rounded reference energy.
+    reported_max_drift = _number(
+        motion.get("max_abs_energy_drift_j"), "maximum absolute energy drift")
+    if reported_max_drift != max_saved_drift:
+        raise ValueError("maximum absolute energy drift contradicts saved actual samples")
+
+    termination = motion.get("termination")
+    if termination not in ("duration", "surface-guard"):
         raise ValueError("unsupported motion termination")
-    if motion.get("termination") == "surface-guard":
-        events = motion.get("events")
-        if not isinstance(events, list) or not events or events[-1].get("kind") != "surface-guard":
-            raise ValueError("guarded motion has no honest approach event")
+    events = motion.get("events")
+    if type(events) is not list:
+        raise ValueError("motion event history must be a list")
+    previous_event_time = -1.
+    guard_events = []
+    final_time = _number(rows[-1]["time_s"], "last saved time")
+    centre = fixed_sphere_identity[1]
+    radius = fixed_sphere_identity[2]
+    for index, event in enumerate(events):
+        if type(event) is not dict:
+            raise ValueError("motion event must be a finite physical record")
+        kind = event.get("kind")
+        if kind not in ("turning-point", "surface-guard"):
+            raise ValueError("motion event has an unsupported physical kind")
+        time = _number(event.get("time_s"), "motion event time")
+        disp = _number(event.get("displacement_m"), "motion event displacement")
+        event_position = _vector(event.get("position_m"), "motion event position")
+        if (time < 0 or time < previous_event_time or time > final_time):
+            raise ValueError("motion event time is unordered or beyond saved elapsed-time history")
+        previous_event_time = time
+        if type(event.get("description")) is not str or not event["description"].strip():
+            raise ValueError("motion event description must remain nonempty authored text")
+        for axis_index in range(3):
+            _same(event_position[axis_index], x0[axis_index] + disp*axis[axis_index],
+                  "motion event position contradicts physical authored axis")
+        if hypot(*(event_position[i]-centre[i] for i in range(3))) <= radius + guard:
+            raise ValueError("motion event crosses numerical sphere surface-approach guard")
+        if kind == "surface-guard":
+            guard_events.append(index)
+
+    if termination == "duration":
+        if guard_events:
+            raise ValueError("duration-complete history contains an impossible surface-guard event")
+    else:
+        if guard_events != [len(events)-1]:
+            raise ValueError("surface-guard termination requires exactly one final approach event")
+        last_event = events[-1]
+        _same(last_event["time_s"], final_time, "terminal surface-guard event time")
+        _same(last_event["displacement_m"], rows[-1]["displacement_m"],
+              "terminal surface-guard displacement")
+        for axis_index in range(3):
+            _same(last_event["position_m"][axis_index], rows[-1]["position_m"][axis_index],
+                  "terminal surface-guard position")
     return {"prescribed_states": len(states), "actual_time_samples": len(rows),
-            "motion_termination": motion["termination"]}
+            "motion_termination": termination}
 
 
 def main():
