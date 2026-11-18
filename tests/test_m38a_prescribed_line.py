@@ -238,7 +238,7 @@ def test_frozen_spec_mutation_does_not_bypass_physical_qualification():
         sample_prescribed_sphere_line(spec)
 
 
-def test_spherical_source_kinks_are_not_silent_static-orbit_claims():
+def test_spherical_source_kinks_are_not_silent_static_orbit_claims():
     doc = example_data()
     assert "NOT Newtonian" in doc["protocol"]
     assert "teacher" in doc["source_role"]
