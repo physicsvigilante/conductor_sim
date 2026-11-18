@@ -59,6 +59,19 @@ class PrescribedSphereRadialSpec:
         q = _real(charge.charge_c, "source charge")
         a = _real(sphere.radius_m, "sphere radius", positive=True)
         _real(self.problem.permittivity_f_per_m, "permittivity", positive=True)
+        # Legacy geometry constructors were intentionally kept backward
+        # compatible. Reject dimensional Booleans here, at the NEW public
+        # authored-protocol boundary, before a misleading SI export is built.
+        for name, vector in (
+            ("source position", charge.position_m),
+            ("grounded sphere centre", sphere.center_m),
+        ):
+            if type(vector) not in (tuple, list) or len(vector) != 3:
+                raise ValueError(f"{name} must have three finite SI coordinates")
+            for value in vector:
+                _real(value, name)
+            if not isfinite(hypot(*vector)):
+                raise ValueError(f"{name} magnitude overflows represented SI coordinates")
         if q == 0:
             raise UnsupportedProblem("moving point source must have nonzero charge")
         v = _real(self.radial_speed_m_s, "authored radial speed")

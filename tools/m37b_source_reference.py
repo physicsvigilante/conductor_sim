@@ -65,8 +65,17 @@ def fmt(v):
 def check(manifest):
     if type(manifest) is not dict or manifest.get("schema") != VIEW_SCHEMA:
         raise ValueError("M37b visual dataset schema missing")
+    if set(manifest) != {"schema","source","trace","layout","readouts","display_contract"}:
+        raise ValueError("scientific viewer export contains unknown or missing top-level claims")
     meta=manifest.get("source")
-    if type(meta) is not dict or (
+    if type(meta) is not dict or set(meta) != {
+        "role","source_file","physical_pdf_page","printed_anchor","case_id",
+        "source_kind","statement","original_symbolic_givens",
+        "original_correct_option_indices","numeric_attribution",
+        "original_question_apparatus_count","teacher_hypotheticals_counted_as_original",
+    }:
+        raise ValueError("source metadata schema missing or contains unverified claims")
+    if (
         meta.get("role")!="original_workbook_teacher_example" or
         meta.get("source_file")!="02_conductors_half_size.pdf" or
         meta.get("physical_pdf_page")!=8 or
@@ -74,11 +83,14 @@ def check(manifest):
         meta.get("case_id")!="p08-multiple-21" or
         meta.get("source_kind")!="workbook exercise, NOT an asserted official JEE exam question" or
         meta.get("original_symbolic_givens")!=["q > 0","R > 0","grounded metal sphere","constant small inward v > 0"] or
-        meta.get("original_correct_option_indices")!=[1,3] or
+        type(meta.get("original_correct_option_indices")) is not list or
+        [(type(x),x) for x in meta["original_correct_option_indices"]] != [(int,1),(int,3)] or
         meta.get("numeric_attribution")!=TEACHER_LABEL or
         meta.get("statement")!=ORIGINAL_STATEMENT or
-        meta.get("original_question_apparatus_count")!=1 or
-        meta.get("teacher_hypotheticals_counted_as_original")!=0
+        type(meta.get("original_question_apparatus_count")) is not int or
+        meta["original_question_apparatus_count"] != 1 or
+        type(meta.get("teacher_hypotheticals_counted_as_original")) is not int or
+        meta["teacher_hypotheticals_counted_as_original"] != 0
     ):
         raise ValueError("false workbook given, correct-option, or teacher-numerical attribution")
     if manifest.get("display_contract")!=(
@@ -88,8 +100,14 @@ def check(manifest):
     ):
         raise ValueError("false display-physics contract")
     data=manifest.get("trace")
-    if type(data) is not dict or data.get("schema")!=SOURCE_SCHEMA or data.get("protocol")!=PROTOCOL:
-        raise ValueError("qualified physical protocol falsely labelled")
+    if type(data) is not dict or set(data) != {
+        "schema","protocol","actual_time_origin","units","source_name",
+        "sphere_constraint","sphere_is_solid","sphere_center_m","sphere_radius_m",
+        "permittivity_f_per_m","source_charge_c","initial_source_position_m",
+        "radial_axis","signed_constant_radial_speed_m_s","duration_s",
+        "sample_count","surface_guard_m","samples",
+    } or data.get("schema")!=SOURCE_SCHEMA or data.get("protocol")!=PROTOCOL:
+        raise ValueError("qualified physical protocol or source fields falsely labelled")
     if data.get("actual_time_origin")!=(
         "teacher-prescribed constant-speed kinematics; NOT M16a integration"
     ):
@@ -138,6 +156,12 @@ def check(manifest):
     for i,(row,visible) in enumerate(zip(rows,readouts)):
         if type(row) is not dict or type(visible) is not dict:
             raise ValueError("malformed numerical row or viewer readout")
+        if set(visible) != {
+            "index","charge_x_px","chart_x_px","chart_y_px",
+            "time_label","distance_label","induced_charge_label",
+            "wire_current_label","opposite_current_label",
+        }:
+            raise ValueError("viewer readout has missing or extraneous unverified SI labels")
         if set(row)!={
             "index","time_s","radial_distance_m","source_position_m",
             "source_velocity_m_s","induced_sphere_net_charge_c",
@@ -197,7 +221,11 @@ def check(manifest):
             all(y<x for x,y in zip(distances,distances[1:]))):
         raise ValueError("source q>0 constant-speed approach has incorrect direction/trend")
     layout=manifest.get("layout")
-    if type(layout) is not dict or layout.get("fixed_scene") is not True or layout.get("radial_schematic") is not True or layout.get("scene_positions_precomputed") is not True:
+    if type(layout) is not dict or set(layout) != {
+        "fixed_scene","radial_schematic","sphere_cx_px","sphere_cy_px",
+        "sphere_radius_px","charge_cy_px","px_per_meter",
+        "chart_center_y_px","chart_current_peak_abs_a","scene_positions_precomputed",
+    } or layout.get("fixed_scene") is not True or layout.get("radial_schematic") is not True or layout.get("scene_positions_precomputed") is not True:
         raise ValueError("misleading physical scene claim")
     scale=min(96./a,515./max(distances))
     x0,y0=129.,169.

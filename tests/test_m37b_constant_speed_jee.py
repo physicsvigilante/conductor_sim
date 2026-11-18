@@ -227,3 +227,83 @@ def test_viewer_refuses_constructed_forged_physics_even_with_valid_dataclass_typ
     with pytest.raises(ValueError, match="viewer refuses altered prescribed Kelvin"):
         viewer_manifest(forged,SOURCE)
     assert viewer_manifest(valid,SOURCE)["source"]["original_correct_option_indices"]==[1,3]
+
+
+
+def test_m37b_refuses_boolean_si_geometry_at_public_authoring_boundary():
+    """Provenance safety is required even for permissive legacy geometry types."""
+    from conductor_sim import PrescribedSphereRadialSpec
+    for position in ((True, 0., .25), (.0, False, .25)):
+        with pytest.raises((ValueError, TypeError)):
+            p=ElectrostaticProblem(
+                (PointCharge(1e-9,position),),
+                (SolidSphere(.1,Grounded(),name="Sphere A"),),
+            )
+            PrescribedSphereRadialSpec(p,-.03,.5,7)
+    for centre in ((True,0.,0.), (0.,False,0.)):
+        with pytest.raises((ValueError, TypeError)):
+            p=ElectrostaticProblem(
+                (PointCharge(1e-9,(0.,0.,.25)),),
+                (SolidSphere(.1,Grounded(),center_m=centre,name="Sphere A"),),
+            )
+            PrescribedSphereRadialSpec(p,-.03,.5,7)
+
+
+def test_original_workbook_role_cannot_be_assigned_to_teacher_negative_or_outward_world():
+    from conductor_sim.prescribed_wire_viewer import viewer_manifest
+    for q,v in ((-1e-9,-.02),(+1e-9,+.02),(-1e-9,+.02)):
+        hypothesis=sample_prescribed_sphere_radial(scenario(q=q,v=v))
+        with pytest.raises(ValueError,match="original workbook q>0 inward"):
+            viewer_manifest(hypothesis,SOURCE)
+        teacher={"role":"teacher_hypothetical",
+                 "statement":"Teacher-authored changed sign or outward radial constant speed",
+                 "numeric_attribution":"All values TEACHER-CHOSEN; NONE is a printed numerical given."}
+        result=viewer_manifest(hypothesis,teacher)
+        assert result["source"]["role"]=="teacher_hypothetical"
+    original=sample_prescribed_sphere_radial(make_example())
+    assert viewer_manifest(original,SOURCE)["source"]["role"]=="original_workbook_teacher_example"
+
+
+@pytest.mark.parametrize("field,value",[
+    ("original_correct_option_indices",[True,3]),
+    ("original_question_apparatus_count",True),
+    ("teacher_hypotheticals_counted_as_original",False),
+    ("source_file","invented.pdf"),
+    ("statement","q approaches a sphere with invented current"),
+])
+def test_public_viewer_refuses_falsified_printed_source_metadata(field,value):
+    from conductor_sim.prescribed_wire_viewer import viewer_manifest
+    source=deepcopy(SOURCE)
+    source[field]=value
+    with pytest.raises(ValueError,match="original workbook identity"):
+        viewer_manifest(sample_prescribed_sphere_radial(make_example()),source)
+
+
+@pytest.mark.parametrize("field,value",[
+    ("original_correct_option_indices",[True,3]),
+    ("original_question_apparatus_count",True),
+    ("teacher_hypotheticals_counted_as_original",False),
+])
+def test_independent_stdlib_reference_rejects_bool_for_int_source_metadata(genuine,field,value):
+    m=deepcopy(genuine[1])
+    m["source"][field]=value
+    with pytest.raises(ValueError):
+        independent_si_check(m)
+
+
+def test_independent_si_checker_rejects_unknown_scientific_claim_fields(genuine):
+    original=genuine[1]
+    for parent,key,value in (
+        ((), "claims_full_maxwell_simulation",True),
+        (("source",),"claims_printed_numeric",True),
+        (("trace",),"claims_genuine_newtonian_orbit",True),
+        (("layout",),"real_current_density_wires",True),
+        (("readouts",0),"electron_drift_m_s",1e7),
+    ):
+        mutated=deepcopy(original)
+        cursor=mutated
+        for step in parent:
+            cursor=cursor[step]
+        cursor[key]=value
+        with pytest.raises(ValueError):
+            independent_si_check(mutated)

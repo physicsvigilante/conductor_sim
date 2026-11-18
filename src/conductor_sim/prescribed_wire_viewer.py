@@ -11,6 +11,19 @@ from math import isfinite
 
 from .prescribed_ground_wire import PrescribedSphereTrace, SCHEMA, sample_prescribed_sphere_radial
 
+# A public viewer must not let a teacher-created, signed/outward hypothetical
+# impersonate the specifically inspected workbook's q>0 inward apparatus.
+_ORIGINAL_Q21_STATEMENT = (
+    "Positive point charge q approaches a grounded metallic sphere of "
+    "radius R at externally maintained constant small speed v; "
+    "questions ask conventional ground-wire current direction "
+    "and its increasing magnitude."
+)
+_ORIGINAL_Q21_SYMBOLS = [
+    "q > 0", "R > 0", "grounded metal sphere",
+    "constant small inward v > 0",
+]
+
 
 def _fmt(value):
     if not isfinite(value):
@@ -35,6 +48,40 @@ def viewer_manifest(trace: PrescribedSphereTrace, source: dict) -> dict:
         raise ValueError("source statement cannot be empty")
     if type(source.get("numeric_attribution")) is not str or not source["numeric_attribution"].strip():
         raise ValueError("teacher numeric attribution is required")
+    if ("TEACHER-CHOSEN" not in source["numeric_attribution"]
+            or "NONE is a printed numerical given" not in source["numeric_attribution"]):
+        raise ValueError("all authored numerical values must be explicitly teacher-attributed")
+    if source["role"] == "original_workbook_teacher_example":
+        required = {
+            "role", "source_file", "physical_pdf_page", "printed_anchor",
+            "case_id", "source_kind", "statement", "original_symbolic_givens",
+            "original_correct_option_indices", "numeric_attribution",
+            "original_question_apparatus_count",
+            "teacher_hypotheticals_counted_as_original",
+        }
+        if (set(source) != required
+                or source.get("source_file") != "02_conductors_half_size.pdf"
+                or type(source.get("physical_pdf_page")) is not int
+                or source["physical_pdf_page"] != 8
+                or source.get("printed_anchor") != "Multiple Correct Q21"
+                or source.get("case_id") != "p08-multiple-21"
+                or source.get("source_kind") != "workbook exercise, NOT an asserted official JEE exam question"
+                or source.get("statement") != _ORIGINAL_Q21_STATEMENT
+                or source.get("original_symbolic_givens") != _ORIGINAL_Q21_SYMBOLS
+                or type(source.get("original_correct_option_indices")) is not list
+                or [(type(x),x) for x in source["original_correct_option_indices"]] != [(int,1),(int,3)]
+                or type(source.get("original_question_apparatus_count")) is not int
+                or source["original_question_apparatus_count"] != 1
+                or type(source.get("teacher_hypotheticals_counted_as_original")) is not int
+                or source["teacher_hypotheticals_counted_as_original"] != 0):
+            raise ValueError("original workbook identity, option indices or source attribution is false")
+        if trace.spec.problem.charges[0].charge_c <= 0 or trace.spec.radial_speed_m_s >= 0:
+            raise ValueError("original workbook q>0 inward protocol cannot label a changed teacher world")
+        if not all(row.wire_current_sphere_to_ground_a > 0 for row in trace.samples):
+            raise ValueError("original positive approaching charge has impossible current direction")
+        if not all(after.wire_current_sphere_to_ground_a > before.wire_current_sphere_to_ground_a
+                   for before,after in zip(trace.samples,trace.samples[1:])):
+            raise ValueError("original Q21 increasing current claim contradicts true physical snapshots")
     # Normalize the complete physical payload to its actual JSON wire form.
     # A Python tuple must not appear to disagree with a saved/browser array.
     physics = json.loads(json.dumps(trace.as_dict(),allow_nan=False))
