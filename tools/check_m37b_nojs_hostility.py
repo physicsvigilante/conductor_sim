@@ -37,7 +37,7 @@ ATTACKS = (
     ("false-initial-charge-sign", r'(<text id="m37b-q-sign"[^>]*>)[^<]+', "−q",
      "source says q positive but actual plotted charge sign differs"),
     ("false-initial-sphere-radius", r'(<circle id="m37b-sphere"[^>]* r=")[^"]+', "7",
-     "no-JS physical scene/graph coordinate #m37b-sphere.r"),
+     "visible drawn physical geometry #m37b-sphere.r contradicts native model"),
     ("false-initial-slider-time", r'(<input id="m37b-index"[^>]* value=")[^"]+', "15",
      "no-JS first physical time index"),
 )
