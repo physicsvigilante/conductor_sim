@@ -755,6 +755,13 @@
         "simulation_coverage": "not_evaluated",
         "educational_usefulness": "not_evaluated",
         "textbook_answer_completeness": "not_attempted"
+      },
+      "official_apparatus": {
+        "paper": "JEE Advanced 2021 Paper 1",
+        "question_ids": [
+          "Q9",
+          "Q10"
+        ]
       }
     }
   ]
