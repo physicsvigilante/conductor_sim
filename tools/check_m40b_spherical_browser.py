@@ -42,7 +42,16 @@ def check_browser(output_dir: Path):
             assert page.locator("circle[id^=m40b-source-]").count() == 4
             assert page.locator('[id^="m40b-tile-"]').count() == 72
             assert "0 C" in page.locator("#m40b-q-outer-grounded").inner_text()
-            assert "-1e-09" in page.locator("#m40b-q-outer-isolated").inner_text() or "−1e-09" in page.locator("#m40b-q-outer-isolated").inner_text()
+            # Compare the entire exact round-trip SI value, never a hand-typed
+            # decimal. A true Gauss ledger can give -9.999999999999999e-10 C
+            # rather than the rounded -1e-09 C; both mean the same physics.
+            from conductor_sim.spherical_sigma_atlas import _si
+            assert page.locator("#m40b-q-outer-isolated").inner_text() == _si(
+                data["outer"]["isolated_whole_face_charge_c"], "C"
+            )
+            assert page.locator("#m40b-q-outer-grounded").inner_text() == _si(
+                data["outer"]["grounded_whole_face_charge_c"], "C"
+            )
             for i,cav in enumerate(data["cavities"]):
                 block = page.locator("#m40b-cavity-{}".format(i))
                 assert cav["cavity_id"] in block.inner_text()
