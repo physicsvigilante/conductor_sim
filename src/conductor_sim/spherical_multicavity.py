@@ -67,11 +67,20 @@ def _distance(p, q):
 
 
 def _normal(value):
+    """Admit already-nearly-unit directions, then sample the *actual* sphere.
+
+    A raw length error as small as 9e-13 changes the near-wall Kelvin pole
+    density by ~2e-4 at the admitted 1e-8 wall gap. All accepted directions
+    are therefore normalized before calculating or saving local surface
+    samples. Arbitrary nonunit vectors still refuse.
+    """
     n = _point(value, "unit surface normal")
     length = hypot(*n)
     if not isfinite(length) or abs(length - 1.0) > 1e-12:
         raise ValueError("surface query requires a genuine unit-normal vector")
-    return n
+    if length == 1.0:
+        return n
+    return tuple(component / length for component in n)
 
 
 @dataclass(frozen=True, slots=True)

@@ -285,3 +285,72 @@ def test_reserved_outer_is_not_a_cavity_id():
     geom=SphericalMetalGeometry((0.,0.,0.),3.,(SphericalVoid("outer",(0.,0.,0.),.4),))
     with pytest.raises(ValueError,match="reserved"):
         SphericalSigmaModel(model,geom)
+
+
+def test_reviewer_b1_admitted_nearunit_pole_is_not_solved_off_surface():
+    """Independent review #01 B1: same radial direction near 1e-8 wall gap."""
+    radius=.85
+    source_q=3.1e-9
+    displacement=radius*(1-1.2e-8)
+    gauss=GaussCavityAssembly("M",(SealedCavity("V",(
+        CavityCharge("q",source_q),
+    )),),Grounded())
+    geom=SphericalMetalGeometry((0.,0.,0.),3.,(
+        SphericalVoid("V",(0.,0.,0.),radius,(
+            NamedSourcePosition("q",(displacement,0.,0.)),
+        )),
+    ))
+    result=solve_spherical_sigma(SphericalSigmaModel(gauss,geom))
+    exact=(1.,0.,0.)
+    near=(1.+9e-13,0.,0.)
+    true_pole=-source_q*(radius+displacement)/(4*pi*radius*(radius-displacement)**2)
+    exact_value=result.inner_surface_charge_density("V",exact)
+    near_value=result.inner_surface_charge_density("V",near)
+    assert exact_value==pytest.approx(true_pole,rel=1e-13)
+    assert near_value==exact_value
+    assert result.outer_surface_charge_density(near)==result.outer_surface_charge_density(exact)==0.
+    assert abs(near[0]-1.)>0
+    assert check_record(result.as_dict((("V",near),("outer",near))))["sampled_local_surface_densities_checked"]==2
+    exported=result.as_dict((("V",near),))
+    assert exported["samples"][0]["unit_normal"]==[1.,0.,0.]
+    assert exported["samples"][0]["sigma_c_per_m2"]==exact_value
+    # The originally accepted-but-incorrect off-sphere value must be refused
+    # even if a hostile JSON editor supplies a self-consistent nearunit normal.
+    falsified=deepcopy(exported)
+    falsified["samples"][0]["unit_normal"]=[near[0],0.,0.]
+    old_offwall=-source_q*((radius-displacement)*(radius+displacement))/(4*pi*radius*(radius*near[0]-displacement)**3)
+    assert abs(old_offwall/exact_value-1)>2e-4
+    falsified["samples"][0]["sigma_c_per_m2"]=old_offwall
+    with pytest.raises(ValueError,match="independent surface density"):
+        check_record(falsified)
+    # The independent checker is allowed to read an alternative direction
+    # encoding if the saved *physical surface density* remains correct.
+    falsified["samples"][0]["sigma_c_per_m2"]=exact_value
+    assert check_record(falsified)["sampled_local_surface_densities_checked"]==1
+    with pytest.raises(ValueError,match="unit"):
+        result.inner_surface_charge_density("V",(1.+2e-12,0.,0.))
+
+
+def test_reviewer_b1_oblique_nearunit_directions_and_signed_static_variants():
+    """Normalizing cannot be limited to world-axis pole special cases."""
+    radius=.85
+    direction=(.6,.8,0.)
+    near=tuple(k*(1.+9e-13) for k in direction)
+    source_pos=tuple(k*radius*(1-1.2e-8) for k in direction)
+    for charge,constraint in ((3.1e-9,Grounded()),(-3.1e-9,FixedNetCharge(1e-9))):
+        gauss=GaussCavityAssembly("M",(SealedCavity("V",(
+            CavityCharge("q",charge),
+        )),),constraint)
+        geo=SphericalMetalGeometry((0.,0.,0.),3.,(
+            SphericalVoid("V",(0.,0.,0.),radius,(
+                NamedSourcePosition("q",source_pos),
+            )),
+        ))
+        sol=solve_spherical_sigma(SphericalSigmaModel(gauss,geo))
+        a=sol.inner_surface_charge_density("V",direction)
+        b=sol.inner_surface_charge_density("V",near)
+        assert b==pytest.approx(a,rel=3e-8)
+        assert (a<0)==(charge>0)
+        assert check_record(sol.as_dict((("V",near),("outer",near))))["sampled_local_surface_densities_checked"]==2
+        n=sol.as_dict((("V",near),))["samples"][0]["unit_normal"]
+        assert hypot(*n)==pytest.approx(1.,abs=3e-16)

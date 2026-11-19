@@ -204,8 +204,14 @@ def check_record(doc):
     for row in samples:
         required(row,("surface_id","unit_normal","sigma_c_per_m2"),"local density probe")
         normal=coords(row["unit_normal"],"surface normal")
-        if abs(norm(normal)-1)>1e-12:
+        magnitude=norm(normal)
+        if not isfinite(magnitude) or abs(magnitude-1)>1e-12:
             raise ValueError("unit surface normal is not genuine")
+        # Independently calculate the *actual spherical-wall* density:
+        # admitted raw near-unit coordinates are directions, not points.
+        # This also rejects an old exported/forged off-wall Kelvin result.
+        if magnitude!=1.:
+            normal=tuple(x/magnitude for x in normal)
         surface=row["surface_id"]
         if surface=="outer" and type(surface) is str:
             Q=real(gauss["outer_face_total_charge_c"],"outer Gauss charge")
