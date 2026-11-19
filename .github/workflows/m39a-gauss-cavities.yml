@@ -1,0 +1,61 @@
+name: M39a exact sealed-cavity Gauss totals and independent SI ledger
+
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/cavity_gauss.py'
+      - 'tools/m39a_gauss_reference.py'
+      - 'tools/m39a_gauss_example.py'
+      - 'tests/test_m39a_cavity_gauss.py'
+      - 'docs/m39a*'
+      - '.github/workflows/m39a-gauss-cavities.yml'
+  push:
+    branches: [m39a-multicavity-gauss-ledger, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-multicavity-integral-reference:
+    name: native topology/identity and independently recomputed Gauss SI (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install real source package and test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Save exact source native Git objects and unchanged PDFs
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m39a
+          git rev-parse HEAD | tee review-artifacts/m39a/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m39a/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m39a/reference-pdf-sha256.txt
+      - name: Actual qualified signed cavities, strict type refusals, malicious ledgers
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m39a_cavity_gauss.py -q --junitxml=review-artifacts/m39a/native-tests.xml
+      - name: Export actual isolated and grounded teacher models; independently rederive all SI
+        run: |
+          set -euo pipefail
+          python -m tools.m39a_gauss_example --output-dir review-artifacts/m39a
+          python -m tools.m39a_gauss_reference --input review-artifacts/m39a/m39a-isolated-teacher.json --output review-artifacts/m39a/independent-isolated-oracle.json
+          python -m tools.m39a_gauss_reference --input review-artifacts/m39a/m39a-grounded-teacher.json --output review-artifacts/m39a/independent-grounded-oracle.json
+      - name: Preserve actual first-run green and red SI integrity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m39a-exact-gauss-independent-si-py${{ matrix.python-version }}
+          path: review-artifacts/m39a/
+          if-no-files-found: warn
+          retention-days: 21
