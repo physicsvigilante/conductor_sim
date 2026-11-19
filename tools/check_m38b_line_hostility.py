@@ -10,6 +10,8 @@ import argparse
 import json
 import re
 from pathlib import Path
+import subprocess
+import sys
 
 from tools.check_m38b_line_browser import check as production_chromium
 from tools.m38b_line_view_reference import check_line_view
@@ -163,20 +165,26 @@ def check_hostiles(directory: Path):
                     else:
                         raise AssertionError("unknown hostile proof mode")
                     visible.screenshot(path=str(screenshots/(attack+".png")),full_page=True)
-                    try:
-                        production_chromium(directory)
-                    except AssertionError as exc:
-                        reason=str(exc)
-                        if error not in reason:
-                            raise AssertionError(
-                                attack+": WRONG actual browser scientific refusal: "+repr(reason)
-                            ) from exc
-                        outcomes.append({
-                            "attack":attack,"no_js_forgery_visibly_proved":True,
-                            "refusal":"REJECTED_AS_INTENDED","reason":reason
-                        })
-                    else:
+                    # Playwright Sync API cannot be nested within its running
+                    # event loop. Execute the *unchanged actual production*
+                    # Chromium gate in a separate Python process, preserving
+                    # its real nonzero exit code and first error message.
+                    result=subprocess.run(
+                        [sys.executable,"-m","tools.check_m38b_line_browser",
+                         "--output-dir",str(directory)],
+                        capture_output=True,text=True,timeout=160,check=False
+                    )
+                    if result.returncode==0:
                         raise AssertionError(attack+": actual Chromium accepted false static original physics")
+                    reason=result.stderr.strip().splitlines()[-1] if result.stderr.strip() else ""
+                    if not reason.startswith("AssertionError:") or error not in reason:
+                        raise AssertionError(
+                            attack+": WRONG actual browser scientific refusal: "+repr(reason)
+                        )
+                    outcomes.append({
+                        "attack":attack,"no_js_forgery_visibly_proved":True,
+                        "refusal":"REJECTED_AS_INTENDED","reason":reason
+                    })
                 finally:
                     page.write_bytes(genuine)
         finally:
