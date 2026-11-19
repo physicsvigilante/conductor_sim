@@ -223,6 +223,24 @@ def test_forged_native_face_charge_refused():
         forged.as_dict()
 
 
+@pytest.mark.parametrize("fake_id",["cavity_A","nonexistent_cavity","source_B"])
+def test_forged_native_face_identity_refused_even_when_charge_totals_match(fake_id):
+    authentic=solve_cavity_gauss(sample_assembly())
+    altered=replace(authentic.faces[1],cavity_id=fake_id)
+    forged=replace(authentic,faces=(authentic.faces[0],altered,authentic.faces[2]))
+    with pytest.raises(ValueError,match="face identities/order"):
+        validate_cavity_gauss_ledger(forged)
+    with pytest.raises(ValueError,match="face identities/order"):
+        forged.as_dict()
+
+
+def test_missing_or_extra_saved_cavity_face_refused_before_serialization():
+    authentic=solve_cavity_gauss(sample_assembly())
+    truncated=replace(authentic,faces=authentic.faces[:2])
+    with pytest.raises(ValueError,match="face identities/order"):
+        truncated.as_dict()
+
+
 @pytest.mark.parametrize("path,bad",[
     (("source_role",),"original_workbook"),
     (("membership_provenance",),"all placements geometrically certified"),

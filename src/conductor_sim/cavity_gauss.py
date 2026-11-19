@@ -297,6 +297,11 @@ def validate_cavity_gauss_ledger(value: GaussCavityLedger) -> None:
         type(x) is not CavityFaceTotal for x in value.faces
     ):
         raise ValueError("native cavity-face ledger structure is forged")
+    if (len(value.faces) != len(value.assembly.cavities)
+            or any(type(face.cavity_id) is not str
+                   or face.cavity_id != cavity.cavity_id
+                   for cavity,face in zip(value.assembly.cavities,value.faces))):
+        raise ValueError("native cavity face identities/order contradict authored physical topology")
     genuine = solve_cavity_gauss(value.assembly)
     try:
         def stable(raw):
