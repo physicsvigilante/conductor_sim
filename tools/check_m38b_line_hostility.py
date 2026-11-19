@@ -106,6 +106,18 @@ ATTACKS = (
         "no-JS first physical time index falsely selected"
     ),
     (
+        "falsified-current-sign-axis",
+        r'(<text x="60" y="17"[^>]*>)[^<]+', "I (A), negative sphere → ground",
+        "#m38b-current-chart text", "chart-heading", None,
+        "visible current/physical-time axis label falsified"
+    ),
+    (
+        "falsified-local-physical-u-axis",
+        r'(<text x="676" y="181"[^>]*>)[^<]+', "+world-x",
+        "#m38b-scene text", "scene-u", None,
+        "visible local source physical axes falsified"
+    ),
+    (
         "falsely-enabled-controls", r'(<input id="m38b-index"[^>]* value="0") disabled', "",
         "#m38b-index", "enabled", None,
         "no-JS first physical time controls must remain disabled"
@@ -174,6 +186,15 @@ def check_hostiles(directory: Path):
                     elif kind=="attribute-prefix":
                         if not (loc.get_attribute(attr) or "").startswith(forged_value+" "):
                             raise AssertionError("forged current plot vertex not actually visible: "+attack)
+                    elif kind=="chart-heading":
+                        # SVG text is genuinely rendered; the first text node
+                        # in the signed-current SVG is the scientific I axis.
+                        if visible.locator("#m38b-current-chart text").first.text_content().strip()!=forged_value:
+                            raise AssertionError("forged current sign axis not visible: "+attack)
+                    elif kind=="scene-u":
+                        # Scene text order: charge sign, Grounded, +u, +w.
+                        if visible.locator("#m38b-scene text").nth(2).text_content().strip()!=forged_value:
+                            raise AssertionError("forged local u axis not visible: "+attack)
                     elif kind=="enabled":
                         if loc.is_disabled():
                             raise AssertionError("forged no-JS control is still disabled: "+attack)

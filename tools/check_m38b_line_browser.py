@@ -99,7 +99,20 @@ def _check_static(page, data, *, no_js):
         for j,k in enumerate(("chart_x_px","chart_y_px")):
             if not isclose(vals[j],row[k],rel_tol=4e-10,abs_tol=2e-7):
                 raise AssertionError("visible plotted current point "+str(i)+" contradicts verified Kelvin SI")
+    expected_chart=[
+        "I (A), positive sphere → ground",
+        "t=0 s",
+        "t="+format(native["duration_s"],".11g")+" s",
+    ]
+    if page.locator("#m38b-current-chart text").all_text_contents()!=expected_chart:
+        raise AssertionError("visible current/physical-time axis label falsified")
     sign="+q" if native["source_charge_c"]>0 else "−q"
+    expected_scene=[
+        sign,"Grounded","+u","+w",
+        "One fixed equal-metre scale in both axes; no world-xy claim"
+    ]
+    if page.locator("#m38b-scene text").all_text_contents()!=expected_scene:
+        raise AssertionError("visible local source physical axes falsified")
     if not page.locator("#m38b-q-sign").is_visible() or page.locator("#m38b-q-sign").text_content().strip()!=sign:
         raise AssertionError("visible source charge sign contradicts physical signed q")
     slider=page.locator("#m38b-index")

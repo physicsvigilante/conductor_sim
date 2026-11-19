@@ -14,11 +14,11 @@ from .solver import UnsupportedProblem
 
 
 SCHEMA = "conductor_sim.prescribed_ground_line_viewer.v1"
-HEADING = "TEACHER HYPOTHETICAL · 3D off-axis grounded-sphere passage"
+HEADING = "TEACHER HYPOTHETICAL · grounded-sphere 3D straight-line passage"
 ORIGINAL_WARNING = (
-    "Original workbook p8 Multiple Correct Q21 is RADIAL. This off-axis "
-    "straight-line 3D passage is TEACHER-AUTHORED, not a printed workbook "
-    "apparatus or an additional solved original JEE problem."
+    "Original workbook p8 Multiple Correct Q21 is RADIAL. This teacher "
+    "3D straight-line investigation (radial or off-axis) is TEACHER-AUTHORED, "
+    "not an authenticated workbook replay or an additional original JEE problem."
 )
 TEACHER_NOTICE = (
     "ALL numbers, source positions, 3D velocity and duration are "
