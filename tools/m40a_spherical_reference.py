@@ -56,7 +56,14 @@ def coords(x,label):
 
 
 def diff(a,b):
-    return tuple(a[i]-b[i] for i in range(def density_from_images(R,sources,n):
+    return tuple(a[i]-b[i] for i in range(3))
+
+
+def norm(a):
+    return hypot(*a)
+
+
+def density_from_images(R,sources,n):
     """Separate high-precision real+Kelvin-image normal E at the inner wall.
 
     High precision is important for nearly centered but nonzero source
