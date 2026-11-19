@@ -1,7 +1,7 @@
 """M40a geometry-certified genuine multicavity induced sigma, SI and refusals."""
 from copy import deepcopy
 from dataclasses import replace
-from math import pi, sqrt
+from math import hypot, pi, sqrt
 
 import pytest
 
