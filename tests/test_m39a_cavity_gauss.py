@@ -1,7 +1,7 @@
 """M39a: new composable sealed-cavity Gauss integrals, not local 3D fields."""
 from copy import deepcopy
 from dataclasses import replace
-from math import isclose
+from math import isclose, nextafter
 
 import pytest
 
@@ -290,3 +290,75 @@ def test_distinguishes_integral_charge_from_unknown_local_sigma_and_no_jee_count
     assert actual["time_evolution_defined"] is False
     assert "source_position_defined" in actual
     assert actual["source_position_defined"] is False
+ 
+
+def test_reviewer_signed_large_cancellation_order_and_global_invariance():
+    sources = (CavityCharge("large", 1e150),
+               CavityCharge("residual", 1e-9),
+               CavityCharge("negative", -1e150))
+    for ordered in (sources, (sources[0], sources[2], sources[1]),
+                    tuple(reversed(sources))):
+        model = GaussCavityAssembly("Metal", (SealedCavity("Stress", ordered),), Grounded())
+        ledger = solve_cavity_gauss(model)
+        assert ledger.faces[0].enclosed_source_charge_c == 1e-9
+        assert ledger.faces[0].induced_inner_face_charge_c == -1e-9
+        assert ledger.outer_face_charge_c == 0.0
+        assert check_gauss_record(ledger.as_dict())["point_source_identities_checked"] == 3
+
+    # Tiny residual must also survive across separately rounded cavity faces.
+    across = GaussCavityAssembly("Metal", (
+        SealedCavity("Positive", (CavityCharge("p", 1e150),)),
+        SealedCavity("Residual", (CavityCharge("r", 1e-9),)),
+        SealedCavity("Negative", (CavityCharge("n", -1e150),)),
+    ), FixedNetCharge(0.0))
+    saved = solve_cavity_gauss(across).as_dict()
+    assert saved["total_interior_source_charge_c"] == 1e-9
+    assert saved["outer_face_total_charge_c"] == 1e-9
+    check_gauss_record(saved)
+
+
+def test_nonzero_flux_underflow_is_refused_but_exact_grounded_zero_is_allowed():
+    model = GaussCavityAssembly("TinyMetal", (SealedCavity("Void"),),
+                                FixedNetCharge(1e-300), 1e100)
+    with pytest.raises(UnsupportedProblem, match="underflows"):
+        solve_cavity_gauss(model)
+    genuine = solve_cavity_gauss(replace(model, permittivity_f_per_m=1.0)).as_dict()
+    forged = deepcopy(genuine)
+    forged["permittivity_f_per_m"] = 1e100
+    forged["exterior_electric_flux_v_m"] = 0.0
+    with pytest.raises(ValueError, match="underflows"):
+        check_gauss_record(forged)
+    grounded = solve_cavity_gauss(replace(model, constraint=Grounded()))
+    assert grounded.exterior_electric_flux_v_m == 0.0
+    check_gauss_record(grounded.as_dict())
+
+
+def test_subnormal_nonzero_outer_charge_and_flux_never_accept_forged_zero():
+    smallest = 5e-324
+    model = GaussCavityAssembly("TinyMetal", (SealedCavity("Empty"),),
+                                FixedNetCharge(smallest), 1.0)
+    genuine = solve_cavity_gauss(model).as_dict()
+    assert genuine["outer_face_total_charge_c"] == smallest
+    assert genuine["exterior_electric_flux_v_m"] == smallest
+    check_gauss_record(genuine)
+    for field in ("outer_face_total_charge_c", "exterior_electric_flux_v_m"):
+        forged = deepcopy(genuine)
+        forged[field] = 0.0
+        with pytest.raises(ValueError, match="forged zero"):
+            check_gauss_record(forged)
+
+
+def test_normal_scale_ulp_rounding_remains_accepted_but_zero_refused():
+    model = GaussCavityAssembly("Metal", (
+        SealedCavity("A", (CavityCharge("q1", 0.1), CavityCharge("q2", -0.01))),
+    ), FixedNetCharge(0.13), 1.0)
+    genuine = solve_cavity_gauss(model).as_dict()
+    check_gauss_record(genuine)
+    rounded = deepcopy(genuine)
+    rounded["outer_face_total_charge_c"] = nextafter(
+        genuine["outer_face_total_charge_c"], float("inf")
+    )
+    check_gauss_record(rounded)
+    rounded["outer_face_total_charge_c"] = 0.0
+    with pytest.raises(ValueError):
+        check_gauss_record(rounded)

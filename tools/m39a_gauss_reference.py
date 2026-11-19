@@ -1,14 +1,14 @@
 """Independent stdlib-only Gauss-law theorem and typed-evidence checker (M39a).
 
-NO conductor_sim imports; uses Decimal for algebraic sums independently from
-production's math.fsum, and strictly distinguishes bool from zero. This checks
-a declared source/metal record's mathematical consistency, not proof that a
-teacher's topology declaration corresponds to a verified geometric cavity.
+NO conductor_sim imports; uses exact Fraction arithmetic over admitted
+binary64 inputs, independently from production's math.fsum. It distinguishes
+Boolean, signed, exact-zero and subnormal-nonzero SI values. This checks record
+consistency, NOT geometric containment or externally authenticated source IDs.
 """
 from __future__ import annotations
 
 import argparse
-from decimal import Decimal, InvalidOperation, localcontext
+from fractions import Fraction
 import json
 from math import isclose, isfinite, ulp
 from pathlib import Path
@@ -46,9 +46,17 @@ def _required(record, keys, what):
 
 
 def _real(value, what):
-    if type(value) not in (float, int) or not isfinite(value):
+    if type(value) not in (float, int):
         raise ValueError(f"{what} must be a finite non-Boolean SI real")
-    return Decimal(str(value))
+    try:
+        binary64 = float(value)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(f"{what} is outside the finite binary64 SI domain") from exc
+    if not isfinite(binary64):
+        raise ValueError(f"{what} must be a finite non-Boolean SI real")
+    # Reconstruct the actual native admitted float exactly, and accumulate
+    # independently with rational arithmetic without order/precision loss.
+    return Fraction.from_float(binary64)
 
 
 def _id(value, what):
@@ -56,17 +64,24 @@ def _id(value, what):
         raise ValueError(f"{what} does not have a stable physical identity")
 
 
-def _same(value, expected: Decimal, what):
-    got=_real(value, what)
-    expected_float=float(expected)
-    if not isfinite(expected_float):
-        raise ValueError(f"{what} exceeded permitted float/physics domain")
-    if expected_float == 0:
-        if float(got) != 0:
+def _same(value, expected: Fraction, what):
+    got = _real(value, what)
+    try:
+        expected_float = float(expected)
+    except OverflowError as exc:
+        raise ValueError(f"{what} exceeds the qualified binary64 SI domain") from exc
+    if not isfinite(expected_float) or (expected != 0 and expected_float == 0.0):
+        raise ValueError(f"{what} overflows or underflows the qualified binary64 SI domain")
+    if expected == 0:
+        if got != 0:
             raise ValueError(f"{what} differs from exact zero Gauss-law integral")
         return
-    tolerance=64*ulp(abs(expected_float))
-    if not isclose(float(got),expected_float,rel_tol=8e-13,abs_tol=tolerance):
+    # Zero/sign invariants precede tolerant comparisons. A large absolute
+    # ULP tolerance must never erase a real subnormal into false exact zero.
+    if got == 0 or ((got > 0) != (expected > 0)):
+        raise ValueError(f"{what} has forged zero or reversed nonzero SI sign")
+    tolerance = min(64 * ulp(abs(expected_float)), abs(expected_float) / 4)
+    if not isclose(float(got), expected_float, rel_tol=8e-13, abs_tol=tolerance):
         raise ValueError(f"{what} differs from independently derived Gauss-law SI total")
 
 
@@ -142,28 +157,28 @@ def check_gauss_record(doc):
             ids.add(source["source_id"])
             source_totals.append(_real(source["charge_c"],"actual enclosed source charge"))
             number+=1
-        q=sum(source_totals,Decimal(0))
+        q=sum(source_totals,Fraction(0))
         _same(row["source_charge_sum_c"],q,"independent cavity enclosed charge")
         _same(row["induced_inner_face_total_charge_c"],-q,
               "induced inner-face net charge")
         totals.append(q)
     if number>16:
         raise ValueError("too many source identities in one metal")
-    total=sum(totals,Decimal(0))
+    total=sum(totals,Fraction(0))
     _same(doc["total_interior_source_charge_c"],total,"total enclosed cavity sources")
     metal_expected=-total if grounded else _real(authored,"fixed metal charge")
-    outer_expected=Decimal(0) if grounded else metal_expected+total
+    outer_expected=Fraction(0) if grounded else metal_expected+total
     _same(metal["equilibrium_net_metal_charge_c"],metal_expected,
           "actual metal net equilibrium charge")
     _same(doc["outer_face_total_charge_c"],outer_expected,"entire outer metal face")
     if doc["exterior_electric_field_zero_theorem"] is not grounded:
         raise ValueError("invalid grounded no-exterior-source uniqueness theorem claim")
-    with localcontext() as ctx:
-        ctx.prec=70
-        try:
-            flux=outer_expected/eps
-        except (InvalidOperation,ZeroDivisionError,OverflowError) as exc:
-            raise ValueError("not representable exterior electric flux") from exc
+    # Keep a nonzero fractional quotient even if binary64 would round it to
+    # zero; _same refuses its export instead of blessing an exact Gauss zero.
+    try:
+        flux=outer_expected/eps
+    except (ZeroDivisionError,OverflowError) as exc:
+        raise ValueError("not representable exterior electric flux") from exc
     _same(doc["exterior_electric_flux_v_m"],flux,
           "Gauss exterior electric flux with correct V*m SI")
     return {

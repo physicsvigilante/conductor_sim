@@ -270,7 +270,12 @@ def solve_cavity_gauss(model: GaussCavityAssembly) -> GaussCavityLedger:
     for cavity in a.cavities:
         amount = _sum((s.charge_c for s in cavity.sources), "cavity source sum")
         faces.append(CavityFaceTotal(cavity.cavity_id, amount, _zero(-amount)))
-    total = _sum((f.enclosed_source_charge_c for f in faces), "all enclosed source charge")
+    # Recombine original binary64 sources, not rounded per-cavity totals: a
+    # tiny residual must survive cancellation between large opposite cavities.
+    total = _sum(
+        (s.charge_c for cavity in a.cavities for s in cavity.sources),
+        "all enclosed source charge",
+    )
     grounded = type(a.constraint) is Grounded
     metal = _zero(-total) if grounded else _real(a.constraint.charge_c, "isolated metal charge")
     outer = 0.0 if grounded else _sum((metal, total), "outer metal face")
@@ -280,6 +285,10 @@ def solve_cavity_gauss(model: GaussCavityAssembly) -> GaussCavityLedger:
         raise UnsupportedProblem("exterior electric flux is not representable") from exc
     if not isfinite(flux):
         raise UnsupportedProblem("exterior electric flux overflows qualified SI range")
+    if outer != 0.0 and flux == 0.0:
+        raise UnsupportedProblem(
+            "exterior electric flux underflows binary64: nonzero Gauss flux cannot be exported as exact zero"
+        )
     return GaussCavityLedger(
         a, tuple(faces), total, metal, outer, _zero(flux), grounded
     )
