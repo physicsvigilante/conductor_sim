@@ -108,13 +108,13 @@ ATTACKS = (
     (
         "falsified-current-sign-axis",
         r'(<text x="60" y="17"[^>]*>)[^<]+', "I (A), negative sphere → ground",
-        "#m38b-current-chart text", "chart-heading", None,
+        "#m38b-current-chart text:nth-of-type(1)", "chart-heading", None,
         "visible current/physical-time axis label falsified"
     ),
     (
         "falsified-local-physical-u-axis",
         r'(<text x="676" y="181"[^>]*>)[^<]+', "+world-x",
-        "#m38b-scene text", "scene-u", None,
+        "#m38b-scene text:nth-of-type(3)", "scene-u", None,
         "visible local source physical axes falsified"
     ),
     (
