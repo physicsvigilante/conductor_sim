@@ -1,0 +1,95 @@
+name: M40b source-faithful spherical sigma atlas and actual offline Chromium
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/spherical_sigma_atlas.py'
+      - 'tests/test_m40b*'
+      - 'tools/m40b*'
+      - 'tools/check_m40b*'
+      - 'docs/m40b*'
+      - '.github/workflows/m40b-spherical-atlas.yml'
+  push:
+    branches: [m40b-spherical-sigma-atlas, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authentic-geometry-sigma:
+    name: genuine M40a physical atlas and separate real+Kelvin checker (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install real physics and tests
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Preserve exact source and original JEE input hashes
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m40b
+          git rev-parse HEAD | tee review-artifacts/m40b/head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m40b/tree.txt
+          git log --oneline -8 | tee review-artifacts/m40b/history.txt
+          sha256sum docs/m40b_charter.md 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m40b/source-hashes.txt
+      - name: Actually execute signed samples, pair integrity and hostile refusals
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m40b_spherical_atlas.py -q --junitxml=review-artifacts/m40b/native-tests.xml
+      - name: Independently recompute saved real geometry and Kelvin image field
+        run: |
+          set -euo pipefail
+          python -m tools.m40b_spherical_atlas_example --output-dir review-artifacts/m40b
+          python -m tools.m40b_spherical_atlas_reference --input review-artifacts/m40b/m40b-teacher-atlas.json --output review-artifacts/m40b/separate-image-witness.json
+      - name: Preserve genuine first-attempt scientific artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m40b-real-sigma-py${{ matrix.python-version }}
+          path: review-artifacts/m40b/
+          if-no-files-found: warn
+          retention-days: 21
+
+  real-browser-and-nojs:
+    name: actual Chromium source geometry, signed native sigma, JS-off and hostile CSP
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install source and Chromium
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Record HEAD TREE and unchanged JEE source PDFs
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m40b
+          git rev-parse HEAD | tee review-artifacts/m40b/head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m40b/tree.txt
+          sha256sum docs/m40b_charter.md 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m40b/source-hashes.txt
+      - name: Execute actual offline browser evidence and JSON correctness
+        run: |
+          set -euo pipefail
+          python -m tools.check_m40b_spherical_browser --output-dir review-artifacts/m40b
+          python -m tools.m40b_spherical_atlas_reference --input review-artifacts/m40b/m40b-teacher-atlas.json --output review-artifacts/m40b/separate-image-witness.json
+      - name: Preserve Chromium screenshots and refusal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m40b-actual-chromium-nojs-mobile-hostility
+          path: review-artifacts/m40b/
+          if-no-files-found: warn
+          retention-days: 21
