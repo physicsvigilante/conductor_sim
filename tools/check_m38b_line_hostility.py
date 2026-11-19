@@ -147,7 +147,19 @@ def check_hostiles(directory: Path):
                         raise AssertionError("original native independent Kelvin SI/manifest changed")
                     visible.goto(page.resolve().as_uri(),wait_until="load",timeout=45000)
                     loc=visible.locator(selector)
-                    if not loc.is_visible():
+                    # A horizontal SVG <line> has a zero-height geometric
+                    # bounding box even though its positive-width SVG stroke
+                    # is genuinely visible. Playwright is_visible() alone
+                    # falsely reports hidden for that one legitimate path.
+                    stroked_line=(selector=="#m38b-path" and loc.evaluate(
+                        "(el)=>{const s=getComputedStyle(el),r=el.ownerSVGElement;"
+                        "return !!r&&r.getBoundingClientRect().width>0&&"
+                        "s.display!=='none'&&s.visibility!=='hidden'&&"
+                        "Number(s.opacity)>0&&s.stroke!=='none'&&"
+                        "parseFloat(s.strokeWidth)>0&&"
+                        "Number(el.getAttribute('x1'))!==Number(el.getAttribute('x2'));}"
+                    ))
+                    if not loc.is_visible() and not stroked_line:
                         raise AssertionError("fake no-JS physical datum not actually visible: "+attack)
                     if kind=="text":
                         # SVG text nodes are not HTMLElements; Playwright
