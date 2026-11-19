@@ -3,6 +3,9 @@ name: M39a exact sealed-cavity Gauss totals and independent SI ledger
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
       - 'src/conductor_sim/cavity_gauss.py'
       - 'tools/m39a_gauss_reference.py'
       - 'tools/m39a_gauss_example.py'
