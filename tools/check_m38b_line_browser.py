@@ -202,6 +202,35 @@ def _check_frame(page, data, index, *, no_js):
         raise AssertionError("physical time slider differs from selected genuine sample")
 
 
+def _freeze_actual_playback_frame(page):
+    """Observe a truly advanced saved frame, then atomically stop its timer.
+
+    The browser Play button advances display-only frames at 100 ms. Reading
+    selectedIndex and then checking numerous DOM elements over many RPCs
+    while that timer runs is a time-of-check/time-of-use race: later DOM data
+    may legitimately refer to the next saved time. An input event on the
+    existing slider is the production UI's normal stop+show(current) action.
+    JS runs this one callback to completion without an interleaved timer tick.
+    """
+    index=page.evaluate("""() => {
+      const viewer=window.m38bViewer;
+      const slider=document.getElementById("m38b-index");
+      if (!viewer || !slider || slider.disabled)
+        throw new Error("real playback control unavailable");
+      const current=Number(slider.value);
+      if (!Number.isInteger(current) || current <= 0 ||
+          current >= viewer.sampleCount || viewer.selectedIndex !== current)
+        throw new Error("real playback did not reach a valid advancing saved frame");
+      slider.dispatchEvent(new Event("input",{bubbles:true}));
+      if (Number(slider.value) !== current || viewer.selectedIndex !== current)
+        throw new Error("display-only playback pause changed the genuine physical frame");
+      return current;
+    }""")
+    if type(index) is not int or index<=0:
+        raise AssertionError("real playback did not reach genuine saved physical time")
+    return index
+
+
 def check(directory: Path):
     from playwright.sync_api import sync_playwright
 
@@ -255,12 +284,30 @@ def check(directory: Path):
                                      "time_s":manifest["trace"]["samples"][i]["time_s"],
                                      "signed_current_a":manifest["trace"]["samples"][i]["wire_current_sphere_to_ground_a"],
                                      "screenshot":pic.name})
-            page.locator("#m38b-reset").click()
-            _check_frame(page,manifest,0,no_js=False)
-            page.locator("#m38b-play").click()
-            page.wait_for_function("() => window.m38bViewer && window.m38bViewer.selectedIndex>0",
-                                   timeout=5000)
-            _check_frame(page,manifest,page.evaluate("() => window.m38bViewer.selectedIndex"),no_js=False)
+            # Regression for actual M38b main-push run #44471869184:
+            # live 100-ms playback must first ADVANCE, then be frozen at the
+            # true currently selected saved frame before the many RPC-based
+            # physical readout/scene/current marker assertions begin.
+            playback_witnesses=[]
+            for attempt in range(3):
+                page.locator("#m38b-reset").click()
+                _check_frame(page,manifest,0,no_js=False)
+                page.locator("#m38b-play").click()
+                page.wait_for_function(
+                    "() => window.m38bViewer && window.m38bViewer.selectedIndex>0",
+                    timeout=5000
+                )
+                index=_freeze_actual_playback_frame(page)
+                _check_frame(page,manifest,index,no_js=False)
+                # More than a full 100 ms tick later, index and genuine
+                # current marker must STILL represent this frozen frame.
+                page.wait_for_timeout(170)
+                if page.evaluate("() => window.m38bViewer.selectedIndex")!=index:
+                    raise AssertionError(
+                        "paused playback advanced during scientific scene/current inspection"
+                    )
+                _check_frame(page,manifest,index,no_js=False)
+                playback_witnesses.append(index)
             page.locator("#m38b-reset").click()
             _check_frame(page,manifest,0,no_js=False)
             mobile=browser.new_page(viewport={"width":390,"height":740})
@@ -296,6 +343,8 @@ def check(directory: Path):
         "original_workbook_cases_newly_solved":0,
         "physics_states_independently_checked":oracle["independently_checked_kelvin_states"],
         "visible_scripted_physical_states":len(inspected),
+        "real_playback_witness_indices":playback_witnesses,
+        "playback_freeze_verified_after_100ms_tick":True,
         "javascript_disabled_first_frame":True,
         "mobile_390px_verified":True,
         "external_http_requests":0,
