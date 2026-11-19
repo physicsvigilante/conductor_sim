@@ -104,9 +104,6 @@ def diff(a,b):
         raise ValueError("independent Kelvin image field overflows or underflows binary64")
     return as_float
 
-ws qualified domain")
-    return actual
-
 
 def same(actual,expected,label):
     got=real(actual,label)
