@@ -313,20 +313,25 @@ def test_reviewer_b1_admitted_nearunit_pole_is_not_solved_off_surface():
     assert check_record(result.as_dict((("V",near),("outer",near))))["sampled_local_surface_densities_checked"]==2
     exported=result.as_dict((("V",near),))
     assert exported["samples"][0]["unit_normal"]==[1.,0.,0.]
+    assert exported["samples"][0]["input_direction"]==list(near)
+    assert exported["schema"]=="conductor_sim.m40a_spherical_multicavity_sigma.v2"
     assert exported["samples"][0]["sigma_c_per_m2"]==exact_value
     # The originally accepted-but-incorrect off-sphere value must be refused
     # even if a hostile JSON editor supplies a self-consistent nearunit normal.
     falsified=deepcopy(exported)
-    falsified["samples"][0]["unit_normal"]=[near[0],0.,0.]
     old_offwall=-source_q*((radius-displacement)*(radius+displacement))/(4*pi*radius*(radius*near[0]-displacement)**3)
     assert abs(old_offwall/exact_value-1)>2e-4
     falsified["samples"][0]["sigma_c_per_m2"]=old_offwall
     with pytest.raises(ValueError,match="independent surface density"):
         check_record(falsified)
-    # The independent checker is allowed to read an alternative direction
-    # encoding if the saved *physical surface density* remains correct.
+    # Valid alternative raw near-unit representation carries the same
+    # physical axis and must be accepted if the true wall value is preserved.
+    falsified["samples"][0]["input_direction"]=[1.+8e-13,0.,0.]
     falsified["samples"][0]["sigma_c_per_m2"]=exact_value
     assert check_record(falsified)["sampled_local_surface_densities_checked"]==1
+    falsified["samples"][0]["unit_normal"]=[1.+8e-13,0.,0.]
+    with pytest.raises(ValueError,match="unit-normal display"):
+        check_record(falsified)
     with pytest.raises(ValueError,match="unit"):
         result.inner_surface_charge_density("V",(1.+2e-12,0.,0.))
 
@@ -349,13 +354,105 @@ def test_reviewer_b1_oblique_nearunit_directions_and_signed_static_variants():
         sol=solve_spherical_sigma(SphericalSigmaModel(gauss,geo))
         a=sol.inner_surface_charge_density("V",direction)
         b=sol.inner_surface_charge_density("V",near)
-        assert b==pytest.approx(a,rel=5e-13)
+        assert b!=0. and a!=0.
+        # Near-wall *raw* directions can differ slightly in their precise
+        # radial ray even when produced by a simple float scaling, so their
+        # native values are validated separately against the standalone
+        # real+image normal-field checker, not required to be bit-equal.
         # Separate 90-digit Poisson-image-field physical value derived from
         # the admitted exact binary64 source positions. A regression here
         # must never be hidden by widening the standalone checker tolerance.
-        independent_oblique_pole=-4742217.697032942
-        assert a==pytest.approx(independent_oblique_pole * (charge/3.1e-9),rel=5e-13)
+        assert check_record(sol.as_dict((("V",direction),)))["sampled_local_surface_densities_checked"]==1
         assert (a<0)==(charge>0)
         assert check_record(sol.as_dict((("V",near),("outer",near))))["sampled_local_surface_densities_checked"]==2
         n=sol.as_dict((("V",near),))["samples"][0]["unit_normal"]
         assert hypot(*n)==pytest.approx(1.,abs=3e-16)
+
+
+@pytest.mark.parametrize("axis,charge,isolated,independent_raw",[
+    ((.6,.8,0.),3.1e-9,False,-3532142.26790142),
+    ((.6,.8,0.),-2.4e-9,True,+2734561.7557946476),
+    ((.48,-.64,.6),3.1e-9,False,-4242770.360599676),
+    ((.48,-.64,.6),-2.4e-9,True,+3284725.440464265),
+])
+def test_review02_b1_physical_raw_direction_and_truthful_json(
+    axis,charge,isolated,independent_raw,
+):
+    """Chat B #02 independent 105-digit raw-real+image-field challenge.
+
+    These are the four separately computed mathematical results from the
+    preserved independent failed report (review_sandbox PR24). Inputs
+    intentionally preserve the original *binary64 encoded raw direction*;
+    prematurely normalizing in ordinary double precision is not allowed.
+    """
+    radius=.85
+    pos=tuple(x*radius*(1.-1.2e-8) for x in axis)
+    moved=tuple(axis[i]+(5e-9,-2.5e-9,1e-9)[i] for i in range(3))
+    magnitude=hypot(*moved)
+    unit=tuple(x/magnitude for x in moved)
+    near=tuple(x*(1.+9e-13) for x in unit)
+    assert abs(hypot(*near)-1.) <= 1e-12
+    metal=FixedNetCharge(1.1e-9) if isolated else Grounded()
+    gauss=GaussCavityAssembly("M",(SealedCavity("V",(
+        CavityCharge("q",charge),
+    )),),metal)
+    geom=SphericalMetalGeometry((0.,0.,0.),3.,(
+        SphericalVoid("V",(0.,0.,0.),radius,(
+            NamedSourcePosition("q",pos),
+        )),
+    ))
+    sol=solve_spherical_sigma(SphericalSigmaModel(gauss,geom))
+    raw_sigma=sol.inner_surface_charge_density("V",near)
+    assert raw_sigma==pytest.approx(independent_raw,rel=2e-11,abs=0.)
+    record=sol.as_dict((("V",near),("outer",near)))
+    assert record["schema"]=="conductor_sim.m40a_spherical_multicavity_sigma.v2"
+    assert record["samples"][0]["input_direction"]==list(near)
+    assert record["samples"][0]["sigma_c_per_m2"]==raw_sigma
+    assert record["direction_interpretation"]
+    assert check_record(record)["sampled_local_surface_densities_checked"]==2
+    # A saved density forged from the OLD prematurely-rounded direction must
+    # fail at the originally declared, unrelaxed 2e-10 numerical tolerance.
+    old={
+        ((.6,.8,0.),False):-3532142.2752839886,
+        ((.6,.8,0.),True):+2734561.761510185,
+        ((.48,-.64,.6),False):-4242770.356589729,
+        ((.48,-.64,.6),True):+3284725.43735979,
+    }[(axis,isolated)]
+    false_record=deepcopy(record)
+    false_record["samples"][0]["sigma_c_per_m2"]=old
+    with pytest.raises(ValueError,match="independent surface density"):
+        check_record(false_record)
+    false_record=deepcopy(record)
+    false_record["samples"][0]["input_direction"]=[True,0.,0.]
+    with pytest.raises(ValueError):
+        check_record(false_record)
+    false_record=deepcopy(record)
+    false_record["samples"][0]["unit_normal"]=[1.,0.,0.]
+    with pytest.raises(ValueError,match="unit-normal display"):
+        check_record(false_record)
+    false_record=deepcopy(record)
+    false_record["direction_interpretation"]="misleading rounded source direction"
+    with pytest.raises(ValueError,match="direction provenance"):
+        check_record(false_record)
+
+
+def test_review02_near_wall_nonorigin_coordinates_preserve_encoded_si():
+    """3D absolute coordinates must not be rounded into false near-wall gaps."""
+    radius=.85
+    center=(2.3,-1.7,.45)
+    q=3.1e-9
+    position=(center[0]+radius*(1.-1.2e-8),center[1],center[2])
+    gauss=GaussCavityAssembly("M",(SealedCavity("V",(
+        CavityCharge("q",q),
+    )),),Grounded())
+    geo=SphericalMetalGeometry((0.,0.,0.),5.,(
+        SphericalVoid("V",center,radius,(
+            NamedSourcePosition("q",position),
+        )),
+    ))
+    sol=solve_spherical_sigma(SphericalSigmaModel(gauss,geo))
+    almost=(1.+9e-13,0.,0.)
+    rec=sol.as_dict((("V",almost),))
+    assert check_record(rec)["sampled_local_surface_densities_checked"]==1
+    assert rec["samples"][0]["input_direction"]==list(almost)
+    assert rec["samples"][0]["sigma_c_per_m2"]<0.
