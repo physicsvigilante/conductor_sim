@@ -1,0 +1,101 @@
+name: M39b honest no-JS multicavity Gauss topology and actual Chromium
+
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/cavity_topology_viewer.py'
+      - 'tests/test_m39b_topology.py'
+      - 'tools/m39b*'
+      - 'tools/check_m39b*'
+      - 'docs/m39b*'
+      - '.github/workflows/m39b-topology-viewer.yml'
+  push:
+    branches: [m39b-topology-only-gauss-viewer, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-topology-and-independent-pair:
+    name: native SI and independent source topology (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install real physics engine and test package
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Record true Git HEAD TREE and unchanged source PDFs
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m39b
+          git rev-parse HEAD | tee review-artifacts/m39b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m39b/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m39b/pdf-sha256.txt
+      - name: Signed source identities, source SI and hostile viewer tests
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m39a_cavity_gauss.py tests/test_m39b_topology.py -q --junitxml=review-artifacts/m39b/native-tests.xml
+      - name: Export real standalone teacher HTML and independently rederive SI
+        run: |
+          set -euo pipefail
+          python -m tools.m39b_topology_example --output-dir review-artifacts/m39b
+          python -m tools.m39b_topology_reference --input review-artifacts/m39b/m39b-topology-view.json --output review-artifacts/m39b/independent-viewer-witness.json
+          python -m tools.m39a_gauss_reference --input review-artifacts/m39b/m39b-isolated-native-gauss.json --output review-artifacts/m39b/isolated-theorem-witness.json
+          python -m tools.m39a_gauss_reference --input review-artifacts/m39b/m39b-grounded-native-gauss.json --output review-artifacts/m39b/grounded-theorem-witness.json
+      - name: Preserve actual native and oracle evidence including first red runs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m39b-native-independent-si-py${{ matrix.python-version }}
+          path: review-artifacts/m39b/
+          if-no-files-found: warn
+          retention-days: 21
+
+  actual-browser-and-nojs-hostility:
+    name: real Chromium static signed SI, JS-off, mobile and forged HTML
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install real physics and headless Chromium
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Save source identity and PDF hashes
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m39b
+          git rev-parse HEAD | tee review-artifacts/m39b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m39b/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m39b/pdf-sha256.txt
+      - name: Produce genuine isolated and grounded states and SI witness
+        run: |
+          set -euo pipefail
+          python -m tools.m39b_topology_example --output-dir review-artifacts/m39b
+          python -m tools.m39b_topology_reference --input review-artifacts/m39b/m39b-topology-view.json --output review-artifacts/m39b/independent-viewer-witness.json
+      - name: Inspect actual offline JS-on/disabled desktop/mobile and CSS HTML tampering
+        run: |
+          set -euo pipefail
+          python -m tools.check_m39b_topology_browser --output-dir review-artifacts/m39b
+      - name: Preserve actual screenshots and malicious-html evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m39b-real-chromium-nojs-mobile-hostility
+          path: review-artifacts/m39b/
+          if-no-files-found: warn
+          retention-days: 21
