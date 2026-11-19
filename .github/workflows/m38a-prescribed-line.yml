@@ -1,0 +1,62 @@
+name: M38a off-axis prescribed 3D Kelvin line and independent current SI
+
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/prescribed_ground_line.py'
+      - 'src/conductor_sim/prescribed_ground_wire.py'
+      - 'src/conductor_sim/grounded_sphere_wire.py'
+      - 'tests/test_m38a_prescribed_line.py'
+      - 'tools/m38a_line_reference.py'
+      - 'examples/m38a_line_approach.py'
+      - 'docs/m38a*'
+      - '.github/workflows/m38a-prescribed-line.yml'
+  push:
+    branches: [m38a-prescribed-3d-line-wire-current, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actual-line-and-kelvin-reference:
+    name: 3D continuous guard, native Kelvin, independent SI (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install actual project and test runner
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Preserve exact native Git object and unchanged workbook identity
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m38a
+          git rev-parse HEAD | tee review-artifacts/m38a/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m38a/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/m38a/original-workbook-sha256.txt
+      - name: Genuine 3D paths, hidden-between-frame crossings and forgeries
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m38a_prescribed_line.py tests/test_m37a_grounded_wire_current.py tests/test_m37b_constant_speed_jee.py -q --junitxml=review-artifacts/m38a/native-tests.xml
+      - name: Produce real teacher off-axis line data and independent analytic Kelvin audit
+        run: |
+          set -euo pipefail
+          python examples/m38a_line_approach.py --output review-artifacts/m38a/teacher-off-axis-line.json
+          python -m tools.m38a_line_reference --input review-artifacts/m38a/teacher-off-axis-line.json --output review-artifacts/m38a/independent-kelvin-oracle.json
+      - name: Retain true first-run evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m38a-independent-3d-si-py${{ matrix.python-version }}
+          path: review-artifacts/m38a/
+          if-no-files-found: warn
+          retention-days: 21
