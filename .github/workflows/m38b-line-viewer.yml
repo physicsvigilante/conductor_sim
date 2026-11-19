@@ -1,0 +1,102 @@
+name: M38b real local-plane Kelvin current viewer and hostile Chromium
+
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/prescribed_line_viewer.py'
+      - 'src/conductor_sim/prescribed_ground_line.py'
+      - 'tests/test_m38b_line_viewer.py'
+      - 'tools/m38b*'
+      - 'tools/check_m38b*'
+      - 'docs/m38b*'
+      - '.github/workflows/m38b-line-viewer.yml'
+  push:
+    branches: [m38b-offaxis-ground-current-viewer, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-and-standalone-si-display:
+    name: independent physical SI and actual fixed projection (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install engine and focused native test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Pin exact Git HEAD/TREE and unchanged original PDF SHA
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m38b
+          git rev-parse HEAD | tee review-artifacts/m38b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m38b/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/m38b/original-workbook-sha256.txt
+      - name: Execute source-native real 3D Kelvin and viewer hostile tests
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m38b_line_viewer.py tests/test_m38a_prescribed_line.py tests/test_m37a_grounded_wire_current.py tests/test_m37b_constant_speed_jee.py -q --junitxml=review-artifacts/m38b/native-tests.xml
+      - name: Save independently checked original physical SI and display geometry
+        run: |
+          set -euo pipefail
+          python -m tools.m38b_line_viewer_example --output-dir review-artifacts/m38b
+          python -m tools.m38a_line_reference --input review-artifacts/m38b/m38b-line-physics.json --output review-artifacts/m38b/m38a-physics-oracle.json
+          python -m tools.m38b_line_view_reference --input review-artifacts/m38b/m38b-line-viewer.json --output review-artifacts/m38b/m38b-display-oracle.json
+      - name: Preserve real source/SI evidence and first-run red failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m38b-native-teacher-and-independent-si-py${{ matrix.python-version }}
+          path: review-artifacts/m38b/
+          if-no-files-found: warn
+          retention-days: 21
+
+  actual-browser-and-nojs-hostility:
+    name: actual offline Chromium, visible SI, no-JS and HTML forgery refusal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install real Chromium and physics engine
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Generate actual physical source, JSON/SVG page and standalone SI witness
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m38b
+          git rev-parse HEAD | tee review-artifacts/m38b/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m38b/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/m38b/original-workbook-sha256.txt
+          python -m tools.m38b_line_viewer_example --output-dir review-artifacts/m38b
+          python -m tools.m38b_line_view_reference --input review-artifacts/m38b/m38b-line-viewer.json --output review-artifacts/m38b/m38b-display-oracle.json
+      - name: Inspect real visible JS-on and JS-disabled original frame in Chromium
+        run: |
+          set -euo pipefail
+          python -m tools.check_m38b_line_browser --output-dir review-artifacts/m38b
+      - name: Reject actual 18 HTML-only forged original-frame claims in Chromium
+        run: |
+          set -euo pipefail
+          python -m tools.check_m38b_line_hostility --output-dir review-artifacts/m38b
+      - name: Preserve baseline and forged screenshots, actual first-run errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m38b-physical-projection-chromium-hostility
+          path: review-artifacts/m38b/
+          if-no-files-found: warn
+          retention-days: 21
