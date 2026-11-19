@@ -202,32 +202,76 @@ def _check_frame(page, data, index, *, no_js):
         raise AssertionError("physical time slider differs from selected genuine sample")
 
 
-def _freeze_actual_playback_frame(page):
-    """Observe a truly advanced saved frame, then atomically stop its timer.
+def _freeze_actual_playback_frame(page, manifest):
+    """Verify the TRUE live Play frame first, then atomically pause its timer.
 
-    The browser Play button advances display-only frames at 100 ms. Reading
-    selectedIndex and then checking numerous DOM elements over many RPCs
-    while that timer runs is a time-of-check/time-of-use race: later DOM data
-    may legitimately refer to the next saved time. An input event on the
-    existing slider is the production UI's normal stop+show(current) action.
-    JS runs this one callback to completion without an interleaved timer tick.
+    Checking the frame only after dispatching the slider's input event could
+    conceal a broken Play-only renderer: the slider handler redraws all
+    values. Capture every visible SI label and marker from the still-running
+    player in ONE JavaScript callback, before that redraw. The browser JS
+    event loop cannot advance the timer during the callback. Independently
+    check the captured physical state against verified Python Kelvin rows.
+    Then use the normal slider event to stop without changing selectedIndex.
     """
-    index=page.evaluate("""() => {
+    snapshot=page.evaluate("""(labels) => {
       const viewer=window.m38bViewer;
       const slider=document.getElementById("m38b-index");
       if (!viewer || !slider || slider.disabled)
         throw new Error("real playback control unavailable");
-      const current=Number(slider.value);
-      if (!Number.isInteger(current) || current <= 0 ||
-          current >= viewer.sampleCount || viewer.selectedIndex !== current)
+      const index=Number(slider.value);
+      if (!Number.isInteger(index) || index <= 0 ||
+          index >= viewer.sampleCount || viewer.selectedIndex !== index)
         throw new Error("real playback did not reach a valid advancing saved frame");
+      const visible={};
+      for (const [selector,key] of Object.entries(labels)) {
+        const element=document.querySelector(selector);
+        if (!element) throw new Error("missing live physical readout: "+selector);
+        visible[key]=(element.textContent || "").trim();
+      }
+      const number=(selector,attribute) => {
+        const element=document.querySelector(selector);
+        if (!element) throw new Error("missing live physical marker: "+selector);
+        return Number(element.getAttribute(attribute));
+      };
+      const coords={
+        scene_x_px:number("#m38b-charge","cx"),
+        scene_y_px:number("#m38b-charge","cy"),
+        sign_x_px:number("#m38b-q-sign","x"),
+        sign_y_px:number("#m38b-q-sign","y"),
+        chart_x_px:number("#m38b-current-marker","cx"),
+        chart_y_px:number("#m38b-current-marker","cy"),
+      };
+      // Snapshot above is the *unmodified running Play DOM*. This official
+      // slider event then stops its timer and reselects the same real index.
       slider.dispatchEvent(new Event("input",{bubbles:true}));
-      if (Number(slider.value) !== current || viewer.selectedIndex !== current)
-        throw new Error("display-only playback pause changed the genuine physical frame");
-      return current;
-    }""")
-    if type(index) is not int or index<=0:
-        raise AssertionError("real playback did not reach genuine saved physical time")
+      return {index, visible, coords, pausedIndex:viewer.selectedIndex,
+              sliderIndex:Number(slider.value)};
+    }""", LABELS)
+    if type(snapshot) is not dict:
+        raise AssertionError("real playback returned no atomic physical screenshot data")
+    index=snapshot.get("index")
+    if (type(index) is not int or index <= 0
+            or index >= len(manifest["readouts"])):
+        raise AssertionError("real playback did not reach a valid saved physical index")
+    if snapshot.get("pausedIndex") != index or snapshot.get("sliderIndex") != index:
+        raise AssertionError("display-only pause changed the genuine physical frame")
+    expected=manifest["readouts"][index]
+    visible=snapshot.get("visible")
+    coords=snapshot.get("coords")
+    if type(visible) is not dict or type(coords) is not dict:
+        raise AssertionError("real playback did not capture actual SI/scene/chart values")
+    for key in LABELS.values():
+        if type(visible.get(key)) is not str or visible[key] != expected[key]:
+            raise AssertionError("LIVE playback SI/world label differs from genuine Kelvin frame: "+key)
+    for key in (
+        "scene_x_px", "scene_y_px", "sign_x_px", "sign_y_px",
+        "chart_x_px", "chart_y_px",
+    ):
+        value=coords.get(key)
+        if (type(value) not in (int,float) or not isfinite(value)
+                or not isclose(value, expected[key],
+                               rel_tol=4e-11,abs_tol=2e-7)):
+            raise AssertionError("LIVE playback scene/current marker differs from genuine Kelvin frame: "+key)
     return index
 
 
@@ -297,7 +341,7 @@ def check(directory: Path):
                     "() => window.m38bViewer && window.m38bViewer.selectedIndex>0",
                     timeout=5000
                 )
-                index=_freeze_actual_playback_frame(page)
+                index=_freeze_actual_playback_frame(page,manifest)
                 _check_frame(page,manifest,index,no_js=False)
                 # More than a full 100 ms tick later, index and genuine
                 # current marker must STILL represent this frozen frame.

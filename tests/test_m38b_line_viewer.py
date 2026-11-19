@@ -16,7 +16,7 @@ from conductor_sim.prescribed_line_viewer import (
 )
 from tools.m38b_line_viewer_example import example_trace, run_all
 from tools.m38b_line_view_reference import check_line_view
-from tools.check_m38b_line_browser import _verify_canonical_html
+from tools.check_m38b_line_browser import _verify_canonical_html, _freeze_actual_playback_frame, LABELS
 from tools.m38a_line_reference import check_line_record
 
 
@@ -212,3 +212,52 @@ def test_independently_verified_native_renderer_refuses_css_svg_forgery(tmp_path
         finally:
             target.write_bytes(real)
     _verify_canonical_html(manifest,target)
+
+
+def test_m38c_atomic_play_frame_captures_unmodified_science_before_pausing(generated):
+    """A fake slider index with stale live marker is NOT made honest by redraw.
+
+    The actual browser workflow separately performs real Playwright playback
+    and samples the untouched running DOM. This unit regression checks the
+    precise source-binding and detection contract without requiring Chromium
+    in the ordinary full Python test matrix.
+    """
+    _,manifest=generated
+    i=1
+    row=manifest["readouts"][i]
+    payload={
+        "index":i,"pausedIndex":i,"sliderIndex":i,
+        "visible":{key:row[key] for key in LABELS.values()},
+        "coords":{key:row[key] for key in (
+            "scene_x_px","scene_y_px","sign_x_px","sign_y_px",
+            "chart_x_px","chart_y_px",
+        )},
+    }
+
+    class CapturedPlayFrame:
+        def __init__(self, result):
+            self.result=result
+        def evaluate(self, source_js, labels):
+            assert labels==LABELS
+            # Critical: the displayed science must be captured before the
+            # normal input event stops and redraws the current true index.
+            assert source_js.index("const visible=")<source_js.index("slider.dispatchEvent")
+            assert source_js.index("const coords=")<source_js.index("slider.dispatchEvent")
+            return deepcopy(self.result)
+
+    assert _freeze_actual_playback_frame(CapturedPlayFrame(payload),manifest)==i
+
+    fake=deepcopy(payload)
+    fake["coords"]["chart_y_px"]=999.
+    with pytest.raises(AssertionError,match="LIVE playback scene/current marker"):
+        _freeze_actual_playback_frame(CapturedPlayFrame(fake),manifest)
+
+    fake=deepcopy(payload)
+    fake["visible"]["current_label"]="-9 A"
+    with pytest.raises(AssertionError,match="LIVE playback SI/world label"):
+        _freeze_actual_playback_frame(CapturedPlayFrame(fake),manifest)
+
+    fake=deepcopy(payload)
+    fake["pausedIndex"]=i+1
+    with pytest.raises(AssertionError,match="pause changed"):
+        _freeze_actual_playback_frame(CapturedPlayFrame(fake),manifest)
