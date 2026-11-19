@@ -134,7 +134,7 @@ def test_forged_major_claims_refused(field,value):
     (("cavities",1,"sources",0,"position_m",2),500.0),
     (("cavities",0,"samples",0,"isolated_sigma_c_per_m2"),False),
     (("cavities",0,"samples",0,"isolated_sigma_c_per_m2"),1e-12),
-    (("cavities",0,"samples",0,"phi_deg_display"),0.0),
+    (("cavities",0,"samples",0,"phi_deg_display"),92.0),
     (("outer","grounded_uniform_sigma_c_per_m2"),1.0),
     (("native_m40a_v2_witness_records","isolated",0,"samples",0,"sigma_c_per_m2"),False),
     (("native_m40a_v2_witness_records","isolated",0,"samples",0,"input_direction",0),False),

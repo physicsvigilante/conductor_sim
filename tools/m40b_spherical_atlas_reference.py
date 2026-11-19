@@ -74,6 +74,17 @@ def check_manifest(doc):
     for r in a + b:
         check_record(r)  # Independent original real+Kelvin image normal electric field.
     first, other = a[0], b[0]
+    # Every face witness in one state must be from THAT exact physical state;
+    # reject an internally consistent grounded record swapped into isolated.
+    for label, records in (("isolated", a), ("grounded", b)):
+        baseline = records[0]
+        for record in records[1:]:
+            equal(record["gauss"], baseline["gauss"],
+                  label + " all-face source and constraint identity")
+            equal(record["voids"], baseline["voids"],
+                  label + " all-face 3D cavity geometry")
+            equal(record["outer_sphere"], baseline["outer_sphere"],
+                  label + " all-face outer geometry")
     equal(doc["outer_sphere"], first["outer_sphere"], "outer 3D geometry")
     require(first["gauss"]["conductor"]["constraint"] == "isolated_fixed_net_charge",
             "first state must be genuinely isolated")

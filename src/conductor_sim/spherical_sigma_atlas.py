@@ -203,7 +203,7 @@ def _projection(manifest):
         x, y = xy(cav["center_m"][0], cav["center_m"][1])
         radius = cav["radius_m"] * scale
         pieces.append('<circle id="m40b-void-{}" cx="{}" cy="{}" r="{}" '
-                      'fill="#ffffff" stroke="#2e7996" stroke-width="2">'
+                      'fill="none" stroke="#2e7996" stroke-width="2" stroke-dasharray="7 4">'
                       '<title>{}</title></circle>'.format(
                           i, repr(x), repr(y), repr(radius),
                           escape("Cavity "+cav["cavity_id"]+"; 3D center "+_xyz(cav["center_m"]),quote=True)))
