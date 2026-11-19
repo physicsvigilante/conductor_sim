@@ -16,8 +16,13 @@ import re
 from .cavity_gauss import GaussCavityAssembly, GaussCavityLedger, solve_cavity_gauss
 from .solver import UnsupportedProblem
 
-SCHEMA = "conductor_sim.m40a_spherical_multicavity_sigma.v1"
+SCHEMA = "conductor_sim.m40a_spherical_multicavity_sigma.v2"
 ROLE = "teacher_hypothetical_spherical_multicavity_only"
+DIRECTION_SEMANTICS = (
+    "input_direction preserves original admitted near-unit binary64 components; "
+    "local sigma follows their physical direction, normalized before wall evaluation; "
+    "unit_normal is rounded display-only, not a precision source for near-wall sigma"
+)
 ASSUMPTIONS = (
     "one connected ideal metal with spherical outer surface and disjoint sealed spherical voids",
     "all point charges have verified positions strictly within their assigned spherical voids",
@@ -68,20 +73,28 @@ def _distance(p, q):
 
 
 def _normal(value):
-    """Admit already-nearly-unit directions, then sample the *actual* sphere.
+    """Validate a nearly unit direction WITHOUT changing its encoded angle.
 
-    A raw length error as small as 9e-13 changes the near-wall Kelvin pole
-    density by ~2e-4 at the admitted 1e-8 wall gap. All accepted directions
-    are therefore normalized before calculating or saving local surface
-    samples. Arbitrary nonunit vectors still refuse.
+    The actual sphere point is obtained by normalizing these original
+    binary64 components in the geometry-dependent evaluator. Premature
+    double-precision normalization can shift the direction by one ulp,
+    enough to corrupt near-wall inverse-cube densities.
     """
     n = _point(value, "unit surface normal")
     length = hypot(*n)
     if not isfinite(length) or abs(length - 1.0) > 1e-12:
         raise ValueError("surface query requires a genuine unit-normal vector")
-    if length == 1.0:
-        return n
-    return tuple(component / length for component in n)
+    return n
+
+
+def _display_unit_normal(raw):
+    """Rounded unit vector for presentation; NOT the source of sigma geometry."""
+    with localcontext() as ctx:
+        ctx.prec = 90
+        D = Decimal.from_float
+        direction = tuple(D(component) for component in raw)
+        length = (sum((x*x for x in direction), Decimal(0))).sqrt()
+        return tuple(float(x / length) for x in direction)
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +210,7 @@ def _validated(gauss, geometry):
     return a, g, ledger
 
 
-def _near_wall_sigma_precision(q: float, radius: float, offset, normal) -> float:
+def _near_wall_sigma_precision(q: float, radius: float, source_position, cavity_center, normal) -> float:
     """Evaluate the exact spherical-wall kernel without binary64 subtraction loss.
 
     The admitted minimum source-wall clearance is 1e-8 of radius; naive
@@ -211,7 +224,7 @@ def _near_wall_sigma_precision(q: float, radius: float, offset, normal) -> float
         ctx.prec = 90
         D = Decimal.from_float
         a = D(radius)
-        source = tuple(D(x) for x in offset)
+        source = tuple(D(source_position[i])-D(cavity_center[i]) for i in range(3))
         direction = tuple(D(x) for x in normal)
         direction_length2 = sum((x*x for x in direction), Decimal(0))
         if direction_length2 == 0:
@@ -279,9 +292,12 @@ class SphericalSigmaSolution:
                 if gap <= 0:
                     raise UnsupportedProblem("source-to-wall singular or unqualified density query")
                 if gap <= R * 1e-5:
-                    term = _near_wall_sigma_precision(source.charge_c, R, dvec, n)
+                    term = _near_wall_sigma_precision(
+                        source.charge_c, R, lookup[source.source_id], void.center_m, n
+                    )
                 else:
-                    sep = hypot(*(R*n[k]-dvec[k] for k in range(3)))
+                    normalized = tuple(x / hypot(*n) for x in n)
+                    sep = hypot(*(R*normalized[k]-dvec[k] for k in range(3)))
                     if sep <= 0 or not isfinite(sep):
                         raise UnsupportedProblem("source-to-wall singular or unqualified density query")
                     term = -source.charge_c * ((gap * (R+d))/(4*pi*R*sep**3))
@@ -332,10 +348,13 @@ class SphericalSigmaSolution:
                 density = self.outer_surface_charge_density(n)
             else:
                 density = self.inner_surface_charge_density(surface, n)
-            samples.append({"surface_id":surface, "unit_normal":list(n),
+            samples.append({"surface_id":surface,
+                            "input_direction":list(n),
+                            "unit_normal":list(_display_unit_normal(n)),
                             "sigma_c_per_m2":density})
         return {
             "schema": SCHEMA, "source_role": ROLE,
+            "direction_interpretation": DIRECTION_SEMANTICS,
             "original_workbook_items_newly_solved":0,
             "assumptions": list(ASSUMPTIONS), "unsupported": list(UNSUPPORTED),
             "geometry_qualified_spherical_only": True,

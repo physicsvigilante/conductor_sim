@@ -15,8 +15,13 @@ from pathlib import Path
 
 from tools.m39a_gauss_reference import check_gauss_record
 
-SCHEMA="conductor_sim.m40a_spherical_multicavity_sigma.v1"
+SCHEMA="conductor_sim.m40a_spherical_multicavity_sigma.v2"
 ROLE="teacher_hypothetical_spherical_multicavity_only"
+DIRECTION_SEMANTICS=(
+    "input_direction preserves original admitted near-unit binary64 components; "
+    "local sigma follows their physical direction, normalized before wall evaluation; "
+    "unit_normal is rounded display-only, not a precision source for near-wall sigma"
+)
 ASSUMPTIONS=[
     "one connected ideal metal with spherical outer surface and disjoint sealed spherical voids",
     "all point charges have verified positions strictly within their assigned spherical voids",
@@ -63,7 +68,7 @@ def norm(a):
     return hypot(*a)
 
 
-def density_from_images(R,sources,n):
+def density_from_images(R,sources,n,center):
     """Separate high-precision real+Kelvin-image normal E at the inner wall.
 
     High precision is important for nearly centered but nonzero source
@@ -81,11 +86,11 @@ def density_from_images(R,sources,n):
         wall=tuple(radius*v for v in direction)
         pi_d=D(pi)
         terms=[]
-        for charge,relative in sources:
+        for charge,absolute in sources:
             if charge==0.:
                 continue
             q=D(charge)
-            u=tuple(D(x) for x in relative)
+            u=tuple(D(absolute[i])-D(center[i]) for i in range(3))
             d2=sum((v*v for v in u),Decimal(0))
             if d2==0:
                 terms.append(-q/(4*pi_d*radius*radius))
@@ -128,7 +133,7 @@ def same(actual,expected,label):
 
 def check_record(doc):
     required(doc,(
-        "schema","source_role","original_workbook_items_newly_solved",
+        "schema","source_role","direction_interpretation","original_workbook_items_newly_solved",
         "assumptions","unsupported","geometry_qualified_spherical_only",
         "irregular_3d_fields_qualified","time_evolution_defined","units",
         "outer_sphere","voids","gauss","samples",
@@ -137,6 +142,8 @@ def check_record(doc):
         or type(doc["original_workbook_items_newly_solved"]) is not int
         or doc["original_workbook_items_newly_solved"]!=0):
         raise ValueError("fake source role/solved JEE claim")
+    if doc["direction_interpretation"]!=DIRECTION_SEMANTICS:
+        raise ValueError("physical input direction provenance is falsified")
     if doc["assumptions"]!=ASSUMPTIONS or doc["unsupported"]!=UNSUPPORTED:
         raise ValueError("M40a spherical/unsupported physics boundary altered")
     if (doc["geometry_qualified_spherical_only"] is not True
@@ -188,7 +195,7 @@ def check_record(doc):
         named=[]
         for s in sources:
             q=real(s["charge_c"],"source Coulombs")
-            named.append((q,diff(actual[s["source_id"]],c)))
+            named.append((q,actual[s["source_id"]]))
             if q:charge_spread.append(abs(q))
         positions[row["cavity_id"]]=(r,c,named)
         for before in voids[:i]:
@@ -204,27 +211,35 @@ def check_record(doc):
     if type(samples) is not list or len(samples)>64:
         raise ValueError("unknown or too many local surface inquiries")
     for row in samples:
-        required(row,("surface_id","unit_normal","sigma_c_per_m2"),"local density probe")
-        normal=coords(row["unit_normal"],"surface normal")
-        magnitude=norm(normal)
-        if not isfinite(magnitude) or abs(magnitude-1)>1e-12:
-            raise ValueError("unit surface normal is not genuine")
-        # Independently calculate the *actual spherical-wall* density:
-        # admitted raw near-unit coordinates are directions, not points.
-        # This also rejects an old exported/forged off-wall Kelvin result.
-        if magnitude!=1.:
-            normal=tuple(x/magnitude for x in normal)
+        required(row,("surface_id","input_direction","unit_normal","sigma_c_per_m2"),
+                 "local density probe")
+        raw=coords(row["input_direction"],"encoded physical input direction")
+        norm_raw=norm(raw)
+        if not isfinite(norm_raw) or abs(norm_raw-1)>1e-12:
+            raise ValueError("original encoded direction is not near unit")
+        display=coords(row["unit_normal"],"rounded display-only unit normal")
+        # Compute from the ORIGINAL binary64-encoded input, using Decimal
+        # only for the direction-to-unit operation; do not use the displayed
+        # binary64-normalized vector to certify near-wall physics.
+        with localcontext() as ctx:
+            ctx.prec=90
+            D=Decimal.from_float
+            v=tuple(D(x) for x in raw)
+            L=(sum((x*x for x in v),Decimal(0))).sqrt()
+            expected_display=tuple(float(x/L) for x in v)
+        if display!=expected_display:
+            raise ValueError("unit-normal display is not consistent with original input direction")
         surface=row["surface_id"]
         if surface=="outer" and type(surface) is str:
             Q=real(gauss["outer_face_total_charge_c"],"outer Gauss charge")
             expected=Q/(4*pi*outer*outer)
         elif type(surface) is str and surface in positions:
-            R,_,sources=positions[surface]
-            expected=density_from_images(R,sources,normal)
+            R,center,sources=positions[surface]
+            expected=density_from_images(R,sources,raw,center)
         else:
             raise ValueError("unknown spherical physical surface ID")
         same(row["sigma_c_per_m2"],expected,"independent surface density")
-    return {"schema":"conductor_sim.m40a_independent_sigma_witness.v1",
+    return {"schema":"conductor_sim.m40a_independent_sigma_witness.v2",
             "teacher_hypothetical_assemblies":1,
             "geometry_certified_spherical_only":True,
             "cavities_checked":len(voids),
