@@ -14,12 +14,12 @@ No external point charges, external applied fields, other conductors, dielectric
 
 For spherical cavity i of radius a_i and center c_i, a point charge q_j at x_j lies strictly within cavity i with d_j=|x_j-c_i|<a_i. At **unit vector n pointing from cavity center into the metal**, the entire inner wall's local **metal-side surface density** is
 
-[
+\[
 \sigma_{\text{inner},i}(\mathbf n)
 =-\sum_{j\in i}\frac{q_j(a_i^2-d_j^2)}
  {4\pi a_i\,|a_i\mathbf n-(\mathbf x_j-\mathbf c_i)|^3}
 \quad[\mathrm{C/m^2}].
-]
+\]
 
 This is the exact Kelvin image-charge/Dirichlet uniqueness distribution for each spherical cavity. The whole connected metal has a *single common constant potential*; that additive constant does **not** alter inner fields or sigma, and other cavities cannot alter each other's inner sigma under electrostatic shielding. Hence the exact surface integral over any entire inner face is `Q_inner_i = -sum(q_j in i)`, matching M39a.
 
