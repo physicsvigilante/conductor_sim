@@ -227,7 +227,7 @@ def test_smallest_subnormal_is_not_misrepresented_as_visual_zero():
     page = render_cavity_topology(a,b)
     assert "+5e-324 C" in page
     assert "−5e-324 C" in page
-    assert 'id="m39b-outer-isolated">+5e-324 C</td>' in page
+    assert 'id="m39b-outer-isolated" class="charge">+5e-324 C</td>' in page
     assert "0 C" in page
     assert _si(tiny, "C") != _si(0.0, "C")
 
