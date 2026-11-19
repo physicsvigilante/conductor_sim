@@ -150,7 +150,10 @@ def check_hostiles(directory: Path):
                     if not loc.is_visible():
                         raise AssertionError("fake no-JS physical datum not actually visible: "+attack)
                     if kind=="text":
-                        observed=loc.inner_text().strip()
+                        # SVG text nodes are not HTMLElements; Playwright
+                        # inner_text fails on them. text_content works for
+                        # both genuine SVG and HTML first-frame claims.
+                        observed=(loc.text_content() or "").strip()
                         if observed!=forged_value:
                             raise AssertionError("forged no-JS scientific text not actually visible: "+attack)
                     elif kind=="attribute":
