@@ -202,6 +202,79 @@ def _check_frame(page, data, index, *, no_js):
         raise AssertionError("physical time slider differs from selected genuine sample")
 
 
+def _freeze_actual_playback_frame(page, manifest):
+    """Verify the TRUE live Play frame first, then atomically pause its timer.
+
+    Checking the frame only after dispatching the slider's input event could
+    conceal a broken Play-only renderer: the slider handler redraws all
+    values. Capture every visible SI label and marker from the still-running
+    player in ONE JavaScript callback, before that redraw. The browser JS
+    event loop cannot advance the timer during the callback. Independently
+    check the captured physical state against verified Python Kelvin rows.
+    Then use the normal slider event to stop without changing selectedIndex.
+    """
+    snapshot=page.evaluate("""(labels) => {
+      const viewer=window.m38bViewer;
+      const slider=document.getElementById("m38b-index");
+      if (!viewer || !slider || slider.disabled)
+        throw new Error("real playback control unavailable");
+      const index=Number(slider.value);
+      if (!Number.isInteger(index) || index <= 0 ||
+          index >= viewer.sampleCount || viewer.selectedIndex !== index)
+        throw new Error("real playback did not reach a valid advancing saved frame");
+      const visible={};
+      for (const [selector,key] of Object.entries(labels)) {
+        const element=document.querySelector(selector);
+        if (!element) throw new Error("missing live physical readout: "+selector);
+        visible[key]=(element.textContent || "").trim();
+      }
+      const number=(selector,attribute) => {
+        const element=document.querySelector(selector);
+        if (!element) throw new Error("missing live physical marker: "+selector);
+        return Number(element.getAttribute(attribute));
+      };
+      const coords={
+        scene_x_px:number("#m38b-charge","cx"),
+        scene_y_px:number("#m38b-charge","cy"),
+        sign_x_px:number("#m38b-q-sign","x"),
+        sign_y_px:number("#m38b-q-sign","y"),
+        chart_x_px:number("#m38b-current-marker","cx"),
+        chart_y_px:number("#m38b-current-marker","cy"),
+      };
+      // Snapshot above is the *unmodified running Play DOM*. This official
+      // slider event then stops its timer and reselects the same real index.
+      slider.dispatchEvent(new Event("input",{bubbles:true}));
+      return {index, visible, coords, pausedIndex:viewer.selectedIndex,
+              sliderIndex:Number(slider.value)};
+    }""", LABELS)
+    if type(snapshot) is not dict:
+        raise AssertionError("real playback returned no atomic physical screenshot data")
+    index=snapshot.get("index")
+    if (type(index) is not int or index <= 0
+            or index >= len(manifest["readouts"])):
+        raise AssertionError("real playback did not reach a valid saved physical index")
+    if snapshot.get("pausedIndex") != index or snapshot.get("sliderIndex") != index:
+        raise AssertionError("display-only pause changed the genuine physical frame")
+    expected=manifest["readouts"][index]
+    visible=snapshot.get("visible")
+    coords=snapshot.get("coords")
+    if type(visible) is not dict or type(coords) is not dict:
+        raise AssertionError("real playback did not capture actual SI/scene/chart values")
+    for key in LABELS.values():
+        if type(visible.get(key)) is not str or visible[key] != expected[key]:
+            raise AssertionError("LIVE playback SI/world label differs from genuine Kelvin frame: "+key)
+    for key in (
+        "scene_x_px", "scene_y_px", "sign_x_px", "sign_y_px",
+        "chart_x_px", "chart_y_px",
+    ):
+        value=coords.get(key)
+        if (type(value) not in (int,float) or not isfinite(value)
+                or not isclose(value, expected[key],
+                               rel_tol=4e-11,abs_tol=2e-7)):
+            raise AssertionError("LIVE playback scene/current marker differs from genuine Kelvin frame: "+key)
+    return index
+
+
 def check(directory: Path):
     from playwright.sync_api import sync_playwright
 
@@ -255,12 +328,30 @@ def check(directory: Path):
                                      "time_s":manifest["trace"]["samples"][i]["time_s"],
                                      "signed_current_a":manifest["trace"]["samples"][i]["wire_current_sphere_to_ground_a"],
                                      "screenshot":pic.name})
-            page.locator("#m38b-reset").click()
-            _check_frame(page,manifest,0,no_js=False)
-            page.locator("#m38b-play").click()
-            page.wait_for_function("() => window.m38bViewer && window.m38bViewer.selectedIndex>0",
-                                   timeout=5000)
-            _check_frame(page,manifest,page.evaluate("() => window.m38bViewer.selectedIndex"),no_js=False)
+            # Regression for actual M38b main-push run #44471869184:
+            # live 100-ms playback must first ADVANCE, then be frozen at the
+            # true currently selected saved frame before the many RPC-based
+            # physical readout/scene/current marker assertions begin.
+            playback_witnesses=[]
+            for attempt in range(3):
+                page.locator("#m38b-reset").click()
+                _check_frame(page,manifest,0,no_js=False)
+                page.locator("#m38b-play").click()
+                page.wait_for_function(
+                    "() => window.m38bViewer && window.m38bViewer.selectedIndex>0",
+                    timeout=5000
+                )
+                index=_freeze_actual_playback_frame(page,manifest)
+                _check_frame(page,manifest,index,no_js=False)
+                # More than a full 100 ms tick later, index and genuine
+                # current marker must STILL represent this frozen frame.
+                page.wait_for_timeout(170)
+                if page.evaluate("() => window.m38bViewer.selectedIndex")!=index:
+                    raise AssertionError(
+                        "paused playback advanced during scientific scene/current inspection"
+                    )
+                _check_frame(page,manifest,index,no_js=False)
+                playback_witnesses.append(index)
             page.locator("#m38b-reset").click()
             _check_frame(page,manifest,0,no_js=False)
             mobile=browser.new_page(viewport={"width":390,"height":740})
@@ -296,6 +387,8 @@ def check(directory: Path):
         "original_workbook_cases_newly_solved":0,
         "physics_states_independently_checked":oracle["independently_checked_kelvin_states"],
         "visible_scripted_physical_states":len(inspected),
+        "real_playback_witness_indices":playback_witnesses,
+        "playback_freeze_verified_after_100ms_tick":True,
         "javascript_disabled_first_frame":True,
         "mobile_390px_verified":True,
         "external_http_requests":0,
