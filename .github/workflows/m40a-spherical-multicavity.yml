@@ -1,0 +1,55 @@
+name: M40a spherical multicavity induced sigma, geometric qualification and independent Kelvin
+on:
+  pull_request:
+    paths:
+      - 'src/conductor_sim/spherical_multicavity.py'
+      - 'tools/m40a*'
+      - 'tests/test_m40a*'
+      - 'docs/m40a*'
+      - '.github/workflows/m40a-spherical-multicavity.yml'
+  push:
+    branches: [m40a-spherical-multicavity-sigma, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualified-spherical-sigma:
+    name: 3D geometry, native sigma, independent image field (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10","3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install actual source and test package
+        run: |
+          set -euo pipefail
+          python -m pip install -e ".[test]"
+      - name: Record exact Git HEAD/TREE, frozen charter and original PDF SHA256
+        run: |
+          set -euo pipefail
+          mkdir -p review-artifacts/m40a
+          git rev-parse HEAD | tee review-artifacts/m40a/head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/m40a/tree.txt
+          git log --oneline -7 | tee review-artifacts/m40a/parent-history.txt
+          sha256sum docs/m40a_charter.md 02_conductors_half_size.pdf POTENTIAL_CONDUCTORS1.pdf | tee review-artifacts/m40a/science-source-sha256.txt
+      - name: Execute actual qualified spherical sigma and standalone Kelvin witnesses
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_m40a_spherical_multicavity.py -q --junitxml=review-artifacts/m40a/tests.xml
+          python -m tools.m40a_spherical_example --output-dir review-artifacts/m40a
+          python -m tools.m40a_spherical_reference --input review-artifacts/m40a/m40a-isolated-teacher.json --output review-artifacts/m40a/isolated-independent-witness.json
+          python -m tools.m40a_spherical_reference --input review-artifacts/m40a/m40a-grounded-teacher.json --output review-artifacts/m40a/grounded-independent-witness.json
+      - name: Preserve first-attempt native, mathematical and hostile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m40a-geometry-kelvin-sigma-py${{ matrix.python-version }}
+          path: review-artifacts/m40a/
+          if-no-files-found: warn
+          retention-days: 21
