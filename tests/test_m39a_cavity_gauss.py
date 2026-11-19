@@ -282,6 +282,7 @@ def test_grounded_checker_rejects_fake_charge_and_false_outer_field():
 def test_distinguishes_integral_charge_from_unknown_local_sigma_and_no_jee_count():
     actual=solve_cavity_gauss(sample_assembly()).as_dict()
     assert actual["source_role"]=="teacher_hypothetical_topology_gauss_only"
+    assert any("bounded connected" in phrase for phrase in actual["assumptions"])
     assert actual["original_workbook_items_newly_solved"]==0
     assert "no geometry or containment was verified" in actual["membership_provenance"]
     assert "surface charge density sigma(x)" in actual["unsupported"][2]

@@ -23,7 +23,7 @@ MEMBERSHIP = (
     "no geometry or containment was verified"
 )
 ASSUMPTIONS = [
-    "one connected ideal electrostatic metal with 1..8 disjoint fully sealed voids",
+    "one bounded connected ideal electrostatic metal with 1..8 disjoint fully sealed voids",
     "all charges are fixed inside their declared void and do not contact metal",
     "no exterior sources, applied exterior field, other metal, internal electrode or aperture",
     "homogeneous positive permittivity; vacuum/infinity reference V=0 for grounding",
