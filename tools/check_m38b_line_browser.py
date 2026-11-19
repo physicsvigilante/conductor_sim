@@ -107,14 +107,16 @@ def _check_static(page, data, *, no_js):
     if page.locator("#m38b-current-chart text").all_text_contents()!=expected_chart:
         raise AssertionError("visible current/physical-time axis label falsified")
     sign="+q" if native["source_charge_c"]>0 else "−q"
+    # Diagnose falsified physical q sign before the broader scene-caption
+    # attribution check. These are two independently meaningful boundaries.
+    if not page.locator("#m38b-q-sign").is_visible() or page.locator("#m38b-q-sign").text_content().strip()!=sign:
+        raise AssertionError("visible source charge sign contradicts physical signed q")
     expected_scene=[
         sign,"Grounded","+u","+w",
         "One fixed equal-metre scale in both axes; no world-xy claim"
     ]
     if page.locator("#m38b-scene text").all_text_contents()!=expected_scene:
         raise AssertionError("visible local source physical axes falsified")
-    if not page.locator("#m38b-q-sign").is_visible() or page.locator("#m38b-q-sign").text_content().strip()!=sign:
-        raise AssertionError("visible source charge sign contradicts physical signed q")
     slider=page.locator("#m38b-index")
     if (slider.input_value()!="0" if no_js else False):
         raise AssertionError("no-JS first physical time index falsely selected")
