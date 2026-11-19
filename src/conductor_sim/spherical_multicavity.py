@@ -159,6 +159,8 @@ def _validated(gauss, geometry):
         raise UnsupportedProblem("large absolute world-coordinate offsets are numerically unqualified")
     nonzero = []
     for void, cav in zip(g.voids, a.cavities):
+        if void.cavity_id == "outer":
+            raise ValueError("reserved surface ID outer cannot identify an inner cavity")
         if any(abs(x) > 1e6 * outer_r for x in void.center_m):
             raise UnsupportedProblem("cavity coordinates exceed qualified precision domain")
         expected = {s.source_id for s in cav.sources}
