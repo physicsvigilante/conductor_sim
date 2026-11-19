@@ -229,3 +229,59 @@ def test_subnormal_nonzero_source_denied_by_narrow_local_density_regime():
     with pytest.raises(UnsupportedProblem,match="magnitude"):
         SphericalSigmaModel(replace(original.gauss_assembly,cavities=(revised,)+cav[1:]),
                             original.geometry)
+
+
+def test_independent_image_checker_remains_stable_for_nearly_centered_sources():
+    # The real Kelvin image lies far outside the cavity for a tiny off-center
+    # position. Ordinary binary64 explicit-image algebra would overflow or
+    # divide by zero, even though the physical wall density is well behaved.
+    source=GaussCavityAssembly("Metal",(SealedCavity("C",(CavityCharge("q",2e-9),)),),Grounded())
+    for displacement in (5e-324,1e-250,1e-160,1e-50,1e-12):
+        geo=SphericalMetalGeometry((0.,0.,0.),3.,(
+            SphericalVoid("C",(0.,0.,0.),.5,(
+                NamedSourcePosition("q",(displacement,0.,0.)),
+            )),
+        ))
+        saved=solve_spherical_sigma(SphericalSigmaModel(source,geo)).as_dict((
+            ("C",(1.,0.,0.)),("C",(-1.,0.,0.)),
+        ))
+        assert check_record(saved)["sampled_local_surface_densities_checked"]==2
+        sigma=-2e-9/(4*pi*.5**2)
+        if displacement < 1e-12:
+            assert saved["samples"][0]["sigma_c_per_m2"]==pytest.approx(sigma,rel=2e-12)
+
+
+def test_real_3d_rotation_translation_and_cavity_order_symmetry():
+    base=teacher_model()
+    before=solve_spherical_sigma(base)
+    q=before.inner_surface_charge_density("NegativeCavity",(1.,0.,0.))
+    def rotate(p):
+        return (-p[1],p[0],p[2])
+    def translate(p):
+        return (p[0]+.3,p[1]-.4,p[2]+.2)
+    def shift_model(transform):
+        voids=tuple(SphericalVoid(v.cavity_id,transform(v.center_m),v.radius_m,tuple(
+            NamedSourcePosition(s.source_id,transform(s.position_m)) for s in v.positions
+        )) for v in base.geometry.voids)
+        return replace(base,geometry=SphericalMetalGeometry(
+            transform(base.geometry.outer_center_m),base.geometry.outer_radius_m,voids,
+        ))
+    turned=solve_spherical_sigma(shift_model(rotate))
+    moved=solve_spherical_sigma(shift_model(translate))
+    assert turned.inner_surface_charge_density("NegativeCavity",(0.,1.,0.))==pytest.approx(q,rel=5e-13)
+    assert moved.inner_surface_charge_density("NegativeCavity",(1.,0.,0.))==pytest.approx(q,rel=5e-13)
+    assert moved.gauss_ledger.outer_face_charge_c==before.gauss_ledger.outer_face_charge_c
+    order=(2,0,1)
+    reordered_gauss=replace(base.gauss_assembly,cavities=tuple(base.gauss_assembly.cavities[i] for i in order))
+    reordered_geo=replace(base.geometry,voids=tuple(base.geometry.voids[i] for i in order))
+    reordered=solve_spherical_sigma(SphericalSigmaModel(reordered_gauss,reordered_geo))
+    assert reordered.inner_surface_charge_density("NegativeCavity",(1.,0.,0.))==q
+    assert solve_spherical_sigma(base).inner_surface_charge_density("NegativeCavity",(1.,0.,0.))==q
+
+
+def test_reserved_outer_is_not_a_cavity_id():
+    c=SealedCavity("outer",())
+    model=GaussCavityAssembly("Metal",(c,),Grounded())
+    geom=SphericalMetalGeometry((0.,0.,0.),3.,(SphericalVoid("outer",(0.,0.,0.),.4),))
+    with pytest.raises(ValueError,match="reserved"):
+        SphericalSigmaModel(model,geom)

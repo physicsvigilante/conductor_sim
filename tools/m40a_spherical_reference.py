@@ -9,6 +9,7 @@ of entirely self-consistently rewritten external JSON.
 from __future__ import annotations
 import argparse
 import json
+from decimal import Decimal, localcontext
 from math import fsum, hypot, isclose, isfinite, pi, ulp
 from pathlib import Path
 
@@ -55,42 +56,55 @@ def coords(x,label):
 
 
 def diff(a,b):
-    return tuple(a[i]-b[i] for i in range(3))
+    return tuple(a[i]-b[i] for i in range(def density_from_images(R,sources,n):
+    """Separate high-precision real+Kelvin-image normal E at the inner wall.
 
-
-def norm(a):
-    return hypot(*a)
-
-
-def density_from_images(R,sources,n):
-    """Independent Kelvin-image electric-field normal, no production imports."""
-    terms=[]
-    wall=tuple(R*v for v in n)
-    for q,relative in sources:
-        if q==0.:
-            continue
-        d=norm(relative)
-        x=diff(wall,relative)
-        r=norm(x)
-        if d==0:
-            terms.append(-q/(4*pi*R*R))
-            continue
-        # Kelvin image outside the sealed cavity; its potential vanishes
-        # on the cavity sphere together with the real-source contribution.
-        image=tuple((R/d)**2*relative[k] for k in range(3))
-        image_q=-q*R/d
-        y=diff(wall,image)
-        rd=norm(y)
-        numerator=q*sum(n[k]*x[k] for k in range(3))/(r**3)
-        numerator+=image_q*sum(n[k]*y[k] for k in range(3))/(rd**3)
-        # Metal-side inner normal is -n; sigma = -epsilon * E_cavity.n.
-        terms.append(-numerator/(4*pi))
+    High precision is important for nearly centered but nonzero source
+    positions: a literal image may be 10**300 times farther away than the
+    cavity radius, and forming that image in binary64 would overflow despite
+    a perfectly finite, almost-uniform physical inner surface density.
+    """
+    with localcontext() as ctx:
+        ctx.prec=90
+        D=Decimal.from_float
+        radius=D(R)
+        direction=tuple(D(x) for x in n)
+        wall=tuple(radius*v for v in direction)
+        pi_d=D(pi)
+        terms=[]
+        for charge,relative in sources:
+            if charge==0.:
+                continue
+            q=D(charge)
+            u=tuple(D(x) for x in relative)
+            d2=sum((v*v for v in u),Decimal(0))
+            if d2==0:
+                terms.append(-q/(4*pi_d*radius*radius))
+                continue
+            d=d2.sqrt()
+            real_delta=tuple(wall[k]-u[k] for k in range(3))
+            r2=sum((v*v for v in real_delta),Decimal(0))
+            image=tuple(radius*radius*v/d2 for v in u)
+            image_charge=-q*radius/d
+            image_delta=tuple(wall[k]-image[k] for k in range(3))
+            ri2=sum((v*v for v in image_delta),Decimal(0))
+            real_dot=sum((direction[k]*real_delta[k] for k in range(3)),Decimal(0))
+            image_dot=sum((direction[k]*image_delta[k] for k in range(3)),Decimal(0))
+            # sigma_metal = -epsilon * (E_cavity dot n), where E includes
+            # both REAL and IMAGE point-source electric fields.
+            term=-(q*real_dot/(r2*r2.sqrt()) +
+                   image_charge*image_dot/(ri2*ri2.sqrt()))/(4*pi_d)
+            terms.append(term)
+        actual=sum(terms,Decimal(0))
     try:
-        actual=fsum(terms)
-    except (ValueError,OverflowError) as exc:
-        raise ValueError("image-field density not numerically representable") from exc
-    if not isfinite(actual):
-        raise ValueError("image-field density overflows qualified domain")
+        as_float=float(actual)
+    except (OverflowError,ValueError) as exc:
+        raise ValueError("independent Kelvin image field overflows binary64") from exc
+    if not isfinite(as_float) or (actual!=0 and as_float==0.):
+        raise ValueError("independent Kelvin image field overflows or underflows binary64")
+    return as_float
+
+ws qualified domain")
     return actual
 
 
