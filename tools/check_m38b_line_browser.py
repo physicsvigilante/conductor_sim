@@ -14,6 +14,56 @@ from tools.m38b_line_view_reference import check_line_view
 from tools.m38a_line_reference import check_line_record
 
 
+def _verify_canonical_html(manifest: dict, target: Path) -> None:
+    """Bind *all* visible HTML/CSS/SVG to separately SI-checked native physics.
+
+    Per-element DOM value tests cannot detect CSS pseudo-text, opacity,
+    stroke removal, clipping or transformed world axes. Re-generate the exact
+    deterministic production HTML from the verified native physical inputs
+    and require byte-for-byte identity; then independently test real Chromium
+    JS-on AND no-JS DOM. This is a source-to-presentation consistency gate,
+    not a cryptographic proof of the origin of arbitrary historical exports.
+    """
+    from conductor_sim.prescribed_ground_wire import author_prescribed_grounded_sphere
+    from conductor_sim.prescribed_ground_line import (
+        PrescribedSphereLineSpec, sample_prescribed_sphere_line,
+    )
+    from conductor_sim.prescribed_line_viewer import (
+        line_view_manifest, render_prescribed_line_viewer,
+    )
+
+    native = manifest["trace"]
+    problem = author_prescribed_grounded_sphere(
+        native["source_charge_c"],
+        native["initial_source_position_m"],
+        native["sphere_radius_m"],
+        sphere_center_m=native["sphere_center_m"],
+        sphere_name=native["sphere_name"],
+        permittivity_f_per_m=native["permittivity_f_per_m"],
+    )
+    spec = PrescribedSphereLineSpec(
+        problem,
+        native["constant_cartesian_velocity_m_s"],
+        native["duration_s"],
+        sample_count=native["sample_count"],
+        surface_guard_m=native["surface_guard_m"],
+    )
+    genuine = sample_prescribed_sphere_line(spec)
+    regenerated = line_view_manifest(genuine)
+    def serialized(record):
+        return json.dumps(record, ensure_ascii=False, sort_keys=True,
+                          allow_nan=False, separators=(",", ":"))
+    if serialized(regenerated) != serialized(manifest):
+        raise AssertionError(
+            "canonical rendered viewer source disagrees with independently verified native SI/geometry"
+        )
+    if target.read_bytes() != render_prescribed_line_viewer(genuine).encode("utf-8"):
+        raise AssertionError(
+            "noncanonical visible HTML/CSS: source, signed SI, sphere, path, "
+            "current-axis or physical projection differs from the verified native renderer"
+        )
+
+
 LABELS = {
     "#m38b-time": "time_label",
     "#m38b-distance": "distance_label",
@@ -237,6 +287,10 @@ def check(directory: Path):
     if requests or errors:
         raise AssertionError("offline physics viewer emitted HTTP requests or JavaScript errors: "+
                              repr(requests)+" / "+repr(errors))
+    # The untouched JS-disabled DOM is checked ABOVE; this second necessary
+    # gate rejects an entire class of forged *rendered* CSS and SVG that
+    # nominal text/coordinate DOM checks alone cannot observe.
+    _verify_canonical_html(manifest, target)
     result={
         "schema":"conductor_sim.m38b_real_browser_check.v1",
         "original_workbook_cases_newly_solved":0,

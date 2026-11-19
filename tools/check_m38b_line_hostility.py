@@ -118,6 +118,40 @@ ATTACKS = (
         "visible local source physical axes falsified"
     ),
     (
+        "reviewer-r1-css-official-heading", r'(<style>)',
+        '#m38b-heading{font-size:0!important}#m38b-heading::after{content:"OFFICIAL PRINTED WORKBOOK Q21 - OFF-AXIS";display:block;font-size:24px;color:#a00}',
+        "#m38b-heading", "css-false-source", None,
+        "noncanonical visible HTML/CSS"
+    ),
+    (
+        "reviewer-r1-css-forged-current", r'(<style>)',
+        '#m38b-current{font-size:0!important}#m38b-current::after{content:"-9 A";display:block;font-size:18px;color:#a00}',
+        "#m38b-current", "css-false-current", None,
+        "noncanonical visible HTML/CSS"
+    ),
+    (
+        "reviewer-r1-invisible-source-path", r'(<line id="m38b-path"[^>]* stroke=")[^"]+', "none",
+        "#m38b-path", "css-hidden-path", "stroke",
+        "noncanonical visible HTML/CSS"
+    ),
+    (
+        "reviewer-r1-invisible-zero-current-axis", r'(<line id="m38b-zero"[^>]* stroke=")[^"]+', "none",
+        "#m38b-zero", "css-hidden-zero", "stroke",
+        "noncanonical visible HTML/CSS"
+    ),
+    (
+        "reviewer-r1-invisible-solid-sphere", r'(<style>)',
+        '#m38b-sphere{fill:none!important;stroke:none!important}',
+        "#m38b-sphere", "css-hidden-sphere", None,
+        "noncanonical visible HTML/CSS"
+    ),
+    (
+        "reviewer-r1-mirrored-local-axes", r'(<style>)',
+        '#m38b-scene{transform:scaleX(-1)!important}',
+        "#m38b-scene", "css-mirrored-plane", None,
+        "noncanonical visible HTML/CSS"
+    ),
+    (
         "falsely-enabled-controls", r'(<input id="m38b-index"[^>]* value="0") disabled', "",
         "#m38b-index", "enabled", None,
         "no-JS first physical time controls must remain disabled"
@@ -171,7 +205,13 @@ def check_hostiles(directory: Path):
                         "parseFloat(s.strokeWidth)>0&&"
                         "Number(el.getAttribute('x1'))!==Number(el.getAttribute('x2'));}"
                     ))
-                    if not loc.is_visible() and not stroked_line:
+                    # Three attacks genuinely *remove* visible physics.
+                    # Validate absent SVG paint instead of requiring the
+                    # forged element to be visibly painted.
+                    is_absence=kind in (
+                        "css-hidden-path","css-hidden-zero","css-hidden-sphere"
+                    )
+                    if not is_absence and not loc.is_visible() and not stroked_line:
                         raise AssertionError("fake no-JS physical datum not actually visible: "+attack)
                     if kind=="text":
                         # SVG text nodes are not HTMLElements; Playwright
@@ -195,6 +235,34 @@ def check_hostiles(directory: Path):
                         # Scene text order: charge sign, Grounded, +u, +w.
                         if visible.locator("#m38b-scene text").nth(2).text_content().strip()!=forged_value:
                             raise AssertionError("forged local u axis not visible: "+attack)
+                    elif kind in ("css-false-source","css-false-current"):
+                        visual=loc.evaluate("""(el) => ({
+                          font:getComputedStyle(el).fontSize,
+                          generated:getComputedStyle(el,"::after").content,
+                          pseudoDisplay:getComputedStyle(el,"::after").display
+                        })""")
+                        keyword=("OFFICIAL PRINTED" if kind=="css-false-source" else "-9 A")
+                        if (visual["font"]!="0px" or keyword not in visual["generated"]
+                                or visual["pseudoDisplay"]=="none"):
+                            raise AssertionError("forged CSS pseudo-text not visibly displayed: "+attack)
+                    elif kind in ("css-hidden-path","css-hidden-zero"):
+                        physical=loc.evaluate(
+                            "(el) => ({stroke:getComputedStyle(el).stroke,"
+                            "width:getComputedStyle(el).strokeWidth})"
+                        )
+                        if physical["stroke"]!="none" or loc.get_attribute(attr)!="none":
+                            raise AssertionError("false physically hidden SVG stroke not proved: "+attack)
+                    elif kind=="css-hidden-sphere":
+                        visual=loc.evaluate(
+                            "(el) => ({fill:getComputedStyle(el).fill,"
+                            "stroke:getComputedStyle(el).stroke})"
+                        )
+                        if visual["fill"]!="none" or visual["stroke"]!="none":
+                            raise AssertionError("falsified invisible conducting sphere not proved: "+attack)
+                    elif kind=="css-mirrored-plane":
+                        transform=loc.evaluate("(el) => getComputedStyle(el).transform")
+                        if not transform.startswith("matrix(") or transform=="none":
+                            raise AssertionError("forged physical plane mirroring not displayed: "+attack)
                     elif kind=="enabled":
                         if loc.is_disabled():
                             raise AssertionError("forged no-JS control is still disabled: "+attack)

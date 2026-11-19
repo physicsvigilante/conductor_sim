@@ -16,6 +16,7 @@ from conductor_sim.prescribed_line_viewer import (
 )
 from tools.m38b_line_viewer_example import example_trace, run_all
 from tools.m38b_line_view_reference import check_line_view
+from tools.check_m38b_line_browser import _verify_canonical_html
 from tools.m38a_line_reference import check_line_record
 
 
@@ -178,3 +179,36 @@ def test_unsafe_authored_name_cannot_execute_active_html():
     assert "<script>alert(1)</script>" not in html
     assert "\\u003c" in html
     assert check_line_view(line_view_manifest(trace))["independently_checked_kelvin_states"]==11
+
+
+
+def test_independently_verified_native_renderer_refuses_css_svg_forgery(tmp_path):
+    """Actual canonical native-HTML integrity, without an installed browser.
+
+    Real Chromium separately proves CSS attacks are physically visible.
+    This test establishes that the source-boundary additionally rejects
+    entire-document forged rendering, not just individual DOM values.
+    """
+    manifest=run_all(tmp_path)
+    target=tmp_path/"m38b-line.html"
+    real=target.read_bytes()
+    assert check_line_view(manifest)["independently_checked_display_rows"]==41
+    _verify_canonical_html(manifest,target)
+    attacks=(
+        '<style>#m38b-heading::after{content:"OFFICIAL PRINTED"}</style>',
+        '#m38b-sphere{fill:none!important;stroke:none!important}',
+        'transform:scaleX(-1)!important',
+    )
+    for alteration in attacks:
+        try:
+            if alteration.startswith("<style>"):
+                false=real.decode("utf-8").replace("</head>",alteration+"</head>")
+            else:
+                false=real.decode("utf-8").replace("</style>",alteration+"</style>")
+            assert false.encode("utf-8")!=real
+            target.write_text(false,encoding="utf-8")
+            with pytest.raises(AssertionError,match="noncanonical visible HTML/CSS"):
+                _verify_canonical_html(manifest,target)
+        finally:
+            target.write_bytes(real)
+    _verify_canonical_html(manifest,target)

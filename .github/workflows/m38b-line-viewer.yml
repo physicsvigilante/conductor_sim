@@ -88,7 +88,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m tools.check_m38b_line_browser --output-dir review-artifacts/m38b
-      - name: Reject actual 20 HTML-only forged first-frame and axis claims in Chromium
+      - name: Reject 26 original and independent-review CSS/SVG first-frame forgeries in real Chromium
         run: |
           set -euo pipefail
           python -m tools.check_m38b_line_hostility --output-dir review-artifacts/m38b
