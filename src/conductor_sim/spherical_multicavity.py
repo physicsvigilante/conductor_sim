@@ -8,6 +8,7 @@ density probes. No time, force, FEMM or arbitrary irregular 3D solver.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, localcontext
 import json
 from math import fsum, hypot, isfinite, pi
 import re
@@ -196,6 +197,44 @@ def _validated(gauss, geometry):
     return a, g, ledger
 
 
+def _near_wall_sigma_precision(q: float, radius: float, offset, normal) -> float:
+    """Evaluate the exact spherical-wall kernel without binary64 subtraction loss.
+
+    The admitted minimum source-wall clearance is 1e-8 of radius; naive
+    subtraction of two nearly equal world-coordinate vectors can introduce
+    an O(1e-8) *relative* density error near that boundary, even with a
+    normalized radial input. Use Decimal only for this numerically sensitive
+    branch. The separate standalone reference uses REAL+KELVIN IMAGE field
+    components, not this production closed-form Poisson kernel.
+    """
+    with localcontext() as ctx:
+        ctx.prec = 90
+        D = Decimal.from_float
+        a = D(radius)
+        source = tuple(D(x) for x in offset)
+        direction = tuple(D(x) for x in normal)
+        direction_length2 = sum((x*x for x in direction), Decimal(0))
+        if direction_length2 == 0:
+            raise UnsupportedProblem("zero normal cannot locate spherical surface")
+        direction_length = direction_length2.sqrt()
+        unit = tuple(x/direction_length for x in direction)
+        source_distance2 = sum((x*x for x in source), Decimal(0))
+        separation = tuple(a*unit[i]-source[i] for i in range(3))
+        separation2 = sum((x*x for x in separation), Decimal(0))
+        if separation2 <= 0 or source_distance2 >= a*a:
+            raise UnsupportedProblem("source-to-wall singular or unqualified density")
+        numerator = -D(q)*(a*a-source_distance2)
+        denominator = D(4)*D(pi)*a*separation2*separation2.sqrt()
+        answer = numerator/denominator
+    try:
+        numeric = float(answer)
+    except (OverflowError, ValueError) as exc:
+        raise UnsupportedProblem("high-precision physical sigma not representable in binary64") from exc
+    if not isfinite(numeric) or (answer != 0 and numeric == 0.):
+        raise UnsupportedProblem("nonzero high-precision surface density overflowed/underflowed binary64")
+    return numeric
+
+
 @dataclass(frozen=True, slots=True)
 class SphericalSigmaModel:
     gauss_assembly: GaussCavityAssembly
@@ -237,10 +276,15 @@ class SphericalSigmaSolution:
                 dvec = _difference(lookup[source.source_id], void.center_m)
                 d = hypot(*dvec)
                 gap = R-d
-                sep = hypot(*(R*n[k]-dvec[k] for k in range(3)))
-                if sep <= 0 or not isfinite(sep) or gap <= 0:
+                if gap <= 0:
                     raise UnsupportedProblem("source-to-wall singular or unqualified density query")
-                term = -source.charge_c * ((gap * (R+d))/(4*pi*R*sep**3))
+                if gap <= R * 1e-5:
+                    term = _near_wall_sigma_precision(source.charge_c, R, dvec, n)
+                else:
+                    sep = hypot(*(R*n[k]-dvec[k] for k in range(3)))
+                    if sep <= 0 or not isfinite(sep):
+                        raise UnsupportedProblem("source-to-wall singular or unqualified density query")
+                    term = -source.charge_c * ((gap * (R+d))/(4*pi*R*sep**3))
                 if not isfinite(term) or term == 0.0:
                     raise UnsupportedProblem("nonzero spherical sigma contribution overflowed/underflowed binary64")
                 terms.append(term)

@@ -76,6 +76,8 @@ def density_from_images(R,sources,n):
         D=Decimal.from_float
         radius=D(R)
         direction=tuple(D(x) for x in n)
+        direction_norm=(sum((x*x for x in direction),Decimal(0))).sqrt()
+        direction=tuple(x/direction_norm for x in direction)
         wall=tuple(radius*v for v in direction)
         pi_d=D(pi)
         terms=[]

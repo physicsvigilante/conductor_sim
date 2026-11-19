@@ -349,7 +349,12 @@ def test_reviewer_b1_oblique_nearunit_directions_and_signed_static_variants():
         sol=solve_spherical_sigma(SphericalSigmaModel(gauss,geo))
         a=sol.inner_surface_charge_density("V",direction)
         b=sol.inner_surface_charge_density("V",near)
-        assert b==pytest.approx(a,rel=3e-8)
+        assert b==pytest.approx(a,rel=5e-13)
+        # Separate 90-digit Poisson-image-field physical value derived from
+        # the admitted exact binary64 source positions. A regression here
+        # must never be hidden by widening the standalone checker tolerance.
+        independent_oblique_pole=-4742217.697032942
+        assert a==pytest.approx(independent_oblique_pole * (charge/3.1e-9),rel=5e-13)
         assert (a<0)==(charge>0)
         assert check_record(sol.as_dict((("V",near),("outer",near))))["sampled_local_surface_densities_checked"]==2
         n=sol.as_dict((("V",near),))["samples"][0]["unit_normal"]
