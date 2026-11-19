@@ -3,6 +3,11 @@ name: M37b original workbook constant-speed grounding current physics and offlin
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
+      - 'tools/m37a*'
+      - 'tools/check_m37b*'
       - 'src/conductor_sim/prescribed_ground_wire.py'
       - 'src/conductor_sim/prescribed_wire_viewer.py'
       - 'src/conductor_sim/grounded_sphere_wire.py'

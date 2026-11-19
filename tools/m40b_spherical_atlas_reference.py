@@ -74,6 +74,11 @@ def check_manifest(doc):
     for r in a + b:
         check_record(r)  # Independent original real+Kelvin image normal electric field.
     first, other = a[0], b[0]
+    # The view promises every native cavity, not an undisclosed subset.
+    # A shortened visible list plus shortened face records must not certify
+    # a scene whose unchanged native geometry still contains another void.
+    require(len(doc["cavities"]) == len(first["voids"]) == len(first["gauss"]["cavities"]),
+            "displayed cavity inventory must include every native cavity")
     # Every face witness in one state must be from THAT exact physical state;
     # reject an internally consistent grounded record swapped into isolated.
     for label, records in (("isolated", a), ("grounded", b)):

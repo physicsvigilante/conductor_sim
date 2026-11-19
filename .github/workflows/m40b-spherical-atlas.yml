@@ -2,6 +2,11 @@ name: M40b source-faithful spherical sigma atlas and actual offline Chromium
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
+      - 'tools/m40a*'
+      - 'tools/m39a*'
       - 'src/conductor_sim/spherical_sigma_atlas.py'
       - 'tests/test_m40b*'
       - 'tools/m40b*'
