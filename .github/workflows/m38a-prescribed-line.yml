@@ -3,6 +3,11 @@ name: M38a off-axis prescribed 3D Kelvin line and independent current SI
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
+      - 'tools/m37a*'
+      - 'tools/m37b*'
       - 'src/conductor_sim/prescribed_ground_line.py'
       - 'src/conductor_sim/prescribed_ground_wire.py'
       - 'src/conductor_sim/grounded_sphere_wire.py'

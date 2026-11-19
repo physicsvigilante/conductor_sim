@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, replace
 from math import fsum, hypot, isfinite
 from typing import Literal
 
+from ._directions import unit_direction
 from ._resources import cleanup_resources
 from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
@@ -95,10 +96,7 @@ class Motion1DSpec:
                                                  not isfinite(self.surface_guard_m) or self.surface_guard_m <= 0):
             raise ValueError('surface_guard_m must be finite and positive')
         v=_position(self.axis,'motion axis')
-        length=_norm(v)
-        if length == 0 or not isfinite(length):
-            raise ValueError('motion axis must be nonzero')
-        object.__setattr__(self,'axis',tuple(x/length for x in v))
+        object.__setattr__(self, 'axis', unit_direction(v, 'motion axis must be nonzero'))
         _geometry(self)  # Physically prove invariance and a nonempty vacuum interval.
 
     @property

@@ -3,6 +3,10 @@ name: M39b honest no-JS multicavity Gauss topology and actual Chromium
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
+      - 'tools/m39a*'
       - 'src/conductor_sim/cavity_topology_viewer.py'
       - 'tests/test_m39b_topology.py'
       - 'tools/m39b*'

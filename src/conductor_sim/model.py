@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from math import isfinite
 from typing import TypeAlias
 
+from ._directions import unit_direction
+
 EPSILON_0 = 8.8541878128e-12
 Vector3: TypeAlias = tuple[float, float, float]
 ORIGIN: Vector3 = (0.0, 0.0, 0.0)
@@ -120,13 +122,10 @@ class ConductingPlane:
     name: str = "plane"
 
     def __post_init__(self) -> None:
-        from math import hypot
         object.__setattr__(self, "point_m", _position(self.point_m, "plane point"))
         vector = _position(self.normal, "plane normal")
-        magnitude = hypot(*vector)
-        if not isfinite(magnitude) or magnitude == 0:
-            raise ValueError("plane normal must be finite and nonzero")
-        object.__setattr__(self, "normal", tuple(v / magnitude for v in vector))
+        object.__setattr__(self, "normal", unit_direction(
+            vector, "plane normal must be finite and nonzero"))
         if not isinstance(self.constraint, (Grounded, FixedPotential)):
             raise TypeError("an infinite conducting plane requires Grounded() or FixedPotential(V)")
         if (not isinstance(self.name, str) or not self.name.strip()

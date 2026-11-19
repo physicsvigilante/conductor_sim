@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from math import fsum, hypot, isfinite
 from typing import Literal
 
+from ._directions import unit_direction
 from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
 from ._resources import cleanup_resources
@@ -41,10 +42,7 @@ def _cross(a, b):
 
 
 def _unit(v):
-    length = _norm(v)
-    if not length or not isfinite(length):
-        raise ValueError('cannot define planar direction from a zero or nonfinite vector')
-    return tuple(x/length for x in v)
+    return unit_direction(v, 'cannot define planar direction from a zero or nonfinite vector')
 
 
 def _perpendicular(v):

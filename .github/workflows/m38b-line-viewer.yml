@@ -3,6 +3,12 @@ name: M38b real local-plane Kelvin current viewer and hostile Chromium
 on:
   pull_request:
     paths:
+      # Include upstream science: same-head downstream acceptance is required.
+      - 'src/conductor_sim/**'
+      - 'pyproject.toml'
+      - 'tools/m38a*'
+      - 'tools/m37a*'
+      - 'tools/m37b*'
       - 'src/conductor_sim/prescribed_line_viewer.py'
       - 'src/conductor_sim/prescribed_ground_line.py'
       - 'tests/test_m38b_line_viewer.py'

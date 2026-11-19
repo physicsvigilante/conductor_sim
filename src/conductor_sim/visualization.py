@@ -18,6 +18,7 @@ import tempfile
 from .model import ConductingPlane, ElectrostaticProblem, Vector3, _position
 from .geometry import SphereBoundary, CylinderSideBoundary, contains_metal, physical_boundaries, slice_geometry
 from .solver import FieldSolution, OutsideDomain, SingularField
+from ._directions import unit_direction
 from ._resources import cleanup_resources
 
 Vec2 = tuple[float, float]
@@ -33,10 +34,7 @@ def sub(a, b):
 
 
 def unit(v):
-    n = hypot(*v)
-    if not isfinite(n) or n == 0:
-        raise ValueError("direction must be finite and nonzero")
-    return tuple(x/n for x in v)
+    return unit_direction(v)
 
 
 @dataclass(frozen=True)
