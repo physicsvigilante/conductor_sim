@@ -38,6 +38,9 @@ PROJECTION = (
 def _fmt(value: float) -> str:
     if type(value) not in (float, int) or not isfinite(value):
         raise ValueError("non-finite physical display number")
+    # Signed floating zero is not a negative physical current direction.
+    if value == 0:
+        return "0"
     return format(value, ".11g")
 
 

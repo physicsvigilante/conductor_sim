@@ -168,13 +168,13 @@ def test_reference_refuses_false_native_projection_and_readout_claims(keys,bad):
 
 def test_unsafe_authored_name_cannot_execute_active_html():
     problem=author_prescribed_grounded_sphere(
-        1e-9,(-.4,.2,0),.1,sphere_name='S</script><script>alert("forged")</script>'
+        1e-9,(-.4,.2,0),.1,sphere_name='S</script><script>alert(1)</script>'
     )
     trace=sample_prescribed_sphere_line(PrescribedSphereLineSpec(
         problem,(.2,0.,0.),4.,sample_count=11,surface_guard_m=.01
     ))
     html=render_prescribed_line_viewer(trace)
     assert 'S&lt;/script&gt;&lt;script&gt;alert' in html
-    assert '<script>alert("forged")</script>' not in html
+    assert "<script>alert(1)</script>" not in html
     assert "\\u003c" in html
     assert check_line_view(line_view_manifest(trace))["independently_checked_kelvin_states"]==11

@@ -140,8 +140,8 @@ def check_hostiles(directory: Path):
                     raise AssertionError("hostile initial HTML-only attack not constructed: "+attack)
                 page.write_text(fake,encoding="utf-8")
                 try:
-                    if (directory/"m38b-line-physics.json").read_bytes()!=native or (
-                            directory/"m38b-line-viewer.json").read_bytes()!=manifest):
+                    if ((directory/"m38b-line-physics.json").read_bytes()!=native or
+                            (directory/"m38b-line-viewer.json").read_bytes()!=manifest):
                         raise AssertionError("original native independent Kelvin SI/manifest changed")
                     visible.goto(page.resolve().as_uri(),wait_until="load",timeout=45000)
                     loc=visible.locator(selector)
@@ -182,8 +182,8 @@ def check_hostiles(directory: Path):
         finally:
             context.close()
             browser.close()
-    if (directory/"m38b-line-physics.json").read_bytes()!=native or (
-            directory/"m38b-line-viewer.json").read_bytes()!=manifest or page.read_bytes()!=genuine):
+    if ((directory/"m38b-line-physics.json").read_bytes()!=native or
+            (directory/"m38b-line-viewer.json").read_bytes()!=manifest or page.read_bytes()!=genuine):
         raise AssertionError("hostility runner did not restore genuine native/HTML bytes")
     if len(outcomes)!=len(ATTACKS):
         raise AssertionError("genuine hostile HTML-only scientific attacks incomplete")

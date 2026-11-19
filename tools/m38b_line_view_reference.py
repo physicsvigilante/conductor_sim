@@ -75,7 +75,11 @@ def _normed(x):
 
 
 def _format(v):
-    return format(_number(v, "formatted value"), ".11g")
+    clean = _number(v, "formatted value")
+    # Canonical SI readouts show 0, never misleading signed negative zero.
+    if clean == 0:
+        return "0"
+    return format(clean, ".11g")
 
 
 def _triple(x, units):
