@@ -183,6 +183,13 @@ def test_viewer_shows_two_static_scenes_true_source_xyz_and_no_network():
     page=render_static_sigma_comparison(compare_static_spherical_relocation(*scenario()))
     assert page.count('role="img"')==2
     assert page.count('id="m40c-source"')==1
+    from re import findall
+    all_ids=findall(r'\bid="([^"]+)"',page)
+    assert len(all_ids)==len(set(all_ids)), "duplicate IDs across static panels"
+    assert 'id="m40c-panel-0-void-0"' in page
+    assert 'id="m40c-panel-1-void-0"' in page
+    assert 'id="m40c-panel-0-source-0-0"' in page
+    assert 'id="m40c-panel-1-source-0-0"' in page
     assert "STATIC" in page and "not motion" in page
     assert "revised (-1.45, 0.04, 0.01) m" in page
     assert "Unresolved numerical difference" not in page or "Unresolved" in page

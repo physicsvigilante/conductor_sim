@@ -34,7 +34,9 @@ def render_static_sigma_comparison(comparison: StaticSigmaComparison) -> str:
     e = lambda v: escape(str(v), quote=True)
     baseline, revised = _scene(m, "baseline"), _scene(m, "revised")
     panels = []
-    for label, scene in (("Baseline", baseline), ("Revised hypothetical", revised)):
+    for index, (label, scene) in enumerate((("Baseline", baseline), ("Revised hypothetical", revised))):
+        # M40b projection uses static IDs; two panels must namespace them.
+        projection = _projection(scene).replace('id="m40b-', 'id="m40c-panel-{}-'.format(index))
         src_rows = "".join(
             "<tr><th><code>{}</code></th><td><code>{}</code></td><td>{}</td><td>{}</td></tr>".format(
                 e(source["source_id"]),e(cav["cavity_id"]),
@@ -42,7 +44,7 @@ def render_static_sigma_comparison(comparison: StaticSigmaComparison) -> str:
             for cav in scene["cavities"] for source in cav["sources"]
         )
         panels.append('<section class="geometry"><h2>'+e(label)+
-                      ' — one static equilibrium</h2>'+_projection(scene)+
+                      ' — one static equilibrium</h2>'+projection+
                       '<div class="table-wrap"><table><thead><tr><th>Source ID</th>'+
                       '<th>Cavity</th><th>Signed q</th><th>True (x, y, z)</th></tr></thead><tbody>'+
                       src_rows+'</tbody></table></div></section>')

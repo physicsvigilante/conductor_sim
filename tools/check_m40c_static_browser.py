@@ -36,8 +36,12 @@ def check_browser(outdir: Path):
             assert "STATIC" in page.locator("#m40c-no-chronology").inner_text()
             assert "No time" in page.locator("#m40c-no-chronology").inner_text() or "time" in page.locator("#m40c-no-chronology").inner_text()
             assert page.locator('svg[role="img"]').count()==2
-            assert page.locator('circle[id^="m40b-void-"]').count()==6
-            assert page.locator('circle[id^="m40b-source-"]').count()==8
+            assert page.locator('circle[id^="m40c-panel-0-void-"]').count()==3
+            assert page.locator('circle[id^="m40c-panel-1-void-"]').count()==3
+            assert page.locator('circle[id^="m40c-panel-0-source-"]').count()==4
+            assert page.locator('circle[id^="m40c-panel-1-source-"]').count()==4
+            ids=[element.get_attribute("id") for element in page.locator("[id]").all()]
+            assert len(ids)==len(set(ids)), "duplicate SVG/DOM source IDs"
             assert page.locator('tr[id^="m40c-"]').count()==18
             assert page.locator("#m40c-source").inner_text()=="plus_A"
             body=page.locator("body").inner_text()
@@ -52,14 +56,28 @@ def check_browser(outdir: Path):
                     assert _si(sample["sigma_revised_c_per_m2"],"C/m²") in row.inner_text()
                     if sample["delta_c_per_m2"] is not None:
                         assert _si(sample["delta_c_per_m2"],"C/m²") in row.inner_text()
-            # Both viewports show same true XY projection with one metre scale.
-            for i,cav in enumerate(evidence["baseline_voids"]):
-                circle=page.locator("#m40b-void-{}".format(i)).first
-                outer=evidence["outer_sphere"]
-                x=425.+(cav["center_m"][0]-outer["center_m"][0])*375./outer["radius_m"]
-                y=425.-(cav["center_m"][1]-outer["center_m"][1])*375./outer["radius_m"]
-                assert abs(float(circle.get_attribute("cx"))-x)<1e-10
-                assert abs(float(circle.get_attribute("cy"))-y)<1e-10
+            # Check both scenes, not just the first duplicate ID match.
+            outer=evidence["outer_sphere"]
+            for panel,label in ((0,"baseline"),(1,"revised")):
+                for i,cav in enumerate(evidence[label+"_voids"]):
+                    circle=page.locator("#m40c-panel-{}-void-{}".format(panel,i))
+                    assert circle.count()==1
+                    x=425.+(cav["center_m"][0]-outer["center_m"][0])*375./outer["radius_m"]
+                    y=425.-(cav["center_m"][1]-outer["center_m"][1])*375./outer["radius_m"]
+                    assert abs(float(circle.get_attribute("cx"))-x)<1e-10
+                    assert abs(float(circle.get_attribute("cy"))-y)<1e-10
+                    assert abs(float(circle.get_attribute("r"))-375.*cav["radius_m"]/outer["radius_m"])<1e-10
+                    positions={source["source_id"]:source["position_m"]
+                               for source in cav["source_positions"]}
+                    for j,source in enumerate(evidence["gauss"]["cavities"][i]["authored_sources"]):
+                        marker=page.locator("#m40c-panel-{}-source-{}-{}".format(panel,i,j))
+                        assert marker.count()==1
+                        assert source["source_id"] in marker.locator("title").text_content()
+                        point=positions[source["source_id"]]
+                        px=425.+(point[0]-outer["center_m"][0])*375./outer["radius_m"]
+                        py=425.-(point[1]-outer["center_m"][1])*375./outer["radius_m"]
+                        assert abs(float(marker.get_attribute("cx"))-px)<1e-10
+                        assert abs(float(marker.get_attribute("cy"))-py)<1e-10
             assert all(v.startswith("file://") for v in requested),requested
             page.screenshot(path=str(outdir/("m40c-{}-{}px.png".format(
                 "js-on" if javascript else "js-off",width))),full_page=False)
