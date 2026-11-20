@@ -1,6 +1,6 @@
 {
   "schema": "conductor_sim.jee12_source_evaluation.v1",
-  "status": "FROZEN CASE COHORT; THREE DEVELOPER PDF PAGE INSPECTIONS, ZERO INDEPENDENT ORIGINAL ANSWER VERDICTS; NOT A JEE PERFORMANCE SCORE",
+  "status": "FROZEN CASE COHORT; FIVE DEVELOPER PDF PAGE INSPECTIONS, ZERO NEW INDEPENDENT ORIGINAL ANSWER VERDICTS; NOT A JEE PERFORMANCE SCORE",
   "base_commit": "337001f2e0d1ce62c87fa4352993c4a074cfbde6",
   "base_tree": "25e91e0fd53749bf6c6c578583310b219e1ecb4f",
   "historical_source": "docs/m36a_jee30_coverage.json",
@@ -12,7 +12,7 @@
   },
   "case_count": 12,
   "verified_original_source_answers_in_this_cohort": 0,
-  "source_inspections_performed_in_this_cohort": 3,
+  "source_inspections_performed_in_this_cohort": 5,
   "cases": [
     {
       "id": "p01-single-08",
@@ -135,7 +135,7 @@
       "historical_qualified_route_not_verified": "Gauss-law totals remain possible; local nonconcentric multicavity induced densities and fields are not certified.",
       "historical_exclusions": "Requires genuinely qualified 3D conductor-boundary treatment.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -144,6 +144,18 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "developer visually inspected frozen original workbook p11 Q28; new independent JEE-12 review pending",
+        "original_printed_geometry": "irregular connected conductor carrying Q; two cavities containing q1 and q2; an EXTERNAL point charge q beside the conductor",
+        "asked": "outer-surface total charge and whether the distribution is uniform or nonuniform",
+        "conditional_gauss_total": "Q_outer=Q+q1+q2 from Gauss, independent of location of exterior q",
+        "source_external_q_causes_nonuniform_exterior_distribution": true,
+        "currently_qualified_subset": "M39a entire-face Gauss charge total only, conditional on actual sealed topology",
+        "unsupported_in_released_solver": "source-faithful irregular outer geometry and local sigma under exterior q; no full external response",
+        "original_problem_answer_newly_independently_reviewed": false,
+        "numerical_values_are_teacher_authored": true,
+        "exterior_q_must_not_be_silently_discarded": true
       }
     },
     {
@@ -316,7 +328,7 @@
       "historical_qualified_route_not_verified": "Gauss-law totals can be explained, but exact multi-cavity local field/sigma is unsupported.",
       "historical_exclusions": "Do not render three irregular cavities as concentric shells.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -325,15 +337,35 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "developer visually inspected frozen original notes p70 Illustration 9; original full 3D source geometry not independently established",
+        "original_figure": "three circular cavity cross sections S1 S2 S3, one enclosing metal exterior S4; q1 central, q2/q3 displaced",
+        "printed_qualitative_distributions": [
+          "S1=-q1 uniform",
+          "S2=-q2 nonuniform",
+          "S3=-q3 nonuniform",
+          "S4=q1+q2+q3 uniform"
+        ],
+        "theoretical_face_total_from_gauss_qualified": true,
+        "teacher_spherical_instantiation": "three separate actual spherical cavities with a spherical exterior, neutral metal, no exterior sources, fully requalified by unchanged M40a",
+        "actual_source_3d_spherical_radii_not_specified": true,
+        "original_source_uniquely_determines_local_density": false,
+        "distinct_illustration8_on_same_page": "irregular cavity/exterior examples; M40a local sigma MUST refuse irregular shapes",
+        "existing_m36a_unsupported_route_is_historical_not_a_current_certified_result": true,
+        "original_problem_answer_newly_independently_reviewed": false,
+        "numerical_values_are_teacher_authored": true
       }
     }
   ],
   "historical_family_label_warning": "Some preserved M36a problem_family labels are outdated source triage. In particular notes p26 Illustration 1 says a SOLID conducting sphere, while old M36a labels it a shell. Original printed geometry, not historical family metadata, governs evaluation.",
-  "source_inspection_provenance": "developer visual inspection of byte-pinned original notes pages 26, 27 and 69; NOT an independent reviewer verdict",
+  "source_inspection_provenance": "developer visual inspection of repository-byte-pinned original workbook p11 and notes p26, p27, p69, p70; NOT an independent reviewer verdict",
   "independently_reviewed_original_answer_cases": 0,
   "developer_visually_inspected_case_ids": [
+    "p11-linked-28",
     "p26-conductor-potential",
     "p27-cavity-two-shells",
-    "p69-cavity-central-vs-shifted"
+    "p69-cavity-central-vs-shifted",
+    "p70-three-cavities"
   ]
 }

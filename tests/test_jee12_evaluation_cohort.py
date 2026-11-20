@@ -65,11 +65,12 @@ def test_jee12_historical_exact_roster_and_original_source_provenance() -> None:
 def test_jee12_no_unreviewed_source_or_answer_claims() -> None:
     cohort = _read(COHORT)
     assert "NOT A JEE PERFORMANCE SCORE" in cohort["status"]
-    assert "ZERO INDEPENDENT ORIGINAL ANSWER VERDICTS" in cohort["status"]
+    assert "ZERO NEW INDEPENDENT ORIGINAL ANSWER VERDICTS" in cohort["status"]
     assert cohort["verified_original_source_answers_in_this_cohort"] == 0
-    assert cohort["source_inspections_performed_in_this_cohort"] == 3
-    inspected = {"p26-conductor-potential", "p27-cavity-two-shells",
-                 "p69-cavity-central-vs-shifted"}
+    assert cohort["source_inspections_performed_in_this_cohort"] == 5
+    inspected = {"p11-linked-28", "p26-conductor-potential",
+                 "p27-cavity-two-shells", "p69-cavity-central-vs-shifted",
+                 "p70-three-cavities"}
     assert set(cohort["developer_visually_inspected_case_ids"]) == inspected
     assert cohort["independently_reviewed_original_answer_cases"] == 0
     routes = [x["historical_candidate_route_not_verified"] for x in cohort["cases"]]
@@ -123,5 +124,14 @@ def test_jee12_physical_refusal_cases_must_not_be_assigned_spherical_success() -
         "inner induced total -q, nonuniform if displaced",
         "outer total +4q, uniform and unchanged"]
     assert p69["developer_pdf_source_note"]["original_answer_newly_independently_reviewed"] is False
+    p11=entries["p11-linked-28"]["developer_pdf_source_note"]
+    assert p11["source_external_q_causes_nonuniform_exterior_distribution"] is True
+    assert p11["exterior_q_must_not_be_silently_discarded"] is True
+    assert p11["original_problem_answer_newly_independently_reviewed"] is False
+    p70=entries["p70-three-cavities"]["developer_pdf_source_note"]
+    assert p70["actual_source_3d_spherical_radii_not_specified"] is True
+    assert p70["original_source_uniquely_determines_local_density"] is False
+    assert p70["original_problem_answer_newly_independently_reviewed"] is False
+
 
 
