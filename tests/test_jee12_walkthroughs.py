@@ -105,4 +105,4 @@ def test_no_misleading_time_or_fake_browser_computation(generated):
     assert p3.count('r="110"') == 2
     assert "filled solid" in p3
     assert "two separately solved static equilibria" in p3
-    assert "Wire" not in p3 or "wire" in p3
+    assert "wire-current" in p3 and "equilibria" in p3
