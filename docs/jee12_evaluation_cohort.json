@@ -1,6 +1,6 @@
 {
   "schema": "conductor_sim.jee12_source_evaluation.v1",
-  "status": "FROZEN CASE COHORT; FIVE DEVELOPER PDF PAGE INSPECTIONS, ZERO NEW INDEPENDENT ORIGINAL ANSWER VERDICTS; NOT A JEE PERFORMANCE SCORE",
+  "status": "FROZEN SOURCE COHORT; TWELVE DEVELOPER PDF PAGE INSPECTIONS; ZERO NEW INDEPENDENT ORIGINAL ANSWER VERDICTS; NOT A JEE PERFORMANCE SCORE",
   "base_commit": "337001f2e0d1ce62c87fa4352993c4a074cfbde6",
   "base_tree": "25e91e0fd53749bf6c6c578583310b219e1ecb4f",
   "historical_source": "docs/m36a_jee30_coverage.json",
@@ -12,7 +12,7 @@
   },
   "case_count": 12,
   "verified_original_source_answers_in_this_cohort": 0,
-  "source_inspections_performed_in_this_cohort": 5,
+  "source_inspections_performed_in_this_cohort": 12,
   "cases": [
     {
       "id": "p01-single-08",
@@ -25,7 +25,7 @@
       "historical_qualified_route_not_verified": "Static uniform-field endpoint potential work; no particle path required.",
       "historical_exclusions": "A potential difference is not a timed trajectory.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -34,6 +34,22 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p1 Q8 visually inspected; numerical developer physics replay, independent JEE12 review pending",
+        "source_given_E_v_m": 10,
+        "source_given_AB_m": 5,
+        "source_given_BC_m": 3,
+        "electron_charge_is_negative": true,
+        "original_asked": "work done by us on electron from A to B",
+        "derived_horizontal_displacement_m": 4,
+        "independently_expected_external_work_eV": 40,
+        "source_multiple_choice": "40 eV, option (2)",
+        "released_replay": "PrescribedField UniformElectricField + endpoint_field_work, no free electron motion",
+        "original_question_was_numeric": true,
+        "real_browser_original_question_not_newly_checked": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -47,7 +63,7 @@
       "historical_qualified_route_not_verified": "One-sided ideal metal-sheet field and numerical electron reversal under the source's idealized field.",
       "historical_exclusions": "No induced conductor response, microscopic contact, or fringe field.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -56,6 +72,21 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p2 Q19 visually inspected; native M36b source replay and separate numerical reference checked by developer",
+        "source_given_initial_kinetic_energy_eV": 100,
+        "source_given_metal_surface_sigma_c_m2": -0.000002,
+        "field_is_one_sided_ideal_metal": true,
+        "field_magnitude_formula": "abs(sigma)/epsilon_0",
+        "predicted_stopping_distance_m": 0.00044270939064,
+        "source_multiple_choice": "0.44 mm, option (1)",
+        "teacher_native_preview_clearance_m": 0.001,
+        "original_printed_initial_clearance_m": null,
+        "real_elapsed_time_native_motion_claimed_for_supported_ideal_field": true,
+        "early_contact_preview_is_teacher_hypothetical": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -69,7 +100,7 @@
       "historical_qualified_route_not_verified": "Mixed radial conductor backend supports field-energy before and after concentric connection.",
       "historical_exclusions": "Static release energy is not a current or heat-rate waveform.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -78,6 +109,21 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p3 Q27 visually inspected; source M36c static field-energy reference checked by developer",
+        "source_given_inner_solid_radius_m": 0.1,
+        "source_given_shell_radius_m": 0.2,
+        "source_given_charge_c": 0.00002,
+        "outer_metal_shell_initially_uncharged": true,
+        "original_asked": "energy released when wire connects inner SOLID sphere and outer shell",
+        "zero_thickness_ideal_formula": "(k Q^2/2)(1/R_inner - 1/R_outer)",
+        "source_choice": "9 J, option (2)",
+        "released_replay": "M36c true connected before/after two static equilibria",
+        "model_shell_thickness_teacher_chosen_m": 0.000001,
+        "no_qualified_wire_dissipation_time_or_current": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -91,7 +137,7 @@
       "historical_qualified_route_not_verified": "Concentric cavity induced-charge and exterior static potential models.",
       "historical_exclusions": "Not time-resolved charge transfer or arbitrary displaced cavity geometry.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -100,6 +146,17 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p7 Multiple Correct Q13 visually inspected; no new source-specific native/browser replay by this cohort",
+        "source_given_geometry": "electrically neutral conductor whose outer surface is spherical, with a point q displaced by x within its inner cavity",
+        "asked": "potential at outside P and inner/outer induced surface charge distribution",
+        "bounded_gauss_expectation": "inner total -q, outer +q; spherical outer density uniform in no external field",
+        "source_given_x_symbolic": true,
+        "numerical_placement_or_3d_inner_shape_not_fully_specified": true,
+        "actual_source_multiple_option_set_not_yet_newly_independently_checked": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -113,7 +170,7 @@
       "historical_qualified_route_not_verified": "Static induced charge/force snapshots near grounded sphere are qualified.",
       "historical_exclusions": "The requested induced-current time behavior needs a physical approach protocol and derivative of genuine conductor response; not solved by static position sweep.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -122,6 +179,19 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p8 Multiple Correct Q21 visually inspected; released M37b source-faithful prescribed approach exists but not newly independently reviewed by this cohort",
+        "source_given_geometry": "positive point charge approaches grounded conducting sphere radius R at small constant speed v",
+        "asked": "conventional grounding wire-current direction and whether its magnitude grows or shrinks",
+        "qualifying_physics": "Kelvin grounded-sphere induced Q=-qR/d and prescribed approach current magnitude=qRv/d^2 for d>R",
+        "conventional_current_direction": "sphere to ground for positive approaching source",
+        "externally_prescribed_speed_is_not_solved_dynamics": true,
+        "source_gives_no_numeric_q_R_v": true,
+        "teacher_viewer_values_not_source_givens": true,
+        "original_answer_completeness_still_pending": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -155,7 +225,9 @@
         "unsupported_in_released_solver": "source-faithful irregular outer geometry and local sigma under exterior q; no full external response",
         "original_problem_answer_newly_independently_reviewed": false,
         "numerical_values_are_teacher_authored": true,
-        "exterior_q_must_not_be_silently_discarded": true
+        "exterior_q_must_not_be_silently_discarded": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -169,7 +241,7 @@
       "historical_qualified_route_not_verified": "Source-given two-ring endpoint work with transverse applied field retained in force ledger.",
       "historical_exclusions": "No fictitious free axial path or numerical mass for symbolic follow-up.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -178,6 +250,20 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p12 linked Q40 visually inspected; M36b source replay and separate reference previously validated by developer",
+        "source_given_rings": "two circular rings radius 0.30m, separation 0.40m, ring A +10microC, ring B -20microC",
+        "source_given_test_charge_c": 0.00001,
+        "source_given_uniform_vertical_e_v_m": 100000,
+        "asked": "work by electric field moving test charge axially from ring A center to ring B center",
+        "transverse_uniform_E_does_no_axial_work": true,
+        "separate_ring_potential_formula": "kq_A/r + kq_B/sqrt(d^2+r^2) at C_A; exchange A/B at C_B",
+        "developer_independent_ring_work_j_approx": 3.5950207169044694,
+        "source_multiple_choice": "3.6 J, option (4)",
+        "teacher_native_trajectory_not_claimed": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -191,7 +277,7 @@
       "historical_qualified_route_not_verified": "Actual equilibrium electron-count observable is addressed and a clearly teacher-specified switched-field/drag example exists.",
       "historical_exclusions": "Original problem supplies no drag constant, switch time or complete initial state, so no unique source-faithful transient can be claimed.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -200,6 +286,23 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen workbook p16 archived JEE Advanced 2020 numerical Q1 visually inspected; only ideal uniform-field equilibrium subset, not full switched oil-drop dynamic validation",
+        "source_provenance": "original workbook explicitly attributes this numerical question to JEE Advanced 2020",
+        "source_given_plate_voltage_v": 200,
+        "source_given_plate_spacing_m": 0.01,
+        "source_given_oil_radius_m": 8e-7,
+        "source_given_oil_density_kg_m3": 900,
+        "source_given_gravity_m_s2": 10,
+        "source_given_electron_charge_c": 1.6e-19,
+        "original_asked": "number of electrons when initially descending terminal-velocity drop becomes stationary after switching voltage",
+        "partial_ideal_balance": "mg = n e (V/d) gives approximately 6 electrons, ignoring fringe/buoyancy as stated",
+        "complete_initial_terminal_drag_and_switch_chronology_not_qualified": true,
+        "field_fringe_near_hole_not_claimed": true,
+        "historical_partial_route_retained": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -234,7 +337,9 @@
         "released_physically_faithful_solver": "one actual SolidSphere through MixedRadialBackend, per M36d",
         "historical_problem_family_is_superseded": true,
         "numerical_values_are_teacher_authored": true,
-        "standalone_html_authenticity_not_certified": true
+        "standalone_html_authenticity_not_certified": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     },
     {
@@ -274,7 +379,8 @@
         "original_numeric_inputs_printed": false,
         "teacher_numerical_values_not_source_givens": true,
         "original_answer_newly_independently_reviewed": false,
-        "browser_newly_independently_checked_for_jee12": false
+        "browser_newly_independently_checked_for_jee12": false,
+        "developer_inspection_only": true
       }
     },
     {
@@ -314,7 +420,8 @@
         "discrete_density_samples_are_not_gauss_integrals": true,
         "original_numeric_inputs_printed": false,
         "original_answer_newly_independently_reviewed": false,
-        "browser_newly_independently_checked_for_jee12": false
+        "browser_newly_independently_checked_for_jee12": false,
+        "developer_inspection_only": true
       }
     },
     {
@@ -354,15 +461,24 @@
         "distinct_illustration8_on_same_page": "irregular cavity/exterior examples; M40a local sigma MUST refuse irregular shapes",
         "existing_m36a_unsupported_route_is_historical_not_a_current_certified_result": true,
         "original_problem_answer_newly_independently_reviewed": false,
-        "numerical_values_are_teacher_authored": true
+        "numerical_values_are_teacher_authored": true,
+        "developer_inspection_only": true,
+        "original_answer_newly_independently_reviewed": false
       }
     }
   ],
   "historical_family_label_warning": "Some preserved M36a problem_family labels are outdated source triage. In particular notes p26 Illustration 1 says a SOLID conducting sphere, while old M36a labels it a shell. Original printed geometry, not historical family metadata, governs evaluation.",
-  "source_inspection_provenance": "developer visual inspection of repository-byte-pinned original workbook p11 and notes p26, p27, p69, p70; NOT an independent reviewer verdict",
+  "source_inspection_provenance": "developer visually inspected the frozen original two-document cohort pages, not independent reviewer certification",
   "independently_reviewed_original_answer_cases": 0,
   "developer_visually_inspected_case_ids": [
+    "p01-single-08",
+    "p02-single-19",
+    "p03-single-27",
+    "p07-multiple-13",
+    "p08-multiple-21",
     "p11-linked-28",
+    "p12-linked-40",
+    "p16-archive-numerical-01",
     "p26-conductor-potential",
     "p27-cavity-two-shells",
     "p69-cavity-central-vs-shifted",

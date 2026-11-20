@@ -66,11 +66,10 @@ def test_jee12_no_unreviewed_source_or_answer_claims() -> None:
     cohort = _read(COHORT)
     assert "NOT A JEE PERFORMANCE SCORE" in cohort["status"]
     assert "ZERO NEW INDEPENDENT ORIGINAL ANSWER VERDICTS" in cohort["status"]
+    assert "TWELVE DEVELOPER PDF PAGE INSPECTIONS" in cohort["status"]
     assert cohort["verified_original_source_answers_in_this_cohort"] == 0
-    assert cohort["source_inspections_performed_in_this_cohort"] == 5
-    inspected = {"p11-linked-28", "p26-conductor-potential",
-                 "p27-cavity-two-shells", "p69-cavity-central-vs-shifted",
-                 "p70-three-cavities"}
+    assert cohort["source_inspections_performed_in_this_cohort"] == 12
+    inspected = set(IDS)
     assert set(cohort["developer_visually_inspected_case_ids"]) == inspected
     assert cohort["independently_reviewed_original_answer_cases"] == 0
     routes = [x["historical_candidate_route_not_verified"] for x in cohort["cases"]]
@@ -80,13 +79,11 @@ def test_jee12_no_unreviewed_source_or_answer_claims() -> None:
     for row in cohort["cases"]:
         evaluation = row["evaluation"]
         assert evaluation["original_pdf_reinspected"] is (row["id"] in inspected)
-        if row["id"] in inspected:
-            assert "developer_pdf_source_note" in row
-            note = row["developer_pdf_source_note"]
-            if row["id"] == "p26-conductor-potential":
-                assert note["standalone_html_authenticity_not_certified"] is True
-            else:
-                assert note["original_answer_newly_independently_reviewed"] is False
+        note = row["developer_pdf_source_note"]
+        assert note["developer_inspection_only"] is True
+        assert note["original_answer_newly_independently_reviewed"] is False
+        if row["id"] == "p26-conductor-potential":
+            assert note["standalone_html_authenticity_not_certified"] is True
         assert evaluation["reviewer_evidence"] == "none"
         for key in EVALUATION_FIELDS:
             assert evaluation[key] == "not_evaluated"
@@ -132,6 +129,25 @@ def test_jee12_physical_refusal_cases_must_not_be_assigned_spherical_success() -
     assert p70["actual_source_3d_spherical_radii_not_specified"] is True
     assert p70["original_source_uniquely_determines_local_density"] is False
     assert p70["original_problem_answer_newly_independently_reviewed"] is False
+    p1=entries["p01-single-08"]["developer_pdf_source_note"]
+    assert p1["independently_expected_external_work_eV"] == 40
+    assert p1["electron_charge_is_negative"] is True
+    assert p1["original_answer_newly_independently_reviewed"] is False
+    p2=entries["p02-single-19"]["developer_pdf_source_note"]
+    assert p2["field_is_one_sided_ideal_metal"] is True
+    assert p2["original_printed_initial_clearance_m"] is None
+    assert p2["original_answer_newly_independently_reviewed"] is False
+    p3=entries["p03-single-27"]["developer_pdf_source_note"]
+    assert p3["no_qualified_wire_dissipation_time_or_current"] is True
+    assert p3["original_answer_newly_independently_reviewed"] is False
+    p8=entries["p08-multiple-21"]["developer_pdf_source_note"]
+    assert p8["source_gives_no_numeric_q_R_v"] is True
+    assert p8["externally_prescribed_speed_is_not_solved_dynamics"] is True
+    p12=entries["p12-linked-40"]["developer_pdf_source_note"]
+    assert p12["transverse_uniform_E_does_no_axial_work"] is True
+    p16=entries["p16-archive-numerical-01"]["developer_pdf_source_note"]
+    assert p16["historical_partial_route_retained"] is True
+    assert p16["complete_initial_terminal_drag_and_switch_chronology_not_qualified"] is True
 
 
 
