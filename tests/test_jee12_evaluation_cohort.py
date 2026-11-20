@@ -92,3 +92,10 @@ def test_jee12_physical_refusal_cases_must_not_be_assigned_spherical_success() -
     assert "three" in entries["p70-three-cavities"]["problem_family"]
     assert entries["p69-cavity-central-vs-shifted"]["evaluation"]["original_answer_completeness"] == "not_evaluated"
     assert entries["p26-conductor-potential"]["evaluation"]["original_answer_completeness"] == "not_evaluated"
+    p26=entries["p26-conductor-potential"]
+    assert p26["developer_pdf_source_note"]["actual_printed_shape"] == "one solid charged conducting sphere (not a hollow shell)"
+    assert p26["developer_pdf_source_note"]["historical_problem_family_is_superseded"] is True
+    assert p26["developer_pdf_source_note"]["numerical_values_are_teacher_authored"] is True
+    assert p26["developer_pdf_source_note"]["originally_asked_and_printed_solutions"] == [
+        "V(R/2) = kQ/R", "V(3R/2) = 2kQ/(3R)"]
+

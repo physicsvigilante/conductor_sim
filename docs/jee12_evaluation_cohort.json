@@ -210,6 +210,19 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "developer visually inspected original frozen PDF p26; external independent source review still pending",
+        "actual_printed_shape": "one solid charged conducting sphere (not a hollow shell)",
+        "original_printed_parameters": "symbolic R and Q",
+        "originally_asked_and_printed_solutions": [
+          "V(R/2) = kQ/R",
+          "V(3R/2) = 2kQ/(3R)"
+        ],
+        "released_physically_faithful_solver": "one actual SolidSphere through MixedRadialBackend, per M36d",
+        "historical_problem_family_is_superseded": true,
+        "numerical_values_are_teacher_authored": true,
+        "standalone_html_authenticity_not_certified": true
       }
     },
     {
@@ -278,5 +291,6 @@
         "reviewer_evidence": "none"
       }
     }
-  ]
+  ],
+  "historical_family_label_warning": "Some preserved M36a problem_family labels are outdated source triage. In particular notes p26 Illustration 1 says a SOLID conducting sphere, while old M36a labels it a shell. Original printed geometry, not historical family metadata, governs evaluation."
 }
