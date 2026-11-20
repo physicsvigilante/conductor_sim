@@ -1,0 +1,18 @@
+# JEE-12 two original-answer teaching walkthroughs — frozen preimplementation charter
+
+[Issue #110](https://github.com/physicsvigilante/conductor_sim/issues/110); independently reviewed JEE-12 PR #109 merged, parent `4341269f24f31c4ceea0b0fd091363be533efed0`. The **original workbook**, not automatically an official exam paper, is `02_conductors_half_size.pdf` at SHA-256 `9dff3c02a9f1848d2c3d99cb1a6e7a44dc7f5a51f7a3a2b8cc92d10ce1fbca5d`. Preselect these two and only these two source anchors:
+
+- PDF p1 Single Correct **Q8**: E=+10 V/m along +x, electron moved **by us** from A to B, AB=5 m and 3 m transverse leg; horizontal displacement +4 m. **External quasistatic work +40 eV, choice (2)**, field work -40 eV. A source-asked endpoint work calculation, **not freely simulated motion**.
+- PDF p3 Single Correct **Q27**: genuinely **solid** sphere R=0.10 m and charge +20 µC, concentric initially uncharged ideal thin shell radius 0.20 m, then wire connection. The ideal zero-thickness released field energy is ~8.98755179 J, choice **(2) 9 J**. Existing native `ConnectedShellBackend` uses a **teacher-chosen 1 µm shell thickness**, yielding slightly different, correctly disclosed finite-metal energy; two equilibria, not a current/time or heat-rate waveform.
+
+## Bounded production change
+
+Reuse existing `PrescribedField`, `UniformElectricField`, `endpoint_field_work`, `ConnectedShellBackend` and the released authentic solid/shell `ConnectionPlan`. Render two small offline **static** HTML/SVG teaching pages and versioned JSON of native numbers. Visibly show the *source given* geometry, source question and printed answer, equation, signed SI native values and a separate **TEACHER HYPOTHETICAL** rerun: +20 V/m source E in Q8; +10 µC initial sphere Q in Q27. The original source PDF is not changed.
+
+Required p1 diagram is an honest 5-3-4 triangle with +x field, and no invented electron trajectory. Required p3 diagrams use a truly **filled solid sphere** plus a *concentric* shell with shared metre scale before/after; depict a one-dimensional thin shell stroke with an explicit line-thickness-not-to-scale caveat. Include measured before/after static gap/exterior energies, native released energy, textbook ideal-thin limit and original asked ~9 J. No fictitious inner cavity, generalized conductor field solver or time replay.
+
+No JavaScript dependency for physical diagrams or original answers; they remain visible in real narrow-mobile/desktop **JS on/off** Chromium, no horizontal overflow or external resources. Independent **stdlib-only** SI verification of source metadata, native quantities, face charges, energy sign and teacher variants; original numbers must not become teacher inputs or vice versa, no forged external-work sign, current or chronology. Separate validation for displayed HTML output and actual browser; a JSON checker does not cryptographically authenticate independently edited HTML. Do not upgrade JEE-12 frozen original-answer grades merely by generating these views.
+
+Pre-release acceptance: actual Python 3.10/3.12 source-native tests and negative controls, genuine offline Chromium mobile/desktop JS-on/off screenshots/logs, inherited full Python/real FEMM/browser CI on exact candidate, one **narrow independent** source-answer/browser review, then separately approved exact-head guarded merge with reviewed Git-tree equality and actual main-push CI. Production PR stays draft and unmerged until then; M40c PR #105 remains separate.
+
+No new generic lesson framework, 3D scene graph, field law, FEMM variation, PDF parser or universal source provenance cryptographic claim.
