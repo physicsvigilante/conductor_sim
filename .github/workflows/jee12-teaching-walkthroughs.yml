@@ -7,6 +7,7 @@ on:
       - 'tools/jee12_walkthroughs.py'
       - 'tools/jee12_walkthrough_reference.py'
       - 'tools/check_jee12_walkthroughs_browser.py'
+      - 'tools/test_jee12_walkthroughs_browser.py'
       - 'tests/test_jee12_walkthroughs.py'
       - 'src/conductor_sim/**'
       - 'examples/solid_sphere_connected.py'
@@ -19,6 +20,7 @@ on:
       - 'tools/jee12_walkthroughs.py'
       - 'tools/jee12_walkthrough_reference.py'
       - 'tools/check_jee12_walkthroughs_browser.py'
+      - 'tools/test_jee12_walkthroughs_browser.py'
       - 'tests/test_jee12_walkthroughs.py'
       - 'src/conductor_sim/**'
       - 'examples/solid_sphere_connected.py'
@@ -96,6 +98,8 @@ jobs:
       - name: Inspect actual offline original-answer diagrams and no-JS/mobile data
         run: |
           python -m tools.check_jee12_walkthroughs_browser --input-dir review-artifacts/jee12-walkthroughs/pages | tee review-artifacts/jee12-walkthroughs/browser.log
+      - name: Reject incorrect visible field-work sign in Chromium
+        run: python -m pytest tools/test_jee12_walkthroughs_browser.py -q
       - name: Retain real browser screenshots/logs including first failures
         if: always()
         uses: actions/upload-artifact@v4

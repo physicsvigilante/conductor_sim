@@ -31,12 +31,14 @@ def check(out: Path) -> dict:
                 record = json.loads((out/(name+".json")).read_text(encoding="utf-8"))
                 assert record["source"]["case_id"] == case
                 if case == "p01-single-08":
+                    unit = "eV"
                     expected = [
                         record["native"]["external_work_j"] / 1.602176634e-19,
                         record["native"]["field_work_j"] / 1.602176634e-19,
                         record["teacher_hypothetical"]["native_external_work_j"] / 1.602176634e-19,
                     ]
                 else:
+                    unit = "J"
                     expected = [record["native"]["energy_before_j"],
                                 record["native"]["energy_after_j"],
                                 record["native"]["energy_released_j"],
@@ -69,7 +71,11 @@ def check(out: Path) -> dict:
                             assert item.is_visible(), (name, label, selector)
                             value = float(item.get_attribute("data-si"))
                             assert math.isclose(value, reference, rel_tol=3e-11, abs_tol=1e-16)
-                            assert item.inner_text().strip(), (name, label, selector)
+                            visible = item.inner_text().strip()
+                            expected_text = f"{reference:.10g} {unit}"
+                            assert visible == expected_text, (
+                                f"{name}/{label} #{selector}: expected {expected_text!r}, saw {visible!r}"
+                            )
                             actual.append(value)
                         svgs = page.locator("svg[role=img]")
                         assert svgs.count() == (1 if case == "p01-single-08" else 2)
