@@ -65,16 +65,27 @@ def test_jee12_historical_exact_roster_and_original_source_provenance() -> None:
 def test_jee12_no_unreviewed_source_or_answer_claims() -> None:
     cohort = _read(COHORT)
     assert "NOT A JEE PERFORMANCE SCORE" in cohort["status"]
-    assert "NOT YET NEWLY RE-INSPECTED OR VERIFIED" in cohort["status"]
+    assert "ZERO INDEPENDENT ORIGINAL ANSWER VERDICTS" in cohort["status"]
     assert cohort["verified_original_source_answers_in_this_cohort"] == 0
-    assert cohort["source_inspections_performed_in_this_cohort"] == 0
+    assert cohort["source_inspections_performed_in_this_cohort"] == 3
+    inspected = {"p26-conductor-potential", "p27-cavity-two-shells",
+                 "p69-cavity-central-vs-shifted"}
+    assert set(cohort["developer_visually_inspected_case_ids"]) == inspected
+    assert cohort["independently_reviewed_original_answer_cases"] == 0
     routes = [x["historical_candidate_route_not_verified"] for x in cohort["cases"]]
     assert routes.count("supported_scoped") == 8
     assert routes.count("partial") == 2
     assert routes.count("unsupported") == 2
     for row in cohort["cases"]:
         evaluation = row["evaluation"]
-        assert evaluation["original_pdf_reinspected"] is False
+        assert evaluation["original_pdf_reinspected"] is (row["id"] in inspected)
+        if row["id"] in inspected:
+            assert "developer_pdf_source_note" in row
+            note = row["developer_pdf_source_note"]
+            if row["id"] == "p26-conductor-potential":
+                assert note["standalone_html_authenticity_not_certified"] is True
+            else:
+                assert note["original_answer_newly_independently_reviewed"] is False
         assert evaluation["reviewer_evidence"] == "none"
         for key in EVALUATION_FIELDS:
             assert evaluation[key] == "not_evaluated"
@@ -98,4 +109,19 @@ def test_jee12_physical_refusal_cases_must_not_be_assigned_spherical_success() -
     assert p26["developer_pdf_source_note"]["numerical_values_are_teacher_authored"] is True
     assert p26["developer_pdf_source_note"]["originally_asked_and_printed_solutions"] == [
         "V(R/2) = kQ/R", "V(3R/2) = 2kQ/(3R)"]
+    p27=entries["p27-cavity-two-shells"]
+    assert p27["evaluation"]["original_answer_completeness"] == "not_evaluated"
+    assert p27["developer_pdf_source_note"]["asked"] == ["V(A)", "V(B)"]
+    assert p27["developer_pdf_source_note"]["teacher_numerical_values_not_source_givens"] is True
+    assert p27["developer_pdf_source_note"]["original_answer_newly_independently_reviewed"] is False
+    p69=entries["p69-cavity-central-vs-shifted"]
+    assert p69["evaluation"]["original_answer_completeness"] == "not_evaluated"
+    assert p69["developer_pdf_source_note"]["source_given_metal_charge"] == "3q"
+    assert p69["developer_pdf_source_note"]["source_given_enclosed_charge"] == "q"
+    assert p69["developer_pdf_source_note"]["original_printed_qualitative_result"] == [
+        "inner induced total -q, uniform if centered",
+        "inner induced total -q, nonuniform if displaced",
+        "outer total +4q, uniform and unchanged"]
+    assert p69["developer_pdf_source_note"]["original_answer_newly_independently_reviewed"] is False
+
 

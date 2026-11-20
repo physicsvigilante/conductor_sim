@@ -1,6 +1,6 @@
 {
   "schema": "conductor_sim.jee12_source_evaluation.v1",
-  "status": "FROZEN CASE COHORT; ALL TWELVE CASES NOT YET NEWLY RE-INSPECTED OR VERIFIED; NOT A JEE PERFORMANCE SCORE",
+  "status": "FROZEN CASE COHORT; THREE DEVELOPER PDF PAGE INSPECTIONS, ZERO INDEPENDENT ORIGINAL ANSWER VERDICTS; NOT A JEE PERFORMANCE SCORE",
   "base_commit": "337001f2e0d1ce62c87fa4352993c4a074cfbde6",
   "base_tree": "25e91e0fd53749bf6c6c578583310b219e1ecb4f",
   "historical_source": "docs/m36a_jee30_coverage.json",
@@ -12,7 +12,7 @@
   },
   "case_count": 12,
   "verified_original_source_answers_in_this_cohort": 0,
-  "source_inspections_performed_in_this_cohort": 0,
+  "source_inspections_performed_in_this_cohort": 3,
   "cases": [
     {
       "id": "p01-single-08",
@@ -201,7 +201,7 @@
       "historical_qualified_route_not_verified": "Radial field and potential of concentric conducting shell with surface boundaries.",
       "historical_exclusions": "Static radial observation, not time evolution.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -236,7 +236,7 @@
       "historical_qualified_route_not_verified": "Concentric shell and source analytical/FEMM-qualified geometry.",
       "historical_exclusions": "No off-centre general multicavity 3D claim.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -245,6 +245,24 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen PDF page 27 visually checked by developer; independent JEE12 source review NOT yet performed",
+        "actual_printed_shape": "one central point charge q and two concentric thin spherical shells q1, q2",
+        "asked": [
+          "V(A)",
+          "V(B)"
+        ],
+        "printed_symbolic_equations": [
+          "kq/r + kq1/a + kq2/b",
+          "k(q+q1)/r1 + kq2/b"
+        ],
+        "available_released_replay": "M36c native _p27_original_A_B and separate original_p27_AB Gauss reference",
+        "finite_metal_vs_ideal_source_distinction": "one-micrometre teacher model has slightly different actual finite-shell V(A), V(B) than original ideal zero-thickness symbolic formulas",
+        "original_numeric_inputs_printed": false,
+        "teacher_numerical_values_not_source_givens": true,
+        "original_answer_newly_independently_reviewed": false,
+        "browser_newly_independently_checked_for_jee12": false
       }
     },
     {
@@ -258,7 +276,7 @@
       "historical_qualified_route_not_verified": "Exact Kelvin image model captures displaced cavity source's nonuniform inner induced density.",
       "historical_exclusions": "Only a supported spherical cavity, not an irregular multihole conductor.",
       "evaluation": {
-        "original_pdf_reinspected": false,
+        "original_pdf_reinspected": true,
         "source_fact_attribution": "not_evaluated",
         "interpretation_fidelity": "not_evaluated",
         "independent_physics": "not_evaluated",
@@ -267,6 +285,24 @@
         "teaching_usefulness": "not_evaluated",
         "refusal_correctness": "not_evaluated",
         "reviewer_evidence": "none"
+      },
+      "developer_pdf_source_note": {
+        "status": "original frozen PDF page 69 visually checked by developer; independent JEE12 source review NOT yet performed",
+        "actual_printed_shape": "one spherical conductor with one sealed cavity and central vs displaced point q",
+        "source_given_metal_charge": "3q",
+        "source_given_enclosed_charge": "q",
+        "asked": "charge distribution on inner and outer faces for central and displaced source q",
+        "original_printed_qualitative_result": [
+          "inner induced total -q, uniform if centered",
+          "inner induced total -q, nonuniform if displaced",
+          "outer total +4q, uniform and unchanged"
+        ],
+        "model_instantiation": "two separately solved actual spherical M40a teacher models; no invented time/motion",
+        "independent_field_reference": "developer-coded real-charge and exterior Kelvin-image normal electric field, not Poisson kernel",
+        "discrete_density_samples_are_not_gauss_integrals": true,
+        "original_numeric_inputs_printed": false,
+        "original_answer_newly_independently_reviewed": false,
+        "browser_newly_independently_checked_for_jee12": false
       }
     },
     {
@@ -292,5 +328,12 @@
       }
     }
   ],
-  "historical_family_label_warning": "Some preserved M36a problem_family labels are outdated source triage. In particular notes p26 Illustration 1 says a SOLID conducting sphere, while old M36a labels it a shell. Original printed geometry, not historical family metadata, governs evaluation."
+  "historical_family_label_warning": "Some preserved M36a problem_family labels are outdated source triage. In particular notes p26 Illustration 1 says a SOLID conducting sphere, while old M36a labels it a shell. Original printed geometry, not historical family metadata, governs evaluation.",
+  "source_inspection_provenance": "developer visual inspection of byte-pinned original notes pages 26, 27 and 69; NOT an independent reviewer verdict",
+  "independently_reviewed_original_answer_cases": 0,
+  "developer_visually_inspected_case_ids": [
+    "p26-conductor-potential",
+    "p27-cavity-two-shells",
+    "p69-cavity-central-vs-shifted"
+  ]
 }
