@@ -28,8 +28,8 @@ def _sphere_endpoint_fields(sphere, endpoints, permittivity):
     return [tuple(slope * x for x in d) for d in offsets]
 
 
-def straight_path_energy_barrier(sources, charge_c, start_m, end_m, *, permittivity_f_m=None):
-    """Maximize q[V(s) - V(start)] on the closed segment, including stationary points.
+def straight_path_energy_profile(sources, charge_c, start_m, end_m, *, permittivity_f_m=None):
+    """Qualify the sources and construct q[V(s) - V(start)] on the closed segment.
 
     Accepts a qualified PrescribedField, an AffineFieldAssembly, or an iterable of
     uniform fields, affine assemblies and containing uniform volume spheres. The ideal guide supplies a transverse reaction doing zero work.
@@ -64,11 +64,41 @@ def straight_path_energy_barrier(sources, charge_c, start_m, end_m, *, permittiv
         initial_slope -= charge * _dot(first, delta)
         final_slope -= charge * _dot(last, delta)
 
-    # U'(s) varies linearly with s, the dimensionless segment fraction.
-    if initial_slope > 0 > final_slope:
-        peak = initial_slope / (initial_slope - final_slope)
-        return SegmentEnergyBarrier(_observed(initial_slope * peak / 2), peak)
-    end_rise = (initial_slope + final_slope) / 2
-    if end_rise > 0:
-        return SegmentEnergyBarrier(_observed(end_rise), Fraction(1))
-    return SegmentEnergyBarrier(0., Fraction(0))
+    return StraightPathEnergyProfile(initial_slope, final_slope)
+
+
+@dataclass(frozen=True, slots=True)
+class StraightPathEnergyProfile:
+    """Energy derivatives (J per unit segment fraction) at the two ends."""
+
+    initial_slope: Fraction
+    final_slope: Fraction
+
+    def __post_init__(self):
+        for name in ("initial_slope", "final_slope"):
+            value = getattr(self, name)
+            if not isinstance(value, Fraction):
+                object.__setattr__(self, name, Fraction(_scalar(value)))
+
+    def energy_change_j(self, fraction):
+        """Signed change from the starting potential energy at 0 <= fraction <= 1."""
+        s = fraction if isinstance(fraction, Fraction) else Fraction(_scalar(fraction))
+        if not 0 <= s <= 1:
+            raise ValueError("segment fraction must be between zero and one")
+        return _observed(s * (self.initial_slope + s * (self.final_slope - self.initial_slope) / 2))
+
+    def barrier(self):
+        if self.initial_slope > 0 > self.final_slope:
+            peak = self.initial_slope / (self.initial_slope - self.final_slope)
+        elif self.initial_slope + self.final_slope > 0:
+            peak = Fraction(1)
+        else:
+            peak = Fraction(0)
+        return SegmentEnergyBarrier(self.energy_change_j(peak), peak)
+
+
+def straight_path_energy_barrier(sources, charge_c, start_m, end_m, *, permittivity_f_m=None):
+    """Return the maximum energy rise and its earliest location along the guide."""
+    return straight_path_energy_profile(
+        sources, charge_c, start_m, end_m, permittivity_f_m=permittivity_f_m
+    ).barrier()

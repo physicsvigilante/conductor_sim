@@ -20,6 +20,10 @@ barrier = straight_path_energy_barrier((sphere,), 1, start, end)
 # barrier.peak_fraction is 1/2, measured along the guide from its start.
 ```
 
+Generate the offline teaching comparison with `python -m tools.jee_tunnel_profile review-artifacts/q35-guide/q35.html`. The upper and lower curves compare the original sphere with a teacher-selected axial bias. Both use the same energy scale. The browser check `python -m tools.check_jee_tunnel_profile_browser review-artifacts/q35-guide` checks both curves, their maximum markers, and signed table values in mobile and desktop Chromium.
+
+Use `straight_path_energy_profile` with the same arguments as the barrier calculation to obtain the signed energy change at any segment fraction. The barrier result and the graph use the same qualified profile. Profile position is spatial. It does not represent elapsed time.
+
 Each uniform sphere must contain the entire segment, including its endpoints. The test uses the supplied coordinates without a boundary tolerance. An existing `PrescribedField` can be passed directly when every source qualifies. Its authored permittivity is retained, including when several spheres share a bias field. An empty prescribed field gives zero barrier. Multiple sphere contributions and `AffineFieldAssembly` instances may share the same guide. The caller is responsible for the validity of each prescribed affine field along the guide. The observation maximizes the total energy before rounding and returns the earliest maximizer if there is a tie. It does not integrate motion or determine a finite transit time.
 
 | Evaluation dimension | Status for the one original item | Evidence |
