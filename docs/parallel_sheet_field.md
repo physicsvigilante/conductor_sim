@@ -16,6 +16,8 @@ interior = field.gap_graph(1.25, 1.75)  # bounded graph can feed axial field sup
 
 On PDF page 5, Single Correct Q48 places a uniformly charged sheet in the yz plane. A positive test charge moves along a circular arc from A=(10a,2a,0) to B=(10a,0,2a), then to C=(10a,0,0). The prompt calls it a plane sheet and draws a patch, without giving lateral dimensions or explicitly saying that it is infinite. Under the infinite-sheet idealization V depends only on x. The field then does zero work between each pair of endpoints, so the final energy is U₀, printed option 2. For a finite sheet the potential can vary with y and z even at fixed x. For example, a uniformly positive disk of radius a centred at the origin is admissible as a finite sheet. For a source element at (0,y,z), its squared distance to A exceeds that to C by 4a(a−y), positive almost everywhere on the disk. Thus V(C)>V(A) in that example. The given information does not determine the final energy for a finite sheet.
 
+To recover signed densities and an equivalent uniform bias from a continuous piecewise-linear potential graph, see [workbook Q49](sheet_density_from_potential.md).
+
 Supply prescribed signed densities in C/m² and sheet positions in metres. A declared uniform axial bias adds to the symmetric isolated-sheet solution. The potential reference is at a finite x because the field need not decay at infinity. Coincident densities add before a field jump is tested. At a charged sheet the model permits a potential observation and refuses a single electric-field vector. A continuous gap graph requires a closed interval free of charged sheets. These results do not determine a finite plate's detailed surface density or fringing field.
 
 | Dimension | Status for two original items | Evidence |

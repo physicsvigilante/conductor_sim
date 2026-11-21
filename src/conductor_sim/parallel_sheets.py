@@ -29,6 +29,28 @@ class ParallelSheetField:
             density[x] = density.get(x, 0) + _exact(sigma)
         object.__setattr__(self, "sheets", tuple(sorted((x, s) for x, s in density.items() if s)))
 
+    @classmethod
+    def from_potential_segments(cls, knots, *, permittivity_f_m=EPSILON_0):
+        """Infer sheets at slope breaks of a continuous piecewise-linear V(x).
+
+        The two end segments continue linearly beyond the supplied interval in
+        the returned model. Unseen external sources are not identifiable.
+        """
+        points = tuple((_exact(x), _exact(v)) for x, v in knots)
+        if len(points) < 2:
+            raise ValueError("potential profile needs at least two knots")
+        epsilon = _exact(permittivity_f_m)
+        fields = []
+        for (a, va), (b, vb) in zip(points, points[1:]):
+            if b <= a:
+                raise ValueError("potential knot positions must strictly increase")
+            fields.append((va-vb)/(b-a))
+        sheets = tuple((x, epsilon*(right-left))
+                       for (x, _), left, right in zip(points[1:-1], fields, fields[1:]))
+        x0, potential = points[0]
+        return cls(sheets, permittivity_f_m=epsilon, reference_x_m=x0,
+                   reference_potential_v=potential, bias_v_m=(fields[0]+fields[-1])/2)
+
     def _field(self, x):
         signed = Fraction(0)
         for position, sigma in self.sheets:
