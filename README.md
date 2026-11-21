@@ -2,7 +2,7 @@
 
 Scientifically qualified, LLM-authorable **teaching simulations for JEE electrostatics**. The goal is faithful physical interpretation and useful exploration—not automatic reproduction of every textbook answer.
 
-**Released baseline: M40b**, main merge `4bae2f6be5a1689b9e1dc80d2dd146b77d366a3e`. See the [current capability and verification map](docs/current_capabilities.md) for qualified domains, release evidence and limitations. The [post-M40b project audit](docs/post_m40b_audit.md) is a separate correction candidate; **M40c remains charter-only** in [issue #103](https://github.com/physicsvigilante/conductor_sim/issues/103).
+Use the [capability map](docs/current_capabilities.md) to choose a model by geometry, boundary condition and requested observation. The [source trial](docs/m41a.md) records which models could answer a scoped physics question for each of 14 workbook and notes cases.
 
 ## Start with a teaching question
 
@@ -12,6 +12,7 @@ Scientifically qualified, LLM-authorable **teaching simulations for JEE electros
 | How does a test charge move in a supported fixed-source arrangement? | Prescribed fields, native motion/event observers and source guards; [prescribed-source distinction](docs/m19a.md), [structural source reuse](docs/m22a.md). |
 | How does a physical revision change a verified observation? | Retained `PrescribedScenario`, source identities, sweeps and optional graph/fork inquiries; [multi-stage exploration](docs/m35a.md). |
 | Which existing examples are tied to original JEE source material? | [M36b](docs/m36b.md), [M36c](docs/m36c.md), [actual solid-sphere refinement](docs/m36d.md), [constant-speed grounding current](docs/m37b.md), and [speed at the origin, workbook p14 Q6](examples/workbook_origin_crossing.py) (`python -m examples.workbook_origin_crossing`). Source givens and teacher choices stay separate. |
+| What changes when conductors combine or connect to earth? | [Conducting drops](docs/conducting_drop_equilibria.md) conserve charge and volume. A [grounding switch](docs/single_conductor_ground_switch.md) holds a conductor at zero potential and measures charge exchanged with earth. |
 | Why can a neutral cavity face have nonzero local induced charge density? | [M39a whole-face Gauss totals](docs/m39a.md), [M40a spherical local sigma](docs/m40a.md), [M40b offline geometry and point atlas](docs/m40b.md). |
 
 ## Generate an offline example

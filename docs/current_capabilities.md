@@ -1,13 +1,14 @@
 # Current capability and validation map
 
-**Released baseline: M40b.** Main merge `4bae2f6be5a1689b9e1dc80d2dd146b77d366a3e`, native tree `5ea6098d463eec12fbc184ab3a6fca2f27699e9a`. [PR #102 release verification](https://github.com/physicsvigilante/conductor_sim/pull/102#issuecomment-7016977990) records independent scoped review, owner-approved expected-head merge, matching tree and **28/28 main-push workflows, 40/40 check runs successful**. These counts describe that release, not later audit candidates.
+For a workbook problem, first identify what stays fixed and what the question asks to measure. The routes below distinguish a change between static equilibria from a trajectory with physical time.
 
-**Separate development:** the [post-M40b audit](post_m40b_audit.md) repairs reproduced numerical/evidence/CI defects and updates this navigation; it is not released until its own exact-source review, approval and post-merge checks. M40c is **charter-only**, [issue #103](https://github.com/physicsvigilante/conductor_sim/issues/103), for static source relocation; no M40c implementation is claimed here.
+The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve had independently checked results for a stated physical model. Two required irregular conductor geometries outside the qualified scope. The trial did not measure educational outcomes or a full-question solve rate.
 
 | Layer | Reusable entry points | Qualified scope and limits |
 | --- | --- | --- |
 | Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. |
 | Conducting drops | [combine_isolated_drops](conducting_drop_equilibria.md) | Combines independently equilibrated spherical drops by conserving charge and volume, then solves the final sphere. Accepts unequal radii and either charge sign. |
+| Grounding switches | `ElectricalLink`, `ConnectionPlan`, `ConnectionResult.charge_to_ground_c` | Signed charge delivered to earth between radial conductor equilibria. A single grounded conductor may share a plan with a separate floating group. [Workbook p14 Q2](single_conductor_ground_switch.md) |
 | Prescribed sources | `PrescribedField` and supported point, rod, ring, disk-axis, sphere/shell and uniform-field components | Fixed nonresponding source fields can be superposed where all component domains are valid. Full ring and ring-axis providers have different domains; a prescribed source is not automatically a responding conductor. |
 | Particle observations | `TestChargeMotionSpec`, native trajectory/event/driven APIs, qualified electric/gravity composition | Real elapsed-time integration in certified axes/planes, with guards, terminal events and censored outcomes. Not unrestricted many-body or general 3D motion. |
 | Physical/structural revision | `PrescribedScenario`, `revise_scenario`, named-source `reassemble_scenario` | Retained models, stable source IDs, parameter changes and atomic source-inventory revisions. Every revised system is requalified. This identity layer is not a universal schema for every older backend. |
@@ -16,10 +17,13 @@
 | Prescribed grounding current | M37a/b and M38a/b/c qualified Kelvin protocols/viewers | Current follows the supported prescribed source-position protocol and charge-balance derivative. It is not finite-resistance transient simulation or a freely accelerating source. |
 | Multicavity Gauss ledger | M39a `GaussCavityAssembly`, M39b topology viewer | Entire-face induced totals for declared sealed cavities in one connected metal. Topology-only records do not prove physical shape/containment or supply local E/V/sigma. |
 | Spherical multicavity density | M40a `SphericalSigmaModel`, M40b `surface_atlas_manifest` / `render_surface_atlas` | Real disjoint spherical cavities, source positions, signed inner point densities and uniform spherical outer density. Original raw rays remain authoritative near walls. No general cavity E/V, source forces or dynamics. |
+| Static source relocation | `conductor_sim.spherical_sigma_relocation` provides `relocate_spherical_source` and `compare_static_spherical_relocation` | Compare pointwise induced density after moving one named charge within the same spherical cavity. Small differences can be unresolved. [Relocation model](m40c.md) |
 | Presentation | Offline HTML/SVG, actual saved-state playback, source geometry where qualified | Displays existing qualified observations; interpolation is not a solver. M40b is a static XY projection and discrete point atlas with explicit Z coordinates, not a 2D cut or continuous surface solution. |
 | LLM authorability | Typed Python models, executable examples, explicit refusal reasons | An LLM can author unfamiliar supported models. Arbitrary text/PDF interpretation and a universal JEE answer engine are not implemented. |
 
 ## Teacher-facing starting points
+
+For two worked original answers, see the [external-work and shell-energy walkthroughs](jee12_walkthroughs.md). For a motion example, run the [first crossing of the origin](../examples/workbook_origin_crossing.py). The teacher revision shows why a crossing of the same plane can occur away from the origin.
 
 Read [architecture and boundaries](architecture.md), [composability contract](composability_contract.md), and the [evaluation contract](evaluation_contract.md). For source-backed examples use [M36b](m36b.md), [M36c](m36c.md), [M36d](m36d.md), [M36e](m36e.md) and [M37b](m37b.md). For signed-neutral and grounded/isolated cavities use [M39b](m39b.md), [M40a](m40a.md) and [M40b](m40b.md). The [audit report](post_m40b_audit.md) distinguishes repaired defects, open maintenance risks and JEE teaching priorities.
 
