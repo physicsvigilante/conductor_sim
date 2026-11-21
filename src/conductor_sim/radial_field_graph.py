@@ -27,7 +27,7 @@ class RadialFieldGraph:
 
     def __post_init__(self):
         if type(self.profile) is not AxialFieldGraph:
-            raise TypeError("expected a piecewise-linear field graph")
+            raise TypeError("expected an axial field graph")
         if self.profile.knots[0][0] < 0:
             raise UnsupportedProblem("radial graph requires nonnegative radii")
         object.__setattr__(self, "center_m", _triple(self.center_m))
@@ -47,21 +47,25 @@ class RadialFieldGraph:
         if not self._squared_knots[0] <= squared <= self._squared_knots[-1]:
             raise UnsupportedProblem("probe outside the authored radial interval")
         i = min(bisect_right(self._squared_knots, squared)-1, len(self._squared_knots)-2)
-        (a, ea), (b, eb) = self.profile.knots[i:i+2]
-        slope = (eb-ea)/(b-a)
-        return delta, squared, a, slope, ea-slope*a
+        a = self.profile.knots[i][0]
+        ea, local_slope, quadratic = self.profile._coefficients[i]
+        # Expand E_r(r) in powers of r to evaluate at exact squared radii.
+        slope = local_slope - 2*a*quadratic
+        intercept = ea - a*(local_slope - a*quadratic)
+        return delta, squared, a, quadratic, slope, intercept
 
     def potential_at(self, point_m):
-        _, squared, a, slope, intercept = self._segment(point_m)
+        _, squared, a, quadratic, slope, intercept = self._segment(point_m)
         va = self.profile.reference_potential_v - self.profile._area(a)
-        # Integrate E_r = slope*r + intercept from a to r, preserving irrational radii.
-        constant = va - slope*(squared-a*a)/2 + intercept*a
-        return _constant_plus_inverse_radius(constant, -intercept*squared, squared)
+        constant = va - slope*(squared-a*a)/2 + intercept*a + quadratic*a**3/3
+        weight = -squared*(intercept + quadratic*squared/3)
+        return _constant_plus_inverse_radius(constant, weight, squared)
 
     def electric_field_at(self, point_m):
-        delta, squared, _, slope, intercept = self._segment(point_m)
+        delta, squared, _, quadratic, slope, intercept = self._segment(point_m)
         if not squared:
             if intercept:
                 raise UnsupportedProblem("nonzero limiting radial field has no direction at the centre")
             return (0., 0., 0.)
-        return tuple(_constant_plus_inverse_radius(slope*x, intercept*x, squared) for x in delta)
+        weight = intercept + quadratic*squared
+        return tuple(_constant_plus_inverse_radius(slope*x, weight*x, squared) for x in delta)
