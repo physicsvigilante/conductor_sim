@@ -74,6 +74,10 @@ def test_original_teacher_work_attribution_and_geometry_refused(group, key, valu
     (("native", "before", "shell_inner_face_c"), 20e-6),
     (("native", "after", "solid_net_charge_c"), 20e-6),
     (("native", "energy_released_j"), 0.),
+    (("native", "after", "gap_energy_j"), 1.),
+    (("native", "before", "exterior_energy_j"), 0.),
+    (("source_given", "initial_shell_net_charge_c"), 0.),
+    (("model_assumptions", "concentric"), False),
     (("teacher_hypothetical", "native_energy_released_j"), 8.9),
     (("printed_answer", "ideal_thin_limit_j"), 0.),
 ])

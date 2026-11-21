@@ -67,6 +67,7 @@ def work_record() -> dict:
             "uniform_field_x_v_m": 10.0, "electron_charge_c": -ELECTRON_C,
             "ab_m": 5.0, "transverse_bc_m": 3.0,
         },
+        "work_model_assumption": "equal endpoint kinetic energies",
         "derived": {
             "horizontal_displacement_m": dx, "start_m": list(start), "end_m": list(end),
         },
@@ -93,6 +94,9 @@ def _equilibrium(result) -> dict:
         solid = solution.conductor_by_name("solid")
         shell = solution.conductor_by_name("shell")
         return {
+            # Each radial region stores half its enclosed charge times its potential drop.
+            "gap_energy_j": 0.5 * solid.outer_surface_charge_c * (solid.potential_v - shell.potential_v),
+            "exterior_energy_j": 0.5 * shell.outer_surface_charge_c * shell.potential_v,
             "solid_net_charge_c": solid.net_charge_c,
             "solid_outer_face_c": solid.outer_surface_charge_c,
             "shell_net_charge_c": shell.net_charge_c,
@@ -137,9 +141,11 @@ def energy_record() -> dict:
         "mode": "two static equilibria; not current, heat-rate or time evolution",
         "source_given": {
             "solid_radius_m": 0.1, "shell_radius_m": 0.2,
-            "initial_solid_charge_c": 20e-6, "initial_shell_net_charge_c": 0.0,
-            "wire_connection": "floating charge-conserving",
+            "initial_solid_charge_c": 20e-6,
+            "wire_connection": "conducting wire",
         },
+        "model_assumptions": {"concentric": True, "initial_shell_net_charge_c": 0.0,
+                              "connection": "floating charge-conserving"},
         "teacher_model_qualification": {
             "finite_shell_inner_radius_m": shell.inner_radius_m,
             "finite_shell_outer_radius_m": shell.outer_radius_m,
@@ -178,6 +184,7 @@ dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr
 dl>div{padding:10px;border-radius:8px;background:#f1f5f9;min-width:0}dt{font-weight:650;color:#415269;margin-bottom:5px}
 dd{margin:0;font-weight:650;overflow-wrap:anywhere}output{font-variant-numeric:tabular-nums}
 .answer{border-left:5px solid #296a4c;background:#f4faf6}.hypothetical{border-left:5px solid #7d598f}
+table{width:100%;border-collapse:collapse}caption,th,td{text-align:left;padding:.25em}td{overflow-wrap:anywhere}
 small,.muted{color:#586878}code{overflow-wrap:anywhere}
 @media(max-width:420px){main{padding:10px}section{padding:13px}dl{grid-template-columns:minmax(0,1fr)}}
 """
@@ -228,7 +235,7 @@ def work_html(r: dict) -> str:
         '<div><dt>Work by electric field (−)</dt><dd>' +
         _value(n["field_work_j"] / ELECTRON_C, "eV", "p1-field-ev") + '</dd></div>'
         '</dl><p>Independent SI equation: W<sub>field</sub> = qEΔx = '
-        '(−e)(10 V/m)(4 m) = −40 eV; '
+        '(−e)(10 V/m)(4 m) = −40 eV. Assuming equal kinetic energies at A and B, ΔK = 0 and '
         'W<sub>us</sub> = −W<sub>field</sub> = +40 eV.</p>'
         '<p>This is a conservative <strong>static endpoint-work</strong> result. '
         'It does not specify a free electron trajectory, travel time or mechanical guide.</p></section>'
@@ -239,6 +246,10 @@ def work_html(r: dict) -> str:
         '. This is not an additional original exercise.</p></section>'
     )
     return _page("Workbook p1 Q8 — external work vs field work", body)
+
+
+def _charge_label(charge_c: float) -> str:
+    return "0" if charge_c == 0 else format(charge_c * 1e6, ".7g")
 
 
 def _sphere_svg(stage: str, solid_q: float, shell_net: float,
@@ -253,15 +264,15 @@ def _sphere_svg(stage: str, solid_q: float, shell_net: float,
         <text x="155" y="143" text-anchor="middle" font-size="12">SOLID</text>
         <text x="155" y="161" text-anchor="middle" font-size="12">R=0.10 m</text>
         <text x="155" y="180" text-anchor="middle" font-size="11">''' +
-        escape(format(solid_q * 1e6, ".7g")) + ''' µC</text>
+        _charge_label(solid_q) + ''' µC</text>
         <text x="155" y="30" text-anchor="middle" font-size="12">Shell R=0.20 m</text>
         <text x="155" y="285" text-anchor="middle" font-size="12">Shell net ''' +
-        escape(format(shell_net * 1e6, ".7g")) + ''' µC</text>
+        _charge_label(shell_net) + ''' µC</text>
         <path d="M155 155h110" stroke="#7b8c9c" stroke-dasharray="3 4" stroke-width="1"/>
         <text x="160" y="226" font-size="11">gap</text>
         </svg><figcaption><strong>''' + escape(stage) + '''</strong>. Native shell faces: inner ''' +
-        escape(format(shell_inner * 1e6, ".7g")) +
-        ''' µC; outer ''' + escape(format(shell_outer * 1e6, ".7g")) +
+        _charge_label(shell_inner) +
+        ''' µC; outer ''' + _charge_label(shell_outer) +
         ''' µC. Same physical length scale in both panels; visible shell line width is not the 1 µm material thickness.</figcaption></figure>''')
 
 
@@ -270,10 +281,12 @@ def energy_html(r: dict) -> str:
     before, after = n["before"], n["after"]
     body = (
         '<section><h2>Source given — PDF p3 · Single Correct Q27</h2>'
-        '<p>An initially isolated <strong>solid conducting sphere</strong> of radius '
-        '0.10 m carries +20 µC. A concentric thin metal shell of radius 0.20 m '
-        'is initially uncharged. An ideal conducting wire joins them. '
-        'Asked: heat released; printed choice (2), 9 J.</p>'
+        '<p>A <strong>solid conducting sphere</strong> of radius '
+        '0.10 m carries +20 µC. A thin metal shell of radius 0.20 m surrounds it. '
+        'A conducting wire joins them. '
+        'Asked: heat released; printed choice (2), 9 J.</p></section>'
+        '<section><h2>Worked-model assumptions</h2><p>We take the sphere and shell to be concentric, '
+        'the shell initially neutral, and the connected pair electrically isolated.</p>'
         '<div class="diagram">' +
         _sphere_svg("BEFORE connecting", before["solid_net_charge_c"],
                     before["shell_net_charge_c"], before["shell_inner_face_c"],
@@ -294,7 +307,15 @@ def energy_html(r: dict) -> str:
         _value(n["energy_released_j"], "J", "p3-released-j") + '</dd></div>'
         '<div><dt>Exact ideal thin-shell model limit</dt><dd>' +
         _value(r["printed_answer"]["ideal_thin_limit_j"], "J", "p3-ideal-j") + '</dd></div>'
-        '</dl><p>Independent SI equation for ideal conductor surfaces: '
+        '</dl><table><caption>Field energy by region</caption>'
+        '<thead><tr><th>Region</th><th>Before</th><th>After</th></tr></thead><tbody>' +
+        ''.join(
+            '<tr><th scope="row">' + label + '</th><td>' +
+            _value(before[key], "J", "p3-before-" + region) + '</td><td>' +
+            _value(after[key], "J", "p3-after-" + region) + '</td></tr>'
+            for label, region, key in (("Gap", "gap", "gap_energy_j"),
+                                       ("Exterior", "exterior", "exterior_energy_j"))
+        ) + '</tbody></table><p>Independent SI equation for ideal conductor surfaces: '
         'ΔU = kQ²(1/R<sub>solid</sub> − 1/R<sub>shell</sub>)/2 '
         '= 8.98755 J ≈ <strong>9 J, option (2)</strong>. '
         'Native field energy includes the separately disclosed 1 µm shell thickness. '

@@ -50,6 +50,7 @@ def verify_work(r: dict):
         "uniform_field_x_v_m": 10.0, "electron_charge_c": -ELECTRON_C,
         "ab_m": 5.0, "transverse_bc_m": 3.0,
     }, "work source givens")
+    exact(r["work_model_assumption"], "equal endpoint kinetic energies", "work assumption")
     exact(r["derived"], {
         "horizontal_displacement_m": 4.0, "start_m": [0.0, 0.0, 0.0],
         "end_m": [4.0, 3.0, 0.0],
@@ -87,9 +88,13 @@ def verify_energy(r: dict):
           "energy question meaning")
     exact(r["source_given"], {
         "solid_radius_m": 0.1, "shell_radius_m": 0.2,
-        "initial_solid_charge_c": 20e-6, "initial_shell_net_charge_c": 0.0,
-        "wire_connection": "floating charge-conserving",
+        "initial_solid_charge_c": 20e-6,
+        "wire_connection": "conducting wire",
     }, "original solid and thin shell source facts")
+    assumptions = r["model_assumptions"]
+    exact(assumptions["concentric"], True, "common centre assumption")
+    number(assumptions["initial_shell_net_charge_c"], "neutral shell assumption", 0.0, atol=0)
+    exact(assumptions["connection"], "floating charge-conserving", "isolated pair")
     qualified = r["teacher_model_qualification"]
     demand(qualified["actual_inner_body"] == "SOLID conducting sphere, no interior cavity",
            "not a hollow-sphere proxy")
@@ -117,12 +122,14 @@ def verify_energy(r: dict):
     vs = vb + K*q*(1/rsolid - 1/inner)
     for name, state, correct in (
         ("before", n["before"], {
+            "gap_energy_j": gap, "exterior_energy_j": outside,
             "solid_net_charge_c": q, "solid_outer_face_c": q,
             "shell_net_charge_c": 0.0, "shell_inner_face_c": -q,
             "shell_outer_face_c": q, "solid_potential_v": vs,
             "shell_potential_v": vb,
         }),
         ("after", n["after"], {
+            "gap_energy_j": 0.0, "exterior_energy_j": outside,
             "solid_net_charge_c": 0.0, "solid_outer_face_c": 0.0,
             "shell_net_charge_c": q, "shell_inner_face_c": 0.0,
             "shell_outer_face_c": q, "solid_potential_v": vb,

@@ -13,7 +13,8 @@ CASES = (
      ("p1-external-ev", "p1-field-ev", "p1-teacher-external-ev")),
     ("p3-solid-shell-energy", "p03-single-27",
      ("p3-before-j", "p3-after-j", "p3-released-j", "p3-ideal-j",
-      "p3-teacher-released-j")),
+      "p3-teacher-released-j", "p3-before-gap", "p3-after-gap",
+      "p3-before-exterior", "p3-after-exterior")),
 )
 
 
@@ -43,7 +44,9 @@ def check(out: Path) -> dict:
                                 record["native"]["energy_after_j"],
                                 record["native"]["energy_released_j"],
                                 record["printed_answer"]["ideal_thin_limit_j"],
-                                record["teacher_hypothetical"]["native_energy_released_j"]]
+                                record["teacher_hypothetical"]["native_energy_released_j"],
+                                record["native"]["before"]["gap_energy_j"], record["native"]["after"]["gap_energy_j"],
+                                record["native"]["before"]["exterior_energy_j"], record["native"]["after"]["exterior_energy_j"]]
                 for label, width, js in (
                     ("desktop-js", 1280, True), ("mobile-js", 375, True),
                     ("desktop-nojs", 1280, False), ("mobile-nojs", 375, False),
@@ -80,12 +83,18 @@ def check(out: Path) -> dict:
                         svgs = page.locator("svg[role=img]")
                         assert svgs.count() == (1 if case == "p01-single-08" else 2)
                         if case == "p03-single-27":
+                            assumptions = page.get_by_role("heading", name="Worked-model assumptions").locator("..")
+                            assert "concentric" in assumptions.inner_text() and "initially neutral" in assumptions.inner_text()
+                            assert "-0 µC" not in body
+                            assert "inner 0 µC" in body and "inner -20 µC" in body
+                            assert "0 µC" in svgs.nth(1).locator("text").all_text_contents()
                             for svg in svgs.all():
                                 rings = svg.locator("circle")
                                 assert [rings.nth(i).get_attribute("r") for i in (0,1)] == ["110","55"]
                             assert "line width is not the 1 µm material thickness" in body
                             assert "filled solid" in body
                         else:
+                            assert "equal kinetic energies at A and B" in body
                             assert "Work by external agent (+)" in body
                             assert "Work by electric field" in body
                         dims=page.evaluate("() => ({scroll:document.documentElement.scrollWidth,viewport:innerWidth})")
