@@ -34,7 +34,7 @@ The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve h
 
 ## Teacher-facing starting points
 
-For two worked original answers, see the [external-work and shell-energy walkthroughs](jee12_walkthroughs.md). For a motion example, run the [first crossing of the origin](../examples/workbook_origin_crossing.py). The teacher revision shows why a crossing of the same plane can occur away from the origin.
+For two worked original answers, see the [external-work and shell-energy walkthroughs](jee12_walkthroughs.md). For a uniform-field trajectory through a higher equipotential, see [workbook Q52](electron_equipotential_crossing.md). For a motion example, run the [first crossing of the origin](../examples/workbook_origin_crossing.py). The teacher revision shows why a crossing of the same plane can occur away from the origin.
 
 Read [architecture and boundaries](architecture.md), [composability contract](composability_contract.md), and the [evaluation contract](evaluation_contract.md). For source-backed examples use [M36b](m36b.md), [M36c](m36c.md), [M36d](m36d.md), [M36e](m36e.md) and [M37b](m37b.md). For signed-neutral and grounded/isolated cavities use [M39b](m39b.md), [M40a](m40a.md) and [M40b](m40b.md). The [audit report](post_m40b_audit.md) distinguishes repaired defects, open maintenance risks and JEE teaching priorities.
 
