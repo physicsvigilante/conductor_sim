@@ -5,15 +5,18 @@ Existing conductor components and ConnectionPlan are reused without modification
 """
 from __future__ import annotations
 from dataclasses import asdict, dataclass, replace
+from fractions import Fraction
 from math import fsum, hypot, isclose, isfinite, pi, ulp
 import json
 
+from ._coulomb_sum import reciprocal_distance_sum, reciprocal_distance_sum_at_most
 from .connections import ConnectionPlan, ConductorTransfer, ElectricalLink
 from .model import ElectrostaticProblem, FixedNetCharge, SolidSphere, SphericalShell
 from .solver import UnsupportedProblem
 
 APPROXIMATION = 'self-capacitance-leading-order'
-MAX_GEOMETRIC_ROW_SUM = 0.05  # Admission policy, NOT a 5% error guarantee.
+_ROW_SUM_LIMIT = Fraction(1, 20)  # Admission policy, not a physical error bound.
+MAX_GEOMETRIC_ROW_SUM = float(_ROW_SUM_LIMIT)
 LIMITATIONS = (
     'Leading isolated-sphere capacitances: mutual potential and surface polarization omitted.',
     'Finite wire capacitance, geometry, resistance, current, discharge time and radiation not solved.',
@@ -35,7 +38,16 @@ def _layout(plan, approximation):
         raise UnsupportedProblem('explicit self-capacitance-leading-order approximation required')
     if type(plan) is not ConnectionPlan:
         raise TypeError('expected immutable ConnectionPlan')
-    p = plan.initial
+    cs, distances, rows = _separated_geometry(plan.initial)
+    groups = _floating_groups(plan.links, cs)
+    return cs, groups, distances, rows
+
+
+def _squared_separation(first, second):
+    return sum((Fraction(a) - Fraction(b))**2 for a, b in zip(first.center_m, second.center_m))
+
+
+def _separated_geometry(p):
     if type(p) is not ElectrostaticProblem or p.charges:
         raise UnsupportedProblem('distant spheres require no point sources, including empty cavities')
     cs = p.conductors
@@ -50,18 +62,6 @@ def _layout(plan, approximation):
         # Translation must not make the radii numerically unresolvable.
         if max(ulp(x) for x in c.center_m) > c.outer_radius_m*1e-8:
             raise UnsupportedProblem('sphere radius is unresolved at the authored world coordinates')
-    index = {c.name:i for i,c in enumerate(cs)}
-    occupied = set()
-    groups = []
-    for link in plan.links:
-        if type(link) is not ElectricalLink or link.mode != 'floating':
-            raise UnsupportedProblem('M21d supports floating links only, not grounding')
-        if any(name not in index for name in link.members):
-            raise UnsupportedProblem('link references an unknown conductor identity')
-        if occupied.intersection(link.members):
-            raise UnsupportedProblem('electrical groups must be disjoint; combine a connected group explicitly')
-        occupied.update(link.members)
-        groups.append(tuple(index[name] for name in link.members))
     distances = [[0.]*len(cs) for _ in cs]
     for i, a in enumerate(cs):
         for j in range(i+1, len(cs)):
@@ -72,9 +72,59 @@ def _layout(plan, approximation):
             distances[i][j] = distances[j][i] = d
     rows = tuple(fsum(c.outer_radius_m/d for j,d in enumerate(distances[i]) if j != i)
                  for i,c in enumerate(cs))
-    if max(rows) > MAX_GEOMETRIC_ROW_SUM:
-        raise UnsupportedProblem('far-separation admission failed: sum(R_i/d_ij) must be <= 0.05')
-    return cs, tuple(groups), distances, rows
+    for c in cs:
+        terms = [(_squared_separation(c, other), Fraction(c.outer_radius_m))
+                 for other in cs if other is not c]
+        if not reciprocal_distance_sum_at_most(terms, _ROW_SUM_LIMIT):
+            raise UnsupportedProblem('far-separation admission failed: sum(R_i/d_ij) must be <= 0.05')
+    return cs, distances, rows
+
+
+def _floating_groups(links, cs):
+    index = {c.name:i for i,c in enumerate(cs)}
+    occupied = set()
+    groups = []
+    for link in links:
+        if type(link) is not ElectricalLink or link.mode != 'floating':
+            raise UnsupportedProblem('M21d supports floating links only, not grounding')
+        if any(name not in index for name in link.members):
+            raise UnsupportedProblem('link references an unknown conductor identity')
+        if occupied.intersection(link.members):
+            raise UnsupportedProblem('electrical groups must be disjoint; combine a connected group explicitly')
+        occupied.update(link.members)
+        groups.append(tuple(index[name] for name in link.members))
+    return tuple(groups)
+
+
+def ground_and_disconnect_distant_sphere(plan: ConnectionPlan, *, approximation: str) -> ElectrostaticProblem:
+    """Ground one sphere in the centre-monopole approximation, then open its switch.
+
+    Other spheres retain their charges. The returned isolated problem can be the
+    starting point for a subsequent switch operation in the same dielectric.
+    """
+    if approximation != 'centre-monopole':
+        raise UnsupportedProblem("explicit centre-monopole approximation required")
+    if type(plan) is not ConnectionPlan:
+        raise TypeError("expected immutable ConnectionPlan")
+    cs, _, _ = _separated_geometry(plan.initial)
+    if len(plan.links) != 1 or plan.links[0].mode != 'grounded' or len(plan.links[0].members) != 1:
+        raise UnsupportedProblem("ground exactly one isolated sphere at a time")
+    name, = plan.links[0].members
+    target = next((c for c in cs if c.name == name), None)
+    if target is None:
+        raise UnsupportedProblem("ground references an unknown conductor identity")
+
+    # V_target/k = Q_target/R_target + sum(Q_j/d_ij) = 0.
+    coefficients = {}
+    for other in cs:
+        if other is target:
+            continue
+        squared = _squared_separation(target, other)
+        weight = -Fraction(target.outer_radius_m) * Fraction(other.constraint.charge_c)
+        coefficients[squared] = coefficients.get(squared, 0) + weight
+    charge = reciprocal_distance_sum(coefficients)
+    isolated = replace(target, constraint=FixedNetCharge(charge))
+    return replace(plan.initial, conductors=tuple(isolated if c is target else c for c in cs))
 
 
 @dataclass(frozen=True, slots=True)
