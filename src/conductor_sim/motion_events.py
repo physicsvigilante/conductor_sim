@@ -297,9 +297,9 @@ class _Monitor:
         return (self.policy.position_tolerance_m if type(q) is PlaneEvent
                 else self.policy.velocity_tolerance_m_s)
 
-    def __call__(self,t,y,h,half,fine,rhs):
+    def __call__(self,t,y,h,half,fine,rhs,origin):
         cache={0.:y,1.:fine}
-        origin = self.spec.particle.position_m
+        launch = _sub(self.spec.particle.position_m, origin)
 
         def value(q, local):
             if type(q) is PlaneEvent:
@@ -319,7 +319,7 @@ class _Monitor:
                 z=rk4_step(middle,dt/2,rhs)
             except (_SurfaceGuard,_ChargeGuard):raise _Refine()
             ps=max(1e-11*self.spec.length_scale_m,self.spec.relative_tolerance*max(
-                self.spec.length_scale_m,hypot(*y[:3]),hypot(*z[:3])))
+                self.spec.length_scale_m,hypot(*_sub(y[:3],launch)),hypot(*_sub(z[:3],launch))))
             vs=max(1e-10,self.spec.relative_tolerance*max(1.,hypot(*y[3:6]),hypot(*z[3:6])))
             if max(hypot(*_sub(coarse[:3],z[:3]))/(15*ps),
                    hypot(*_sub(coarse[3:6],z[3:6]))/(15*vs))>1:raise _Refine()
@@ -411,7 +411,7 @@ class _Monitor:
                             'near-stationary velocity root: reversal not resolved'))
                         continue
                     row=(self.sample_factory(time,world) if self.sample_factory is not None
-                         else _sample(self.spec,time,world,z[:3]))
+                         else _sample(self.spec,time,world,_sub(z[:3],launch)))
                     event_states[(q.event_id,time)]=z
                     located.append(LocatedEvent(q.event_id,
                         'plane-crossing' if type(q) is PlaneEvent else 'directional-reversal',
