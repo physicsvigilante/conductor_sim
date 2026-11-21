@@ -20,7 +20,7 @@ barrier = straight_path_energy_barrier((sphere,), 1, start, end)
 # barrier.peak_fraction is 1/2, measured along the guide from its start.
 ```
 
-Each uniform sphere must contain the entire segment, including its endpoints. The test uses the supplied coordinates without a boundary tolerance. Multiple sphere contributions and `AffineFieldAssembly` instances may share the same guide. The caller is responsible for the validity of each prescribed affine field along the guide. The observation maximizes the total energy before rounding and returns the earliest maximizer if there is a tie. It does not integrate motion or determine a finite transit time.
+Each uniform sphere must contain the entire segment, including its endpoints. The test uses the supplied coordinates without a boundary tolerance. An existing `PrescribedField` can be passed directly when every source qualifies. Its authored permittivity is retained, including when several spheres share a bias field. An empty prescribed field gives zero barrier. Multiple sphere contributions and `AffineFieldAssembly` instances may share the same guide. The caller is responsible for the validity of each prescribed affine field along the guide. The observation maximizes the total energy before rounding and returns the earliest maximizer if there is a tie. It does not integrate motion or determine a finite transit time.
 
 | Evaluation dimension | Status for the one original item | Evidence |
 | --- | --- | --- |

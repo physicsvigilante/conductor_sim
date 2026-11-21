@@ -6,7 +6,7 @@ import pytest
 from conductor_sim.affine_fields import AffineFieldAssembly, ConservativeAffineField
 from conductor_sim.model import EPSILON_0
 from conductor_sim.path_barriers import straight_path_energy_barrier
-from conductor_sim.prescribed_fields import UniformElectricField, UniformShellField, UniformSphereField
+from conductor_sim.prescribed_fields import PrescribedField, UniformElectricField, UniformShellField, UniformSphereField
 from conductor_sim.solver import UnsupportedProblem
 
 
@@ -34,6 +34,22 @@ def test_superposed_bias_moves_peak_off_center_and_outside_segment():
     assert barrier(2).peak_fraction == 0
     assert barrier(-2).peak_fraction == 1
     assert barrier(-2).rise_j == 8
+
+
+def test_authored_field_keeps_its_medium_and_qualifies_every_component():
+    sphere = UniformSphereField(4*pi, 1)
+    bias = UniformElectricField((0.25, 0, 0), reference_potential_v=1e100)
+    start, end = (-1, 0, 0), (1, 0, 0)
+    scene = PrescribedField((sphere, bias), permittivity_f_m=2)
+    result = straight_path_energy_barrier(scene, 2, start, end)
+    assert result.peak_fraction == Fraction(1, 4)
+    assert result.rise_j == 0.125
+    with pytest.raises(ValueError, match="conflicts"):
+        straight_path_energy_barrier(scene, 2, start, end, permittivity_f_m=1)
+    unqualified = PrescribedField((sphere, UniformShellField(1, 2)))
+    with pytest.raises(UnsupportedProblem):
+        straight_path_energy_barrier(unqualified, 2, start, end)
+    assert straight_path_energy_barrier(PrescribedField(()), 2, start, end).rise_j == 0
 
 
 def test_three_dimensional_guide_and_large_gauge():
