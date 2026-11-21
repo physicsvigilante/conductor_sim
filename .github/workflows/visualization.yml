@@ -23,6 +23,8 @@ jobs:
           mkdir -p review-artifacts
           git archive --format=zip HEAD -o review-artifacts/source.zip
           git rev-parse HEAD > review-artifacts/commit.txt
+      - name: Q35 offline guide energy profiles and signed endpoint observations
+        run: python -m tools.check_jee_tunnel_profile_browser review-artifacts/q35-guide
       - name: M27b actual Chromium ring off-axis conservative and driven motion
         run: python -m tools.check_m27b_browser --output review-artifacts/m27b
       - name: M28a real Chromium parameter sweeps and source-guard censoring
