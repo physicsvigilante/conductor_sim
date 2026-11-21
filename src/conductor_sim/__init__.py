@@ -245,3 +245,6 @@ __all__ += ["ConductingDropEquilibria", "combine_isolated_drops"]
 
 from .point_charge_work import PointChargeRearrangement, rearrange_point_charges
 __all__ += ["PointChargeRearrangement", "rearrange_point_charges"]
+
+from .coaxial_arcs import CircularArcCharge, CoaxialArcAssembly
+__all__ += ["CircularArcCharge", "CoaxialArcAssembly"]
