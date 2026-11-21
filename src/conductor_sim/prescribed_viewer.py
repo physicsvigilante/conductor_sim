@@ -14,6 +14,7 @@ from math import fsum, hypot, isclose, isfinite, ulp
 import re
 
 from .model import PointCharge
+from ._motion_validation import normal_roundoff, reconstructs_position
 from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .motion_viewer import _choose_indices
 from .prescribed_fields import (
@@ -79,7 +80,8 @@ def _validate_trajectory(spec, result):
     charge, mass = spec.particle.charge_c,spec.mass_kg
     p0, v0 = spec.particle.position_m,spec.initial_velocity_m_s
     scale=spec.length_scale_m
-    if not _point_close(rows[0].position_m,p0,scale) or not _point_close(rows[0].velocity_m_s,v0,scale):
+    if (any(rows[0].displacement_m) or not _point_close(rows[0].position_m,p0,scale)
+            or not _point_close(rows[0].velocity_m_s,v0,scale)):
         raise ValueError('saved initial test-particle state disagrees with authored launch')
     domain=_FixedDomain(spec)
     potential0=spec.field.potential_at(p0)
@@ -101,9 +103,10 @@ def _validate_trajectory(spec, result):
             raise ValueError('saved test-charge speed violates the nonrelativistic model')
         if domain.clearance(row.position_m)<=0:
             raise ValueError('test-charge trajectory crosses a singularity or field-jump guard')
-        if not _point_close(row.displacement_m,_sub(row.position_m,p0),scale):
+        if (not reconstructs_position(p0, row.displacement_m, row.position_m) and
+                not _point_close(row.displacement_m,_sub(row.position_m,p0),scale)):
             raise ValueError('saved test-charge displacement does not match position')
-        if (abs(_dot(_sub(row.position_m,p0),spec.plane_normal))>1e-9*max(scale,_norm(_sub(row.position_m,p0))) or
+        if (abs(_dot(row.displacement_m,spec.plane_normal))>1e-9*max(scale,_norm(row.displacement_m)) or
                 abs(_dot(row.velocity_m_s,spec.plane_normal))>max(1e-12,1e-9*_norm(row.velocity_m_s))):
             raise ValueError('saved test-charge position/velocity leaves the certified plane')
         electric=spec.field.electric_field_at(row.position_m)
@@ -202,7 +205,8 @@ def test_charge_slice(spec, result, *, resolution=17, extent_m=None,
     plane=SliceSpec(origin,u,v,(-extent,extent),(-extent,extent),resolution)
     for row in result.samples:
         x,y,h=plane.project(row.position_m)
-        if abs(h)>1e-9*max(spec.length_scale_m,_norm(_sub(row.position_m,origin))) or not plane.contains((x,y)):
+        tolerance = 1e-9*max(spec.length_scale_m,_norm(_sub(row.position_m,origin)))
+        if abs(h)>tolerance + normal_roundoff(row.position_m,normal) or not plane.contains((x,y)):
             raise UnsupportedProblem('saved motion leaves the chosen physical view plane')
     return plane
 

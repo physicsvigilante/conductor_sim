@@ -23,3 +23,19 @@ True
 A teacher may add a constant or piecewise-linear field with `superpose`, or combine two quadratic profiles with different breakpoints. The result keeps the summed field and potential references on the common interval. A radial interpretation requires a separately authored spherically symmetric field. The three planes in Q55 use the Cartesian model.
 
 For the single workbook item the positive-axis geometry is retained (1/1), the area comparison establishes the physical result (1/1), the native model supplies both signed potential drops for the example (1/1), and the printed answer follows (1/1). Educational usefulness has not been measured.
+
+## Locate the middle plane from the two outer planes
+
+As a second teacher example, fix the outer planes at 1 m and 3 m and ask the engine to locate the plane that divides their voltage drop equally. This time the middle coordinate is unknown. Half the integral of 2x² on [1,3] gives x³ = 14 when the coordinates are expressed numerically in metres.
+
+```pycon
+>>> from fractions import Fraction
+>>> left, right = field.equal_drop_bracket_m(1, 3, tolerance_m=Fraction(1, 10**9))
+>>> left**3 <= 14 <= right**3 and right-left <= Fraction(1, 10**9)
+True
+>>> left - 1 > 3 - left
+True
+
+```
+
+The two returned coordinates enclose the plane to the requested spatial tolerance. The graph must have a monotone potential over the requested interval. An interior reversal fails qualification, and a flat segment at the target voltage leaves the plane undetermined. The field may be positive or negative and its magnitude may grow or shrink. The same qualification applies after superposing profiles.

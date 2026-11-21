@@ -210,7 +210,8 @@ def _validated(gauss, geometry):
     return a, g, ledger
 
 
-def _near_wall_sigma_precision(q: float, radius: float, source_position, cavity_center, normal) -> float:
+def _near_wall_sigma_precision(q: float, radius: float, source_position, cavity_center, normal,
+                              *, normal_origin=None) -> float:
     """Evaluate the exact spherical-wall kernel without binary64 subtraction loss.
 
     The admitted minimum source-wall clearance is 1e-8 of radius; naive
@@ -226,6 +227,8 @@ def _near_wall_sigma_precision(q: float, radius: float, source_position, cavity_
         a = D(radius)
         source = tuple(D(source_position[i])-D(cavity_center[i]) for i in range(3))
         direction = tuple(D(x) for x in normal)
+        if normal_origin is not None:
+            direction = tuple(x-D(c) for x,c in zip(direction, normal_origin))
         direction_length2 = sum((x*x for x in direction), Decimal(0))
         if direction_length2 == 0:
             raise UnsupportedProblem("zero normal cannot locate spherical surface")
