@@ -20,6 +20,8 @@ combined = graph.superpose(bias)
 assert combined.potential_v(2) == 28
 ```
 
+Generate the [Q39/Q40 teaching comparison](field_area_walkthroughs.md) with `python -m tools.jee_field_area review-artifacts/field-area/field-area.html`.
+
 An `AxialFieldGraph` is a prescribed continuous field component along one Cartesian x axis. Each pair gives position in metres and signed field in V/m (equivalently N/C). The first knot sets the location of the potential reference. The engine integrates each linear segment and includes all intermediate knots. At the zero crossing in Q40 the potential has a maximum. The zero crossing alone cannot determine its value.
 
 Superposition assumes both graphs use the same oriented axis, coordinate origin and medium. It preserves their separate potential references, uses every slope change within their common interval and refuses extrapolation. The affine adapter restricts an existing three-dimensional assembly to (x, 0, 0) and carries over its potential reference. Transverse field components do no work along this path. A field discontinuity requires a different model. `field_work_j(q, start, end)` gives signed work by the field, q∫Eₓ dx, even if a large arbitrary potential reference makes the two displayed potentials round to the same value. Internal arithmetic uses exact rational values for the supplied numbers.
