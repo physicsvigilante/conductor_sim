@@ -22,6 +22,7 @@ from conductor_sim.jee_potential_explorer import validate_fixed_potential_map
 from conductor_sim.dipoles import dipole_work
 from conductor_sim.dipole_viewer import write_dipole_explorer
 from conductor_sim.motion_events import investigate_motion
+from tools.legacy_source_fallback import with_static_summary
 from conductor_sim.motion_event_viewer import render_event_run
 from conductor_sim.scenarios import sample_scenario_viewer
 from conductor_sim.viewer import render_html
@@ -53,6 +54,19 @@ def _event_record(study_name: str, output_dir: Path) -> dict:
     result = investigate_motion(study)
     spec = study.scenario.spec
     html = render_event_run(result, title="JEE source replay · " + study_name)
+    if study_name == "sheet-stop":
+        stop = next(e for e in result.events if e.event_id == "stop:x" and e.full_stop_within_tolerance)
+        distance_m = spec.particle.position_m[0] - stop.sample.position_m[0]
+        html = with_static_summary(
+            html, hide="main > section.card:first-of-type",
+            summary=(f"The electron travels {distance_m:.9g} m ({distance_m * 1000:.5g} mm) "
+                     "toward the sheet before stopping. This distance is measured from its "
+                     "launch point. It is also the critical initial distance from the plate for "
+                     "the electron to just stop at the surface (workbook choice 1, 0.44 mm). "
+                     f"In the teacher’s run it starts {spec.particle.position_m[0] * 1000:.5g} mm "
+                     f"away and turns {stop.sample.position_m[0] * 1000:.5g} mm from the plate. "
+                     "Playback and the energy plot require JavaScript."),
+        )
     filename = _save_html(output_dir, study_name, html)
     return {
         "viewer_file": filename,

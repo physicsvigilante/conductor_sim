@@ -18,6 +18,7 @@ from conductor_sim import (
     SolidSphere,
 )
 from conductor_sim.visualization import SliceSpec, sample_sweep, write_visualization
+from tools.legacy_source_fallback import with_static_summary
 from tools.m36a_jee30_audit import ROOT, audit_inventory, load_inventory
 
 PDF = "POTENTIAL_CONDUCTORS1.pdf"
@@ -129,7 +130,7 @@ def _source_answer_panel(states):
         'style="max-width:1220px;margin:16px auto;padding:14px 18px;'
         'background:#fff;border:1px solid #b4cad0;border-radius:9px;'
         'color:#142334;box-shadow:0 2px 12px #14233412">'
-        '<h2 style="font-size:19px;margin:0">Original JEE p26: native potential observations</h2>'
+        '<h2 style="font-size:19px;margin:0">Notes p26 Illustration 1 · native potential observations</h2>'
         '<p style="margin:5px 0;color:#3d5462">The printed source supplies SYMBOLIC R and Q. '
         'All numerical inputs are teacher-chosen. Switching the stored-state slider '
         'updates these values to the selected genuine static solution, '
@@ -161,7 +162,7 @@ def _source_answer_sync_script():
 def _render_with_truth(bundle,output,states):
     write_visualization(
         bundle,output,
-        title="JEE original p26 Illustration 1 · TRUE SOLID conducting sphere",
+        title="Notes p26 Illustration 1 · TRUE SOLID conducting sphere",
     )
     source_banner=(
         '<section id="m36d-source-authentic-solid" '
@@ -169,7 +170,7 @@ def _render_with_truth(bundle,output,states):
         'color:#123638;border:2px solid #27857f">'
         '<strong>SOURCE GEOMETRY: genuinely SOLID conducting sphere.</strong> '
         'The original p26 Illustration 1 asks V(R/2) and V(3R/2) '
-        'of a charged SOLID conductor, and zero E inside its metal. '
+        'of a charged SOLID conductor. The native zero field inside the metal is an additional check. '
         'The first stored state uses REAL SolidSphere physics and a solid '
         'disk cross-section, NOT the historical hollow-shell proxy. '
         'A TRUE SOLID has ONE outer charged face and NO physical inner face; '
@@ -202,6 +203,13 @@ def _render_with_truth(bundle,output,states):
         "</header>",source_banner+"</header>"+_source_answer_panel(states),1,
     ).replace(
         "</body>",_source_answer_sync_script()+"</body>",1,
+    )
+    html = with_static_summary(
+        html, hide="main > section.card, main > aside",
+        summary=("For the isolated solid sphere, V(R/2) = kQ/R and V(3R/2) = 2kQ/(3R), "
+                 "with zero potential at infinity. The source panel above gives native values "
+                 "for the teacher’s numerical example. The field map, density plot and "
+                 "hypothetical state controls require JavaScript."),
     )
     output.write_text(html,encoding="utf-8")
 
