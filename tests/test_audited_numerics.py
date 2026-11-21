@@ -1,4 +1,5 @@
 """Regression probes for the seven findings on 0b39e424."""
+from dataclasses import replace
 from math import pi, sqrt, ulp
 
 import pytest
@@ -9,11 +10,14 @@ from conductor_sim import (
     SphericalShell, integrate_test_charge,
 )
 from conductor_sim.jee_potential_explorer import endpoint_field_work
+from conductor_sim._motion_validation import reconstructs_position
 from conductor_sim.model import EPSILON_0
 from conductor_sim.prescribed_fields import (
     FixedPointField, PrescribedField, UniformElectricField, UniformRingAxisField, UniformRingField,
 )
 from conductor_sim.prescribed_motion import TestChargeMotionSpec as MotionSpec
+from conductor_sim.prescribed_viewer import sample_test_charge_viewer
+from conductor_sim.prescribed_viewer_validation import validate_prescribed_viewer
 from tools.jee12_walkthrough_reference import verify_work
 from tools.jee12_walkthroughs import work_record
 
@@ -25,19 +29,55 @@ def known_issue(number):
     return pytest.mark.xfail(strict=True, raises=AssertionError, reason=f"Open audit finding #{number}")
 
 
-@pytest.mark.parametrize("x", [0., pytest.param(1e9, marks=known_issue(1))])
-def test_free_drift_after_translation(x):
+@pytest.mark.parametrize("x, speed", [(0., 1e-4), (1e9, 1e-4), (1e9, -1e-8)])
+def test_free_drift_after_translation(x, speed):
     field = PrescribedField((UniformElectricField((0., 0., 0.)),))
     result = integrate_test_charge(MotionSpec(field, PointCharge(1e-9, (x, 0., 0.)),
-                                              1., (1e-4, 0., 0.), 1., .001))
+                                              1., (speed, 0., 0.), 1., .001))
     final = result.samples[-1]
     assert result.termination == "duration"
     assert final.time_s == pytest.approx(1.)
-    assert final.velocity_m_s[0] == pytest.approx(1e-4)
-    assert final.position_m[0] - x == pytest.approx(1e-4, abs=max(ulp(x), 1e-16))
+    assert final.velocity_m_s[0] == pytest.approx(speed)
+    for row in result.samples:
+        expected = speed * row.time_s
+        assert row.displacement_m[0] == pytest.approx(expected, rel=1e-12, abs=1e-24)
+        assert row.position_m[0] - x == pytest.approx(expected, abs=max(ulp(x), 1e-16))
 
 
-@known_issue(2)
+def test_oblique_translated_drift_keeps_the_certified_plane_in_saved_samples():
+    spec = MotionSpec(PrescribedField((UniformElectricField((0., 0., 0.)),)),
+                      PointCharge(1e-9, (1e9, 0., 0.)), 1., (1e-4, 1e-4, 0.),
+                      1., .01, plane_normal=(1., -1., 0.))
+    result = integrate_test_charge(spec)
+    final = result.samples[-1]
+    assert final.displacement_m == pytest.approx((1e-4, 1e-4, 0.), abs=1e-16)
+    bundle = sample_test_charge_viewer(spec, result=result)
+    validate_prescribed_viewer(bundle)
+    # This transverse perturbation still rounds to the same world position.
+    forged = replace(final, displacement_m=(final.displacement_m[0]+3e-8,
+                                             final.displacement_m[1], 0.))
+    assert spec.particle.position_m[0] + forged.displacement_m[0] == final.position_m[0]
+    with pytest.raises(ValueError, match="plane"):
+        sample_test_charge_viewer(spec, result=replace(result, samples=(*result.samples[:-1], forged)))
+
+
+def test_rebasing_respects_the_tighter_oblique_plane_tolerance():
+    speed = 100.123456789
+    spec = MotionSpec(PrescribedField((UniformElectricField((0., 0., 0.)),)),
+                      PointCharge(1e-9, (1e9, 0., 0.)), 1., (speed, speed, 0.),
+                      1., .1, plane_normal=(1., -1., 0.))
+    result = integrate_test_charge(spec)
+    assert result.termination == "duration"
+    assert result.samples[-1].displacement_m == pytest.approx((speed, speed, 0.), abs=1e-12)
+
+
+def test_mixed_motion_axes_validate_the_observation_kept_on_each_axis():
+    launch, position = (1e9, 1., 0.), (1e9, .1, 0.)
+    displacement = (1e-8, position[1] - launch[1], 0.)
+    assert reconstructs_position(launch, displacement, position)
+    assert not reconstructs_position(launch, displacement, (1e9, .11, 0.))
+
+
 def test_inner_density_at_accepted_surface_direction():
     d = .99999999
     problem = ElectrostaticProblem((PointCharge(1e-9, (d, 0., 0.)),),
@@ -45,11 +85,29 @@ def test_inner_density_at_accepted_surface_direction():
     solution = MultiImageShellBackend().solve(problem)
     expected = -1e-9 * (1 + d) / (4 * pi * (1 - d)**2)
     assert solution.surface_charge_density_at("inner", (1., 0., 0.)) == pytest.approx(expected)
-    try:
-        density = solution.surface_charge_density_at("inner", (1.00000000009, 0., 0.))
-    except ValueError:
-        return  # Explicit rejection of an off-surface query is also valid.
+    density = solution.surface_charge_density_at("inner", (1.00000000009, 0., 0.))
     assert density == pytest.approx(expected)
+
+
+def test_translated_cavity_projects_an_oblique_probe_onto_the_inner_wall():
+    center = (8., -16., 4.)
+    radius = 5.
+    gap = radius * 2**-27
+    direction = (3., 4., 0.)
+
+    def point(scale):
+        return tuple(c + scale * x for c, x in zip(center, direction))
+
+    charge = -2e-9
+    shell = SphericalShell(radius, 6., Grounded(), center)
+    problem = ElectrostaticProblem((PointCharge(charge, point(1 - 2**-27)),), (shell,))
+    solution = MultiImageShellBackend().solve(problem)
+    expected = -charge * (2 * radius - gap) / (4 * pi * radius * gap**2)
+    for scale in (1 - 2**-35, 1., 1 + 2**-35):
+        density = solution.surface_charge_density_at("inner", point(scale))
+        assert density == pytest.approx(expected, rel=2e-14)
+    with pytest.raises(ValueError, match="not on"):
+        solution.surface_charge_density_at("inner", point(1.001))
 
 
 @pytest.mark.parametrize("outer_charge", [0., 1e-3])

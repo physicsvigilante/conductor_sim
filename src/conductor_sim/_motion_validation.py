@@ -34,6 +34,16 @@ def _close(a, b):
     return isclose(a, b, rel_tol=2e-9, abs_tol=1e-30)
 
 
+def reconstructs_position(origin, displacement, position):
+    """Each RK axis stores either world position or launch-relative displacement."""
+    return all(a + d == p or p - a == d for a, d, p in zip(origin, displacement, position))
+
+
+def normal_roundoff(position, normal):
+    """Maximum normal offset from rounding each integrated world coordinate."""
+    return .5 * fsum(ulp(p)*abs(n) for p,n in zip(position, normal))
+
+
 def _position_close(a, b, scale):
     # Allow subtraction roundoff for translated models, not a tolerance
     # proportional to distance from the unrelated world-coordinate origin.
@@ -96,7 +106,7 @@ def validate_planar_motion(motion, *, frames=None):
         raise ValueError('planar motion must start at t=0')
     scale = max(1e-12, *(hypot(*_sub(r['position_m'], origin)) for r in rows))
     p0, v0 = motion['initial_position_m'], motion['initial_velocity_m_s']
-    if (not _position_close(rows[0]['position_m'], p0, scale) or
+    if (any(rows[0]['displacement_m']) or not _position_close(rows[0]['position_m'], p0, scale) or
             any(not _close(x,y) for x,y in zip(rows[0]['velocity_m_s'],v0))):
         raise ValueError('motion initial state must match its metadata')
     if stationary is not None:
@@ -111,10 +121,12 @@ def validate_planar_motion(motion, *, frames=None):
                 hypot(*_sub(position, fixed['position_m'])) <= charge_guard
                 for fixed in stationary):
             raise ValueError('moving charge sample crossed the held point-charge guard')
-        if not _position_close(row['displacement_m'], _sub(position,p0), scale):
+        if (not reconstructs_position(p0, row['displacement_m'], position) and
+                not _position_close(row['displacement_m'], _sub(position,p0), scale)):
             raise ValueError('motion displacement disagrees with actual numerical position')
         projected = tuple(position[i]-_dot(_sub(position,origin),normal)*normal[i] for i in range(3))
-        if not _position_close(position, projected, scale):
+        if (not _position_close(position, projected, scale) or
+                abs(_dot(row['displacement_m'],normal)) > 2e-9*scale):
             raise ValueError('all motion graph positions must remain in the physical slice')
         if (abs(_dot(velocity,normal)) > max(1e-12,5e-9*hypot(*velocity)) or
                 abs(_dot(force,normal)) > max(1e-20,5e-9*hypot(*force))):
