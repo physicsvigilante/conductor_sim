@@ -18,3 +18,7 @@ Run `python -m tools.jee_field_area review-artifacts/field-area/field-area.html`
 | Simulation coverage | Supported, 2/2 | Both full requested paths are inside the qualified static fields. |
 | Educational usefulness | Not evaluated, 2/2 | Plots and signed observations were checked in Chromium. Learner outcomes were not measured. |
 | Textbook-answer completeness | Complete, 2/2 | Both original signed answers give printed option 4. |
+
+## Equal drops in Q55
+
+The same offline page also renders the positive quadratic field from workbook page 5. The printed result is x₁ > x₂. The separately labelled teacher example fixes outer planes at 1 m and 3 m. The inverse solver locates the middle plane. Two coloured field areas and marked field and potential curves show how unequal distances give equal voltage drops. Chromium checks both coloured regions, curves, markers and signed SI readings at both viewport widths.
