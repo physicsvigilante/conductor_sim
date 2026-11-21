@@ -58,9 +58,14 @@ def _combine_commensurate_terms(terms):
     return [(distance, weight) for distance, weight in groups.items() if weight]
 
 
-def coulomb_sum(coefficients, permittivity):
-    """Round k times a signed sum of weights over distances, keyed by squared distance."""
-    return reciprocal_distance_sum(coefficients, Fraction(4 * pi) * Fraction(permittivity))
+def coulomb_sum(coefficients, permittivity, *, offset=0):
+    """Round the Coulomb sum and an optional exact additive observable together."""
+    denominator = Fraction(4 * pi) * Fraction(permittivity)
+    if offset:
+        # A constant is a unit reciprocal-distance term in the scaled numerator.
+        coefficients = coefficients.copy()
+        coefficients[1] = coefficients.get(1, 0) + denominator*offset
+    return reciprocal_distance_sum(coefficients, denominator)
 
 
 def reciprocal_distance_sum(coefficients, denominator=1):
