@@ -162,10 +162,14 @@ def _layout(plan: ConnectionPlan):
     elif not (2 <= len(shells) <= 8) or not NestedShellBackend().supports(problem):
         raise UnsupportedProblem('connected shells require 2–8 nonintersecting concentric '
                                  'SphericalShells with sources only in the innermost cavity')
+    return _wire_groups(shells, plan.links)
+
+
+def _wire_groups(shells, links):
     indices = {shell.name: i for i, shell in enumerate(shells)}
     seen: set[str] = set()
     linked = []
-    for link in plan.links:
+    for link in links:
         if any(name not in indices for name in link.members):
             raise UnsupportedProblem('a link refers to a nonexistent shell')
         if seen.intersection(link.members):
@@ -224,7 +228,7 @@ def _connection_charges(shells, links, grouped, A, b, *, exact=False):
     if exact:
         matrix = [list(map(Fraction, row)) for row in matrix]
         rhs = list(map(Fraction, rhs))
-    return _solve_linear(matrix, rhs)
+    return _solve_linear(matrix, rhs, exact=exact)
 
 
 def _field_energy(solution: NestedShellSolution | MixedRadialSolution) -> float:
