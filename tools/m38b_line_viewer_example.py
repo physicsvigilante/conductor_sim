@@ -41,7 +41,7 @@ def run_all(output_dir: Path):
     (output_dir/"m38b-line-viewer.json").write_text(
         json.dumps(viewer,indent=2,allow_nan=False,ensure_ascii=False)+"\n", encoding="utf-8"
     )
-    (output_dir/"m38b-line.html").write_text(html,encoding="utf-8")
+    (output_dir/"m38b-line.html").write_bytes(html.encode("utf-8"))
     return viewer
 
 
