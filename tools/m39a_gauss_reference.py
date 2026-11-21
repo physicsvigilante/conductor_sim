@@ -52,6 +52,8 @@ def _real(value, what):
         binary64 = float(value)
     except (ValueError, OverflowError) as exc:
         raise ValueError(f"{what} is outside the finite binary64 SI domain") from exc
+    if type(value) is int and Fraction.from_float(binary64) != value:
+        raise ValueError(f"{what} is not exactly representable as binary64")
     if not isfinite(binary64):
         raise ValueError(f"{what} must be a finite non-Boolean SI real")
     # Reconstruct the actual native admitted float exactly, and accumulate

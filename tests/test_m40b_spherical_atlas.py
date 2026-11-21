@@ -40,8 +40,8 @@ def test_authentic_three_cavity_example_and_independent_reference(tmp_path: Path
     assert doc["schema"] == SCHEMA and doc["source_role"] == ROLE
     assert doc["original_workbook_items_newly_solved"] == 0
     assert len(doc["native_m40a_v2_witness_records"]["isolated"]) == 4
-    assert json.loads((tmp_path / "m40b-teacher-atlas.json").read_text()) == doc
-    assert (tmp_path / "m40b-teacher-atlas.html").read_text() == render_surface_atlas(*pair())
+    assert json.loads((tmp_path / "m40b-teacher-atlas.json").read_text(encoding="utf-8")) == doc
+    assert (tmp_path / "m40b-teacher-atlas.html").read_text(encoding="utf-8") == render_surface_atlas(*pair())
 
 
 def test_teacher_physics_signed_neutral_and_empty_cavity():
