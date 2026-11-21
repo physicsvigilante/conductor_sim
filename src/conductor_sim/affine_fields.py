@@ -115,9 +115,16 @@ class AffineFieldAssembly:
     def potential_at(self, point_m):
         return _observed(self._potential(_point(point_m)))
 
-    def field_work_j(self, charge_c, start_m, end_m):
-        """Signed work by the field, using the exact straight-segment mean field."""
+    def _voltage_change(self, start_m, end_m):
         start, end = _point(start_m), _point(end_m)
         delta = tuple(b - a for a, b in zip(start, end))
         midpoint = tuple((a + b) / 2 for a, b in zip(start, end))
-        return _observed(Fraction(_scalar(charge_c)) * _dot(self._field(midpoint), delta))
+        return -_dot(self._field(midpoint), delta)
+
+    def potential_difference_v(self, start_m, end_m):
+        """Return V(end) minus V(start) using the exact straight-segment mean field."""
+        return _observed(self._voltage_change(start_m, end_m))
+
+    def field_work_j(self, charge_c, start_m, end_m):
+        """Signed work by the field on the probe charge."""
+        return _observed(-Fraction(_scalar(charge_c)) * self._voltage_change(start_m, end_m))
