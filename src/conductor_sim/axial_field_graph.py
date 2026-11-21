@@ -91,6 +91,45 @@ class AxialFieldGraph:
         """Signed work by the field on a fixed charge between two graph positions."""
         return _observed(_exact(charge_c) * (self._area(end_m) - self._area(start_m)))
 
+    def equal_drop_bracket_m(self, start_m, end_m, *, tolerance_m):
+        """Enclose the unique equal-voltage-drop plane on a monotone interval.
+
+        Return ordered rational coordinates in metres, at most tolerance_m apart.
+        A zero-width bracket gives the exact coordinate.
+        """
+        lo, hi = sorted((_exact(start_m), _exact(end_m)))
+        tolerance = _exact(tolerance_m)
+        if tolerance <= 0 or lo == hi:
+            raise ValueError("need a positive tolerance and two distinct planes")
+        start_area, end_area = self._area(lo), self._area(hi)
+        if start_area == end_area:
+            raise UnsupportedProblem("equal endpoint potentials cannot qualify a unique monotone crossing")
+        direction = 1 if end_area > start_area else -1
+        target = (start_area + end_area)/2
+        cuts = [lo, *(x for x in self._positions if lo < x < hi), hi]
+        for left, right in zip(cuts, cuts[1:]):
+            i, _ = self._segment(left)
+            _, linear, quadratic = self._coefficients[i]
+            extrema = [self._field(left), self._field(right)]
+            if quadratic:
+                vertex = self._positions[i] - linear/(2*quadratic)
+                if left < vertex < right:
+                    extrema.append(self._field(vertex))
+            if any(direction*value < 0 for value in extrema):
+                raise UnsupportedProblem("potential reverses direction within the requested interval")
+            if not any(extrema) and self._area(left) == target:
+                raise UnsupportedProblem("equal-drop potential spans a plateau")
+        while hi-lo > tolerance:
+            mid = (lo+hi)/2
+            residual = self._area(mid) - target
+            if not residual:
+                return mid, mid
+            if direction*residual > 0:
+                hi = mid
+            else:
+                lo = mid
+        return lo, hi
+
     def superpose(self, other):
         """Sum fields and independently referenced potentials on their common interval."""
         if type(other) is not AxialFieldGraph:
