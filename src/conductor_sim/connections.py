@@ -231,14 +231,24 @@ def _connection_charges(shells, links, grouped, A, b, *, exact=False):
     return _solve_linear(matrix, rhs, exact=exact)
 
 
+def _radial_energy(shells, net_charges, cavity, permittivity):
+    """Integrate E² over each vacuum gap and the exterior before rounding."""
+    enclosed = cavity
+    total = Fraction(0)
+    for i, (shell, charge) in enumerate(zip(shells, net_charges)):
+        enclosed += charge
+        weight = 1 / Fraction(shell.outer_radius_m)
+        if i + 1 < len(shells):
+            weight -= 1 / Fraction(shells[i + 1].inner_radius_m)
+        total += enclosed**2 * weight
+    return total / (8 * Fraction(pi) * Fraction(permittivity))
+
+
 def _field_energy(solution: NestedShellSolution | MixedRadialSolution) -> float:
-    """Electric field energy in gaps + exterior, excluding fixed cavity field."""
     shells = solution.radial_shells
-    flux = solution._fluxes()
-    terms = [flux[k]**2 * (1/shells[k].outer_radius_m - 1/shells[k+1].inner_radius_m)
-             for k in range(len(shells)-1)]
-    terms.append(flux[-1]**2 / shells[-1].outer_radius_m)
-    return fsum(terms)/(8*pi*solution.permittivity_f_per_m)
+    charges = (Fraction(solution.conductor_by_name(s.name).net_charge_c) for s in shells)
+    return float(_radial_energy(shells, charges, Fraction(solution.charge_inside_c),
+                                solution.permittivity_f_per_m))
 
 
 class ConnectedShellBackend:
@@ -262,16 +272,17 @@ class ConnectedShellBackend:
         solver = (MixedRadialBackend() if isinstance(shells[0], SolidSphere)
                   else NestedShellBackend())
         before = solver.solve(original)
-        q_cavity = before.charge_inside_c
-        A, b = _coefficients(shells, q_cavity)
-        net = _connection_charges(shells, links, grouped, A, b)
+        q_cavity = sum(Fraction(c.charge_c) for c in original.charges)
+        A, b = _coefficients(shells, q_cavity, exact=True)
+        initial_net = _connection_charges(shells, (), set(), A, b, exact=True)
+        net = _connection_charges(shells, links, grouped, A, b, exact=True)
         replacements = {}
         for i, shell in enumerate(shells):
             # Keep grounded members grounded when lowering; the existing
             # analytical and numerical backends then preserve 0 V semantics.
             grounded_link = any(link.mode == 'grounded' and i in members
                                 for link, members in links)
-            replacements[shell.name] = Grounded() if grounded_link else FixedNetCharge(net[i]) if i in grouped else shell.constraint
+            replacements[shell.name] = Grounded() if grounded_link else FixedNetCharge(float(net[i])) if i in grouped else shell.constraint
         from dataclasses import replace
         resolved = ElectrostaticProblem(
             charges=original.charges,
@@ -296,9 +307,12 @@ class ConnectedShellBackend:
                           after.conductor_by_name(shell.name).net_charge_c,
                           after.conductor_by_name(shell.name).net_charge_c - before.conductor_by_name(shell.name).net_charge_c)
                           for shell in original.conductors)
-        u0, u1 = _field_energy(before), _field_energy(after)
+        u0 = _radial_energy(shells, initial_net, q_cavity, original.permittivity_f_per_m)
+        u1 = _radial_energy(shells, net, q_cavity, original.permittivity_f_per_m)
         released = u0-u1
-        if released < -1e-11*max(u0, u1, 1e-20):
+        if released < 0:
             raise UnsupportedProblem('connected equilibrium increased the radial electric-field energy')
-        return ConnectionResult(plan, resolved, before, after, transfers, u0, u1,
-                                max(0., released))
+        if released and not float(released):
+            raise UnsupportedProblem('energy release is below the representable energy range')
+        return ConnectionResult(plan, resolved, before, after, transfers,
+                                float(u0), float(u1), float(released))

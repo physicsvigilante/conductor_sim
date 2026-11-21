@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m35b-native-${{ github.event.pull_request.number || github.ref }}
+  group: m35b-native-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:

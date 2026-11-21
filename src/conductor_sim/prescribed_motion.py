@@ -326,8 +326,6 @@ def _integrate_test_charge(spec: TestChargeMotionSpec, *, step_observer=None,
     def observe(p):
         if domain.clearance(p) <= 0:
             raise _SurfaceGuard()
-        if not _in_plane(p,domain.origin,domain.normal,domain.scale):
-            raise UnsupportedProblem('particle left the certified physical plane')
         field = spec.field.electric_field_at(p)
         potential = spec.field.potential_at(p)
         force,energy = _mul(field,charge),charge*potential

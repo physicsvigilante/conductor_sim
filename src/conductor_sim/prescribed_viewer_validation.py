@@ -10,6 +10,7 @@ import re
 from math import fsum, hypot, isclose, isfinite
 
 from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
+from ._motion_validation import reconstructs_position
 from .prescribed_fields import (PrescribedField, SOURCE_TYPES, _dot, _sub)
 from .solver import SingularField
 from .visualization import SliceSpec
@@ -216,8 +217,10 @@ def validate_prescribed_viewer(bundle):
         p,v=r['position_m'],r['velocity_m_s']
         if (domain.clearance(p)<=0 or
                 hypot(*v)>=_NONRELATIVISTIC_SPEED_LIMIT_M_S or
-                not _position_same(r['displacement_m'],_sub(p,initial),m['length_scale_m']) or
-                abs(_dot(_sub(p,initial),normal))>2e-9*m['length_scale_m'] or
+                (not reconstructs_position(initial, r['displacement_m'], p) and
+                 not _position_same(r['displacement_m'],_sub(p,initial),m['length_scale_m'])) or
+                (i == 0 and any(r['displacement_m'])) or
+                abs(_dot(r['displacement_m'],normal))>2e-9*m['length_scale_m'] or
                 abs(_dot(v,normal))>max(1e-12,2e-9*hypot(*v))):
             raise ValueError('saved fixed-source motion crosses a guard or leaves its certified plane')
         E=field.electric_field_at(p);V=field.potential_at(p)

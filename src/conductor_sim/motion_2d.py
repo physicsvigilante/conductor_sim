@@ -8,7 +8,7 @@ This is data/physics, not a browser or finite-particle collision model.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from math import fsum, hypot, isfinite
+from math import fsum, hypot, isfinite, ulp
 from typing import Literal
 
 from ._directions import unit_direction
@@ -35,6 +35,11 @@ def _add(a, b, scale=1.):
 
 def _norm(a):
     return hypot(*a)
+
+
+def _world_state(origin, state):
+    """Convert RK coordinates to world position, preserving velocity and work."""
+    return (*_add(origin, state[:3]), *state[3:])
 
 
 def _cross(a, b):
@@ -354,9 +359,6 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
             raise _SurfaceGuard()
         if geometry.charge_clearance(position) <= 0:
             raise _ChargeGuard()
-        if abs(_dot(_sub(position, geometry.origin), geometry.normal)) > max(
-                1e-11*geometry.scale, 5e-9*max(geometry.scale, _norm(_sub(position, geometry.origin)))):
-            raise UnsupportedProblem('particle left the physically invariant plane')
         problem = spec.problem_at(position)
         supports = getattr(backend, 'supports', None)
         if callable(supports) and not supports(problem):
@@ -411,15 +413,24 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         force, _ = observe(position)
         return tuple(x/spec.mass_kg for x in force)
 
+    origin = (0., 0., 0.)
+    launch = p0  # launch coordinates in the current RK frame
+    plane_tolerance = 5e-9 if isinstance(geometry, _Geometry) else 1e-11
+
     def rhs(y):
-        position = y[:3]
-        acceleration_vector = acceleration(position)
+        displacement = _sub(y[:3], launch)
+        if abs(_dot(displacement, geometry.normal)) > plane_tolerance * max(
+                geometry.scale, _norm(displacement)):
+            raise UnsupportedProblem('particle left the physically invariant plane')
+        world = _world_state(origin, y)
+        if dynamics is not None:
+            return dynamics.rhs(world)
+        acceleration_vector = acceleration(world[:3])
         return (*y[3:], *acceleration_vector)
 
     y = (*p0, *spec.initial_velocity_m_s)
     if dynamics is not None:
         y = (*y, 0., 0., 0., 0.)  # fixed/applied/gravity work, dissipation
-        rhs = dynamics.rhs
     reference_force, reference_energy = observe(p0)
     _ = reference_force
     energy0 = .5*spec.mass_kg*_norm(spec.initial_velocity_m_s)**2
@@ -429,6 +440,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
 
     def record(t, values):
         nonlocal max_drift
+        displacement = _sub(values[:3], launch)
+        values = _world_state(origin, values)
         if dynamics is not None:
             sample = dynamics.sample(t, values)
             max_drift = max(max_drift, abs(sample.work_balance_error_j))
@@ -444,7 +457,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         if not all(isfinite(x) for x in (*position, *velocity, kinetic, drift)):
             raise MotionIntegrationError('motion data became nonfinite')
         max_drift = max(max_drift, abs(drift))
-        records.append(Motion2DSample(t, _sub(position,p0), position, velocity,
+        records.append(Motion2DSample(t, displacement, position, velocity,
                                       tuple(x/spec.mass_kg for x in force), force,
                                       kinetic, energy.total_j, kinetic+energy.total_j, drift))
 
@@ -462,8 +475,9 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             if steps_done >= spec.max_internal_steps:
                 raise MotionIntegrationError('maximum internal RK4 substeps exceeded')
             steps_done += 1
-            conductor_distance = geometry.clearance(y[:3])
-            point_distance = geometry.charge_clearance(y[:3])
+            position = _add(origin, y[:3])
+            conductor_distance = geometry.clearance(position)
+            point_distance = geometry.charge_clearance(position)
             near_charge = point_distance < conductor_distance
             distance = min(conductor_distance, point_distance)
             guard_kind = 'charge-guard' if near_charge else 'surface-guard'
@@ -471,7 +485,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             closeness = max(.02*active_guard, 1e-10*geometry.scale)
             if distance <= closeness:
                 termination = guard_kind
-                events.append(Motion2DEvent(guard_kind, t, y[:3],
+                events.append(Motion2DEvent(guard_kind, t, position,
                               'Stopped before the fixed point charge; not an exact collision' if near_charge else
                               surface_description))
                 break
@@ -480,8 +494,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 dt = min(dt, max_step_s)  # Opt-in investigation resolution, not output spacing.
             if dynamics is not None:
                 dt = min(dt, dynamics.max_step_s)
-            a = acceleration(y[:3]) if dynamics is None else dynamics.rhs(y)[3:6]
-            normal_speed, normal_accel = geometry.approach_speed(y[:3], y[3:6], a)
+            a = rhs(y)[3:6]
+            normal_speed, normal_accel = geometry.approach_speed(position, y[3:6], a)
             if geometry.stationary:
                 # A conservative displacement bound limits leapfrogging an
                 # ideal fixed point-charge singularity between RK stages.
@@ -494,10 +508,30 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             if dt < max(1e-14*spec.duration_s, 1e-300):
                 if distance <= max(2*closeness, 1e-8*geometry.scale):
                     termination = guard_kind
-                    events.append(Motion2DEvent(guard_kind, t, y[:3],
+                    events.append(Motion2DEvent(guard_kind, t, position,
                                   'Stopped before the numerical approach cutoff; not an exact collision'))
                     break
                 raise MotionIntegrationError('timestep collapsed before an approach guard')
+            # Keep established world-coordinate stepping while it resolves each
+            # increment. Rebase an axis before rounding can exceed the requested
+            # relative accuracy of a half-step, including release from rest.
+            next_origin = list(origin)
+            coordinates = list(y[:3])
+            half_dt = dt / 2
+            for i in range(3):
+                motion = half_dt * (abs(y[i+3]) + half_dt * abs(a[i]) / 2)
+                spacing = ulp(position[i])
+                # Rounding a moving coordinate can also create an apparent
+                # transverse displacement in a certified oblique plane.
+                unresolved = (spacing > spec.relative_tolerance * motion or
+                              spacing * abs(geometry.normal[i]) > plane_tolerance * motion)
+                if origin[i] == 0. and spacing > ulp(position[i]-p0[i]) and unresolved:
+                    next_origin[i] = p0[i]
+                    coordinates[i] = position[i] - p0[i]
+            if tuple(next_origin) != origin:
+                y = (*coordinates, *y[3:])
+                origin = tuple(next_origin)
+                launch = _sub(p0, origin)
             try:
                 large = rk4_step(y, dt, rhs)
                 half = rk4_step(y, .5*dt, rhs)
@@ -505,17 +539,19 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             except (_SurfaceGuard, _ChargeGuard):
                 h = .5*dt
                 continue
-            if (geometry.clearance(large[:3]) <= 0 or geometry.clearance(fine[:3]) <= 0 or
-                    geometry.charge_clearance(large[:3]) <= 0 or
-                    geometry.charge_clearance(fine[:3]) <= 0 or
-                    geometry.charge_segment_clearance(y[:3],half[:3]) <= 0 or
-                    geometry.charge_segment_clearance(half[:3],fine[:3]) <= 0):
+            coarse_point, midpoint, endpoint = (_add(origin, s[:3]) for s in (large, half, fine))
+            if (geometry.clearance(coarse_point) <= 0 or geometry.clearance(endpoint) <= 0 or
+                    geometry.charge_clearance(coarse_point) <= 0 or
+                    geometry.charge_clearance(endpoint) <= 0 or
+                    geometry.charge_segment_clearance(position,midpoint) <= 0 or
+                    geometry.charge_segment_clearance(midpoint,endpoint) <= 0):
                 h = .5*dt
                 continue
             if _norm(fine[3:6]) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
                 raise UnsupportedProblem('classical motion limit reached; speed must stay below 0.1c')
             position_scale = max(1e-11*geometry.scale, spec.relative_tolerance*
-                                 max(geometry.scale, _norm(_sub(y[:3],p0)), _norm(_sub(fine[:3],p0))))
+                                 max(geometry.scale, _norm(_sub(y[:3], launch)),
+                                     _norm(_sub(fine[:3], launch))))
             velocity_scale = max(1e-10, spec.relative_tolerance*max(1., _norm(y[3:6]), _norm(fine[3:6])))
             error = max(_norm(_sub(large[:3],fine[:3]))/(15*position_scale),
                         _norm(_sub(large[3:6],fine[3:6]))/(15*velocity_scale))
@@ -530,7 +566,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 # Only a numerically accepted step is offered. A monitor may
                 # ask for subdivision or end the reported observation interval;
                 # it never supplies a force law or alters default trajectories.
-                decision = step_observer(t, y, dt, half, fine, rhs)
+                decision = step_observer(t, y, dt, half, fine, rhs, origin)
                 if decision is False:
                     h = .5*dt
                     continue
@@ -547,7 +583,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             break
         t = target
         if dynamics is not None:
-            dynamics.at_boundary(t, y)  # continuous state, explicit one-sided force
+            dynamics.at_boundary(t, _world_state(origin, y))
         record(t, y)
     return tuple(records), tuple(events), termination, max_drift
 
