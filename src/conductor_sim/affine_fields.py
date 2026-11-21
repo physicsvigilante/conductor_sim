@@ -27,6 +27,11 @@ def _dot(a, b):
     return sum(x * y for x, y in zip(a, b))
 
 
+def _linear_integral(first, last, fraction):
+    """Integral of a linear scalar over [0, fraction] on a unit interval."""
+    return fraction * (first + fraction * (last - first) / 2)
+
+
 def _observed(value):
     try:
         rounded = float(value)
@@ -104,9 +109,11 @@ class AffineFieldAssembly:
     def electric_field_at(self, point_m):
         return tuple(map(_observed, self._field(_point(point_m))))
 
+    def _potential(self, point):
+        return sum(s._potential(point) for s in self.sources)
+
     def potential_at(self, point_m):
-        point = _point(point_m)
-        return _observed(sum(s._potential(point) for s in self.sources))
+        return _observed(self._potential(_point(point_m)))
 
     def field_work_j(self, charge_c, start_m, end_m):
         """Signed work by the field, using the exact straight-segment mean field."""
