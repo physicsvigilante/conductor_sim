@@ -248,3 +248,6 @@ __all__ += ["PointChargeRearrangement", "rearrange_point_charges"]
 
 from .radial_voltage import prepare_radial_voltages
 __all__ += ["prepare_radial_voltages"]
+
+from .coaxial_arcs import CircularArcCharge, CoaxialArcAssembly
+__all__ += ["CircularArcCharge", "CoaxialArcAssembly"]
