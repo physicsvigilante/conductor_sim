@@ -6,10 +6,10 @@ self-consistent third-party record is NOT authenticated to teacher history.
 from __future__ import annotations
 import argparse
 import json
-from math import isfinite, ulp
+from math import isclose, isfinite, ulp
 from pathlib import Path
 
-from tools.m40a_spherical_reference import check_record
+from tools.m40a_spherical_reference import check_record, density_from_images, required
 
 SCHEMA = "conductor_sim.m40c_static_spherical_relocation.v1"
 ROLE = "teacher_hypothetical_static_spherical_source_relocation_only"
@@ -87,6 +87,7 @@ def check_static_comparison(doc):
         raise ValueError("exactly one physical source must be relocated")
     _e(relocated,changes[0],"visible source relocation")
     for i,(cav,a,b) in enumerate(zip(doc["cavities"],base,rev)):
+        required(cav, ("center_m","radius_m","cavity_id","whole_face_induced_charge_c","samples"), "comparison cavity")
         if type(cav) is not dict or a["voids"][i]["cavity_id"]!=cav.get("cavity_id"):
             raise ValueError("cavity order/ID mismatches original physical geometry")
         if any(x["surface_id"]!=cav["cavity_id"] for x in a["samples"]+b["samples"]):
@@ -100,6 +101,8 @@ def check_static_comparison(doc):
         if type(ss) is not list or not 1 <= len(ss) <= 24 or len(ss)!=len(a["samples"]) or len(ss)!=len(b["samples"]):
             raise ValueError("all admitted point rays required")
         for item,aa,bb in zip(ss,a["samples"],b["samples"]):
+            required(item, ("input_direction","unit_normal_display_only","sigma_baseline_c_per_m2",
+                            "sigma_revised_c_per_m2","delta_status","delta_c_per_m2"), "comparison sample")
             _e(aa["input_direction"],bb["input_direction"],"same original physical ray")
             _e(item.get("input_direction"),aa["input_direction"],"raw physical ray")
             _e(item.get("unit_normal_display_only"),aa["unit_normal"],"display-only rounded normal")
@@ -112,8 +115,14 @@ def check_static_comparison(doc):
             else:
                 d=y-x
                 if not isfinite(d):raise ValueError("overflowed signed difference")
-                scale=max(abs(x),abs(y))
-                if d==0 or (scale and abs(d)<=32*ulp(scale)):
+                q = next(s["charge_c"] for s in doc["gauss"]["cavities"][i]["authored_sources"]
+                         if s["source_id"] == relocated["source_id"])
+                old, new = [density_from_images(cav["radius_m"], [(q, relocated[key])],
+                                                aa["input_direction"], cav["center_m"])
+                            for key in ("original_position_m", "revised_position_m")]
+                independent_change = new - old
+                if (abs(independent_change) <= 32 * ulp(max(abs(x), abs(y), abs(old), abs(new)))
+                        or not isclose(d, independent_change, rel_tol=2e-10, abs_tol=0.0)):
                     expected_status,delta="unresolved_numerical_difference",None
                 else:expected_status,delta="resolved_difference",d
             _e(item.get("delta_status"),expected_status,"numerical difference status")

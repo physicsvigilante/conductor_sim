@@ -6,10 +6,10 @@ work, or a claim that irregular conductor cavities have been solved.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from math import isfinite, ulp
+from math import isclose, isfinite, ulp
 
 from .spherical_multicavity import (
-    NamedSourcePosition, SphericalSigmaModel,
+    NamedSourcePosition, SphericalSigmaModel, _near_wall_sigma_precision,
     SphericalMetalGeometry, SphericalVoid, solve_spherical_sigma,
 )
 from .solver import UnsupportedProblem
@@ -27,11 +27,14 @@ DEFAULT_RAYS = ((1., 0., 0.), (-1., 0., 0.), (0., 1., 0.),
 
 @dataclass(frozen=True, slots=True)
 class StaticSourceRelocation:
+    baseline: SphericalSigmaModel
     cavity_id: str
     source_id: str
     new_position_m: tuple[float, float, float]
 
     def __post_init__(self):
+        # Keep the requalified value snapshot, including the electrical constraint.
+        object.__setattr__(self, "baseline", solve_spherical_sigma(self.baseline).model)
         if type(self.cavity_id) is not str or not self.cavity_id:
             raise ValueError("relocation requires an original cavity ID")
         # Reuse the scientific source identity/point validation, including Boolean refusal.
@@ -45,7 +48,9 @@ def relocate_spherical_source(model: SphericalSigmaModel,
     if type(model) is not SphericalSigmaModel or type(change) is not StaticSourceRelocation:
         raise TypeError("requires real M40a spherical model and M40c relocation")
     fresh = solve_spherical_sigma(model).model
-    change = StaticSourceRelocation(change.cavity_id, change.source_id, change.new_position_m)
+    if fresh != change.baseline:
+        raise ValueError("instruction belongs to a different baseline")
+    change = replace(change)
     cavities = []
     count = 0
     for void in fresh.geometry.voids:
@@ -86,8 +91,8 @@ def _rays(value):
     return tuple(out)
 
 
-def _delta(before: float, after: float, *, same_face: bool):
-    if same_face:
+def _delta(before: float, after: float, *, moved_terms):
+    if moved_terms is None:
         if before != after:
             raise ValueError("untouched cavity falsely changes local sigma")
         return "unchanged_exact", 0.0
@@ -95,8 +100,13 @@ def _delta(before: float, after: float, *, same_face: bool):
     if not isfinite(difference):
         raise UnsupportedProblem("static local-sigma difference overflowed")
     # Resolution is a property of the numeric comparison, not a theorem zero.
-    scale = max(abs(before), abs(after))
-    if difference == 0.0 or (scale and abs(difference) <= 32 * ulp(scale)):
+    # Stationary sources cancel analytically. Check the observed total against
+    # the relocated source alone, evaluated using the precise spherical kernel.
+    old_term, new_term = moved_terms
+    scale = max(abs(before), abs(after), abs(old_term), abs(new_term))
+    source_delta = new_term - old_term
+    if (abs(source_delta) <= 32 * ulp(scale)
+            or not isclose(difference, source_delta, rel_tol=2e-10, abs_tol=0.0)):
         return "unresolved_numerical_difference", None
     return "resolved_difference", difference
 
@@ -115,9 +125,7 @@ class StaticSigmaComparison:
         if type(self.instruction) is not StaticSourceRelocation:
             raise TypeError("comparison requires real typed relocation")
         # Constructors can be mutated via Python internals, so rebuild the authority.
-        instruction = StaticSourceRelocation(
-            self.instruction.cavity_id, self.instruction.source_id,
-            self.instruction.new_position_m)
+        instruction = replace(self.instruction)
         expected = relocate_spherical_source(self.baseline, instruction)
         fresh_revision = solve_spherical_sigma(self.revised).model
         # Compare original typed immutable geometry including exact source position inventory.
@@ -130,6 +138,10 @@ class StaticSigmaComparison:
         source_after = after.as_dict()
         if source_before["gauss"] != source_after["gauss"]:
             raise ValueError("one static position revision must preserve all Gauss totals")
+        target = next(v for v in source_before["voids"] if v["cavity_id"] == instruction.cavity_id)
+        moved = next(s for s in target["source_positions"] if s["source_id"] == instruction.source_id)
+        cavity = next(c for c in self.baseline.gauss_assembly.cavities if c.cavity_id == instruction.cavity_id)
+        charge = next(s.charge_c for s in cavity.sources if s.source_id == instruction.source_id)
         records = {"baseline": [], "revised": []}
         rows = []
         for void in source_before["voids"]:
@@ -142,8 +154,12 @@ class StaticSigmaComparison:
             for a, b in zip(left["samples"], right["samples"]):
                 if a["input_direction"] != b["input_direction"]:
                     raise ValueError("sample rays are not identical between static scenes")
-                flag, value = _delta(a["sigma_c_per_m2"], b["sigma_c_per_m2"],
-                                     same_face=(cavity_id != instruction.cavity_id))
+                terms = None
+                if cavity_id == instruction.cavity_id:
+                    terms = tuple(_near_wall_sigma_precision(
+                        charge, void["radius_m"], position, void["center_m"], a["input_direction"]
+                    ) for position in (moved["position_m"], instruction.new_position_m))
+                flag, value = _delta(a["sigma_c_per_m2"], b["sigma_c_per_m2"], moved_terms=terms)
                 samples.append({
                     "input_direction": a["input_direction"],
                     "unit_normal_display_only": a["unit_normal"],
@@ -163,10 +179,6 @@ class StaticSigmaComparison:
         records["revised"].append(out_b)
         if out_a["samples"] != out_b["samples"]:
             raise ValueError("outer uniform sigma cannot change with source-only relocation")
-        target = next(v for v in source_before["voids"]
-                      if v["cavity_id"] == instruction.cavity_id)
-        moved = next(s for s in target["source_positions"]
-                     if s["source_id"] == instruction.source_id)
         return {"schema": SCHEMA, "source_role": ROLE,
                 "original_workbook_items_newly_solved": 0,
                 "time_evolution_defined": False, "no_chronology": NO_CHRONOLOGY,

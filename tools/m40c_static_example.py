@@ -13,7 +13,7 @@ from tools.m40a_spherical_example import teacher_model
 def run_all(directory: Path):
     directory.mkdir(parents=True,exist_ok=True)
     original=teacher_model()
-    change=StaticSourceRelocation("NeutralButNonuniform","plus_A",(-1.45,.04,.01))
+    change=StaticSourceRelocation(original, "NeutralButNonuniform","plus_A",(-1.45,.04,.01))
     result=compare_static_spherical_relocation(original,change)
     evidence=result.as_dict()
     (directory/"m40c-static-teacher.json").write_text(

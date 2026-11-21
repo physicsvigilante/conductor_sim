@@ -27,7 +27,8 @@ from tools.m40c_static_example import run_all
 
 
 def scenario():
-    return teacher_model(), StaticSourceRelocation("NeutralButNonuniform", "plus_A",(-1.45,.04,.01))
+    base = teacher_model()
+    return base, StaticSourceRelocation(base, "NeutralButNonuniform", "plus_A",(-1.45,.04,.01))
 
 
 def test_teacher_examples_recomputed_and_oracle(tmp_path: Path):
@@ -36,9 +37,9 @@ def test_teacher_examples_recomputed_and_oracle(tmp_path: Path):
     assert len(out["baseline_voids"])==3
     assert out["relocation"]["source_id"]=="plus_A"
     assert out["original_workbook_items_newly_solved"]==0
-    assert (tmp_path/"m40c-static-teacher.html").read_text()==render_static_sigma_comparison(
+    assert (tmp_path/"m40c-static-teacher.html").read_text(encoding="utf-8")==render_static_sigma_comparison(
         compare_static_spherical_relocation(*scenario()))
-    assert json.loads((tmp_path/"m40c-static-teacher.json").read_text())==out
+    assert json.loads((tmp_path/"m40c-static-teacher.json").read_text(encoding="utf-8"))==out
     assert all(check_record(r)["cavities_checked"]==3
                for record in out["m40a_v2_witness_records"].values() for r in record)
 
@@ -63,8 +64,10 @@ def test_original_model_immutable_and_gauss_faces_unchanged():
 def test_distinct_static_electrical_constraints_requalified_separately():
     base,change=scenario()
     iso=compare_static_spherical_relocation(base,change).as_dict()
-    gr=compare_static_spherical_relocation(
-        replace(base,gauss_assembly=replace(base.gauss_assembly,constraint=Grounded())),change).as_dict()
+    grounded = replace(base, gauss_assembly=replace(base.gauss_assembly, constraint=Grounded()))
+    with pytest.raises(ValueError, match="different baseline"):
+        compare_static_spherical_relocation(grounded, change)
+    gr = compare_static_spherical_relocation(grounded, replace(change, baseline=grounded)).as_dict()
     assert iso["outer_uniform_sigma_c_per_m2"]!=0
     assert gr["outer_uniform_sigma_c_per_m2"]==0
     for left,right in zip(iso["cavities"],gr["cavities"]):
@@ -79,7 +82,7 @@ def test_genuinely_near_wall_raw_direction_preserved():
         SphericalMetalGeometry((0.,0.,0.),5.,(
             SphericalVoid("A",(0.,0.,0.),radius,(
                 NamedSourcePosition("q",(radius*(1.-gap),0.,0.)),)),)))
-    change=StaticSourceRelocation("A","q",(radius*(1.-2.0e-8),0.,0.))
+    change=StaticSourceRelocation(model,"A","q",(radius*(1.-2.0e-8),0.,0.))
     rays=((1.+9e-13,0.,0.),(0.,1.,0.))
     doc=compare_static_spherical_relocation(model,change,rays=rays).as_dict()
     assert doc["cavities"][0]["samples"][0]["input_direction"][0]==1.+9e-13
@@ -93,7 +96,7 @@ def test_equal_density_at_one_ray_is_unresolved_not_theorem_zero():
         GaussCavityAssembly("M",(SealedCavity("A",(CavityCharge("q",+1e-9),)),),FixedNetCharge(1e-9),EPSILON_0),
         SphericalMetalGeometry((0.,0.,0.),5.,(SphericalVoid("A",(0.,0.,0.),1.,(
             NamedSourcePosition("q",(.3,0.,0.)),)),)))
-    out=compare_static_spherical_relocation(m,StaticSourceRelocation("A","q",(-.3,0.,0.)),rays=((0.,1.,0.),(1.,0.,0.))).as_dict()
+    out=compare_static_spherical_relocation(m,StaticSourceRelocation(m,"A","q",(-.3,0.,0.)),rays=((0.,1.,0.),(1.,0.,0.))).as_dict()
     assert out["cavities"][0]["samples"][0]["delta_status"]=="unresolved_numerical_difference"
     assert out["cavities"][0]["samples"][0]["delta_c_per_m2"] is None
     assert out["cavities"][0]["samples"][1]["delta_status"]=="resolved_difference"
@@ -117,7 +120,7 @@ def test_equal_density_at_one_ray_is_unresolved_not_theorem_zero():
 def test_invalid_or_stale_source_relocations_refused(cavity,ident,coords):
     m=teacher_model()
     with pytest.raises((ValueError,TypeError,UnsupportedProblem)):
-        relocate_spherical_source(m,StaticSourceRelocation(cavity,ident,coords))
+        relocate_spherical_source(m,StaticSourceRelocation(m,cavity,ident,coords))
 
 
 @pytest.mark.parametrize("rays",[(),((0.,0.,0.),),((2.,0.,0.),),((False,0.,0.),),
@@ -134,7 +137,7 @@ def test_tampered_saved_comparison_cannot_reuse_native_evidence():
     with pytest.raises(ValueError,match="requested static relocation"):
         altered.as_dict()
     wrong=replace(result,instruction=StaticSourceRelocation(
-        "NeutralButNonuniform","plus_A",(-1.48,.03,.01)))
+        result.baseline,"NeutralButNonuniform","plus_A",(-1.48,.03,.01)))
     with pytest.raises(ValueError,match="requested static relocation"):
         wrong.as_dict()
 
@@ -199,3 +202,32 @@ def test_viewer_shows_two_static_scenes_true_source_xyz_and_no_network():
     assert "<script" not in page.lower()
     assert "0 C" in page
     assert "ZERO NEW ORIGINAL JEE" in page
+
+
+def test_one_ulp_relocation_with_nearly_cancelling_charges_is_unresolved():
+    # Saved wrong-sign case: the analytic moved-source difference is about -4.98e-33.
+    start = (0.5903877802561593, 0.5, 0.)
+    end = (0.5903877802561595, 0.5, 0.)
+    cavity = SealedCavity("hole", (CavityCharge("a", 1.), CavityCharge("b", -1. + 1e-5)))
+    void = SphericalVoid("hole", (0., 0., 0.), 1., tuple(
+        NamedSourcePosition(name, start) for name in ("a", "b")))
+    model = SphericalSigmaModel(GaussCavityAssembly("metal", (cavity,), Grounded(), EPSILON_0),
+                                SphericalMetalGeometry((0., 0., 0.), 2., (void,)))
+    change = StaticSourceRelocation(model, "hole", "a", end)
+    doc = compare_static_spherical_relocation(model, change, rays=((1., 0., 0.),)).as_dict()
+    sample = doc["cavities"][0]["samples"][0]
+    assert sample["delta_status"] == "unresolved_numerical_difference"
+    assert sample["delta_c_per_m2"] is None
+    check_static_comparison(doc)
+    del sample["delta_c_per_m2"]
+    with pytest.raises(ValueError):
+        check_static_comparison(doc)
+    sample["delta_c_per_m2"] = None
+    sample["elapsed_time_s"] = 4.0
+    with pytest.raises(ValueError):
+        check_static_comparison(doc)
+    del sample["elapsed_time_s"]
+    sample.update(delta_status="resolved_difference",
+                  delta_c_per_m2=sample["sigma_revised_c_per_m2"] - sample["sigma_baseline_c_per_m2"])
+    with pytest.raises(ValueError):
+        check_static_comparison(doc)

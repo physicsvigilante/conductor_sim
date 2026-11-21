@@ -37,6 +37,19 @@ def render_static_sigma_comparison(comparison: StaticSigmaComparison) -> str:
     for index, (label, scene) in enumerate((("Baseline", baseline), ("Revised hypothetical", revised))):
         # M40b projection uses static IDs; two panels must namespace them.
         projection = _projection(scene).replace('id="m40b-', 'id="m40c-panel-{}-'.format(index))
+        # Repaint the selected source last at its true XY, including depth-only moves.
+        selected = m["relocation"]["source_id"]
+        i, j, point = next(
+            (i, j, s["position_m"]) for i, c in enumerate(scene["cavities"])
+            for j, s in enumerate(c["sources"]) if s["source_id"] == selected)
+        outer = scene["outer_sphere"]
+        scale = 375. / outer["radius_m"]
+        x = 425. + (point[0] - outer["center_m"][0]) * scale
+        y = 425. - (point[1] - outer["center_m"][1]) * scale
+        overlay = (f'<g id="m40c-target-{index}"><title>Selected source: {e(selected)}</title>'
+                   f'<use href="#m40c-panel-{index}-source-{i}-{j}"/>'
+                   f'<circle cx="{x}" cy="{y}" r="12" fill="none" stroke="#74237c" stroke-width="3"/></g>')
+        projection = projection.replace('</svg>', overlay + '</svg>')
         src_rows = "".join(
             "<tr><th><code>{}</code></th><td><code>{}</code></td><td>{}</td><td>{}</td></tr>".format(
                 e(source["source_id"]),e(cav["cavity_id"]),
@@ -49,15 +62,15 @@ def render_static_sigma_comparison(comparison: StaticSigmaComparison) -> str:
                       '<th>Cavity</th><th>Signed q</th><th>True (x, y, z)</th></tr></thead><tbody>'+
                       src_rows+'</tbody></table></div></section>')
     diff_rows = []
-    for cav in m["cavities"]:
+    for cavity_index, cav in enumerate(m["cavities"]):
         samples = []
         for j,s in enumerate(cav["samples"]):
             status = s["delta_status"]
             delta = ("Unresolved numerical difference" if status == "unresolved_numerical_difference"
                      else _si(s["delta_c_per_m2"],"C/m²"))
-            samples.append('<tr id="m40c-{}-{}"><th scope="row">raw n = {}</th>'
+            samples.append('<tr id="m40c-sample-{}-{}"><th scope="row">raw n = {}</th>'
                            '<td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
-                               e(cav["cavity_id"]),j,e(tuple(s["input_direction"])),
+                               cavity_index,j,e(tuple(s["input_direction"])),
                                e(_si(s["sigma_baseline_c_per_m2"],"C/m²")),
                                e(_si(s["sigma_revised_c_per_m2"],"C/m²")),
                                e(delta),e(status.replace("_"," "))))
@@ -85,7 +98,7 @@ def render_static_sigma_comparison(comparison: StaticSigmaComparison) -> str:
         '</header><main><div class="notice" id="m40c-no-chronology">'+e(NO_CHRONOLOGY)+'</div>'
         '<div class="notice">Actual 3D spheres shown as XY orthographic projections '+
         'using one metre scale. Overlap in XY is not 3D contact or a cross-section. '
-        'Every source depth z is shown in the true (x,y,z) tables.</div>'
+        'The purple ring identifies the selected charge, including at a shared XY position. Every source depth z is shown in the true (x,y,z) tables.</div>'
         '<p>Repositioned named source: <code id="m40c-source">'+e(relocated["source_id"])+
         '</code>, cavity <code>'+e(relocated["cavity_id"])+
         '</code>; originally '+e(_xyz(relocated["original_position_m"]))+
