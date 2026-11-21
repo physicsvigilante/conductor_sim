@@ -16,3 +16,5 @@ In electrostatic equilibrium the solid sphere has one potential throughout its i
 The observable accepts one solid conducting sphere with fixed net charge and its centre on the common axis of prescribed arcs, all strictly exterior, in one homogeneous medium. A teacher may split the ring into unequal arcs with different signed totals, add another ring at a different distance, or change the sphere’s charge. Angular charge density on each arc may vary freely. The data determine the conductor voltage. Calculating its induced surface density or the full exterior field would require additional angular information.
 
 For this one source item the model preserves the printed geometry and charge (1/1), reproduces the independently derived equilibrium voltage (1/1), supplies the requested scalar observation (1/1), and gives the textbook choice (1/1). Educational usefulness has not been measured.
+
+For a three-dimensional point-source comparison, [workbook Q63](cube_sphere_voltage.md) uses the multisite Kelvin solver to compare local polarization at fixed sphere voltage.
