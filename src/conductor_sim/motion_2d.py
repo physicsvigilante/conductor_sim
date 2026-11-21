@@ -520,8 +520,12 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             half_dt = dt / 2
             for i in range(3):
                 motion = half_dt * (abs(y[i+3]) + half_dt * abs(a[i]) / 2)
-                if (origin[i] == 0. and ulp(position[i]) > ulp(position[i]-p0[i])
-                        and ulp(position[i]) > spec.relative_tolerance * motion):
+                spacing = ulp(position[i])
+                # Rounding a moving coordinate can also create an apparent
+                # transverse displacement in a certified oblique plane.
+                unresolved = (spacing > spec.relative_tolerance * motion or
+                              spacing * abs(geometry.normal[i]) > plane_tolerance * motion)
+                if origin[i] == 0. and spacing > ulp(position[i]-p0[i]) and unresolved:
                     next_origin[i] = p0[i]
                     coordinates[i] = position[i] - p0[i]
             if tuple(next_origin) != origin:

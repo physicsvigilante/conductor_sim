@@ -60,6 +60,16 @@ def test_oblique_translated_drift_keeps_the_certified_plane_in_saved_samples():
         sample_test_charge_viewer(spec, result=replace(result, samples=(*result.samples[:-1], forged)))
 
 
+def test_rebasing_respects_the_tighter_oblique_plane_tolerance():
+    speed = 100.123456789
+    spec = MotionSpec(PrescribedField((UniformElectricField((0., 0., 0.)),)),
+                      PointCharge(1e-9, (1e9, 0., 0.)), 1., (speed, speed, 0.),
+                      1., .1, plane_normal=(1., -1., 0.))
+    result = integrate_test_charge(spec)
+    assert result.termination == "duration"
+    assert result.samples[-1].displacement_m == pytest.approx((speed, speed, 0.), abs=1e-12)
+
+
 def test_inner_density_at_accepted_surface_direction():
     d = .99999999
     problem = ElectrostaticProblem((PointCharge(1e-9, (d, 0., 0.)),),
