@@ -8,8 +8,9 @@ NOT an independently verified spatial containment assertion.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from fractions import Fraction
 import json
-from math import fsum, isfinite
+from math import isfinite
 import re
 
 from .model import EPSILON_0, FixedNetCharge, Grounded
@@ -58,6 +59,8 @@ def _real(value, what, *, positive=False):
         number = float(value)
     except (OverflowError, ValueError) as ex:
         raise ValueError(f"{what} cannot be represented as finite SI") from ex
+    if type(value) is int and number != value:
+        raise ValueError(f"{what} loses precision in binary64 SI")
     if not isfinite(number) or (positive and number <= 0):
         raise ValueError(f"{what} must be finite" + (" and positive" if positive else ""))
     return number
@@ -65,7 +68,7 @@ def _real(value, what, *, positive=False):
 
 def _sum(values, what):
     try:
-        number = fsum(values)
+        number = float(sum(map(Fraction, values)))
     except (ValueError, OverflowError) as ex:
         raise UnsupportedProblem(f"{what} is not representable in the supported SI float domain") from ex
     if not isfinite(number):
@@ -263,6 +266,13 @@ class GaussCavityLedger:
         raise UnsupportedProblem("separate static Gauss ledgers do NOT define wire current")
 
 
+def _outer_charge(assembly):
+    if type(assembly.constraint) is Grounded:
+        return Fraction(0)
+    metal = Fraction(_real(assembly.constraint.charge_c, "isolated metal charge"))
+    return metal + sum(Fraction(s.charge_c) for c in assembly.cavities for s in c.sources)
+
+
 def solve_cavity_gauss(model: GaussCavityAssembly) -> GaussCavityLedger:
     """Gauss integrals only, conditional on declared closed-cavity topology."""
     a = _validated_assembly(model)
@@ -278,9 +288,10 @@ def solve_cavity_gauss(model: GaussCavityAssembly) -> GaussCavityLedger:
     )
     grounded = type(a.constraint) is Grounded
     metal = _zero(-total) if grounded else _real(a.constraint.charge_c, "isolated metal charge")
-    outer = 0.0 if grounded else _sum((metal, total), "outer metal face")
+    exact_outer = _outer_charge(a)
+    outer = _sum((exact_outer,), "outer metal face")
     try:
-        flux = outer / a.permittivity_f_per_m
+        flux = float(exact_outer / Fraction(a.permittivity_f_per_m))
     except (ValueError, ZeroDivisionError, OverflowError) as exc:
         raise UnsupportedProblem("exterior electric flux is not representable") from exc
     if not isfinite(flux):
