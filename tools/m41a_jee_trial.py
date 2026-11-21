@@ -21,6 +21,17 @@ from typing import Any
 from conductor_sim import (ElectrostaticProblem, ExternalSphereBackend, Grounded,
                            PointCharge, SolidSphere)
 
+from tools.m36b_jee_reference import check_native as check_m36b
+from tools.m36c_jee_conductor_reference import verify as check_m36c
+from tools.m36d_solid_reference import check as check_m36d
+from tools.m37b_source_reference import check as check_m37b
+from tools.m41a_jee_trial_reference import check as check_p61
+
+REFERENCE_CHECKERS = {
+    'm36b': check_m36b, 'm36c': check_m36c, 'm36d': check_m36d,
+    'm37b': check_m37b, 'p61': check_p61,
+}
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PDFS = {
     '02_conductors_half_size.pdf': '9dff3c02a9f1848d2c3d99cb1a6e7a44dc7f5a51f7a3a2b8cc92d10ce1fbca5d',
@@ -51,11 +62,34 @@ SOURCE_KINDS = {
     NOTES: 'original teaching notes illustration, NOT official JEE paper',
 }
 REFUSALS = {
-    'p11-linked-28': ('irregular outer metal boundary with two cavities',
-        'Whole-face Gauss charge is available, but its original irregular exterior local sigma/uniformity is not qualified.'),
+    'p11-linked-28': ('irregular outer metal boundary with two cavities and an external charge q',
+        'Whole-face Gauss charge is available, but its original irregular exterior local sigma/uniformity in the presence of external charge q is not qualified.'),
     'p70-cavity-offset': ('irregular original cavities/exterior conductor',
         'Neither original non-spherical local density nor the irregular exterior can be replaced by a spherical solver.'),
 }
+NATIVE_FILES = {
+    'm36b': 'native-replays.json',
+    'm36c': 'native-conductors.json',
+    'm36d': 'native-solid-sphere.json',
+    'm37b': 'p8-ground-current.json',
+    'p61': 'p61-native.json',
+}
+
+
+def source_kind(ident, pdf):
+    if ident.startswith('jee2021'):
+        return 'workbook p16 paragraph, historically mapped to JEE Advanced 2021 one apparatus'
+    return SOURCE_KINDS[pdf]
+
+
+def teacher_attribution(route):
+    if route == 'p61':
+        return 'all p61 numerical values teacher-chosen, source symbolic'
+    if route == 'refuse':
+        return 'original geometry refused; no teacher numerical substitute'
+    return 'native runner maintains explicit printed-source and teacher-number distinctions'
+
+
 BASE_SHA = '337001f2e0d1ce62c87fa4352993c4a074cfbde6'
 SCHEMA = 'conductor_sim.m41a_14_jee_source_trial.v1'
 
@@ -171,6 +205,19 @@ def grounded_p61(out_dir: Path) -> dict:
     return result
 
 
+def execution_checkout():
+    """Record the checked-out revision and whether tracked sources have local edits."""
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(ROOT), *args], text=True).strip()
+
+    try:
+        head = git('rev-parse', '--verify', 'HEAD')
+        dirty = bool(git('status', '--porcelain', '--untracked-files=no'))
+    except (OSError, subprocess.CalledProcessError):
+        return {'status': 'unavailable'}
+    return {'status': 'tracked checkout', 'commit': head, 'tracked_edits': dirty}
+
+
 def generate(output_dir: Path) -> dict[str,Any]:
     checksums=check_corpus()
     output_dir.mkdir(parents=True,exist_ok=True)
@@ -193,7 +240,7 @@ def generate(output_dir: Path) -> dict[str,Any]:
                ['--input',str(output_dir/'p61/p61-native.json'),
                 '--output',str(output_dir/'p61/separate-reference.json')],
                output_dir/'p61/reference.log')
-    references['p61']=json.loads((output_dir/'p61/separate-reference.json').read_text())
+    references['p61']=json.loads((output_dir/'p61/separate-reference.json').read_text(encoding='utf-8'))
 
     case_evidence={}
     for ident,pdf,page,anchor,route in COHORT:
@@ -215,8 +262,7 @@ def generate(output_dir: Path) -> dict[str,Any]:
         route_dir=output_dir/route if verified else None
         case_evidence[ident]={
             'source_id':ident, 'pdf':pdf, 'pdf_page':page, 'printed_anchor':anchor,
-            'source_kind': ('workbook p16 paragraph, historically mapped to JEE Advanced 2021 one apparatus' if ident.startswith('jee2021')
-                            else SOURCE_KINDS[pdf]),
+            'source_kind': source_kind(ident, pdf),
             'pdf_visible_caption': ('Paragraph for Questions 3 and 4' if ident.startswith('jee2021') else anchor),
             'official_paper_crosswalk_status': ('historical M36a mapping to JEE Advanced 2021 Paper 1 Q9-10; not independently reauthenticated from official paper in M41a'
                                                 if ident.startswith('jee2021') else 'not_official_paper_claimed'),
@@ -230,13 +276,10 @@ def generate(output_dir: Path) -> dict[str,Any]:
                 else 'not_claimed_as_entire_original_answer'),
             'educational_usefulness': 'not_evaluated_with_students',
             'qualified_refusal': REFUSALS[ident][1] if not verified else None,
-            'source_givens_vs_teacher': ('all p61 numerical values teacher-chosen, source symbolic' if route=='p61'
-                else 'native runner maintains explicit printed-source and teacher-number distinctions'),
+            'source_givens_vs_teacher': teacher_attribution(route),
         }
     artifacts={}
-    for route in ('m36b','m36c','m36d','m37b','p61'):
-        native_name={'m36b':'native-replays.json','m36c':'native-conductors.json',
-                     'm36d':'native-solid-sphere.json','m37b':'p8-ground-current.json','p61':'p61-native.json'}[route]
+    for route, native_name in NATIVE_FILES.items():
         artifacts[route]={
             'native_path':route+'/'+native_name,
             'native_sha256':file_sha(output_dir/route/native_name),
@@ -246,7 +289,8 @@ def generate(output_dir: Path) -> dict[str,Any]:
     report={
       'schema': SCHEMA,
       'method':'source PDFs SHA-verified, released native source runners executed, separate SI references executed',
-      'baseline_main_commit': BASE_SHA,
+      'frozen_charter_main_commit': BASE_SHA,
+      'execution_checkout': execution_checkout(),
       'source_pdf_sha256': checksums,
       'registered_source_anchor_denominator':len(COHORT),
       'physically_native_and_independently_referenced_scoped_routes':sum(x['native_physical_status']=='verified_scoped_native' for x in case_evidence.values()),
@@ -270,6 +314,15 @@ def check_trial(report:dict[str,Any],evidence_dir:Path) -> None:
         raise ValueError('invalid M41a schema')
     if report.get('source_pdf_sha256')!=check_corpus():
         raise ValueError('source PDF digests not original')
+    if report.get('frozen_charter_main_commit') != BASE_SHA:
+        raise ValueError('incorrect frozen charter baseline')
+    checkout = report.get('execution_checkout')
+    if checkout != {'status': 'unavailable'}:
+        if (type(checkout) is not dict or set(checkout) != {'status', 'commit', 'tracked_edits'}
+                or checkout['status'] != 'tracked checkout' or type(checkout['tracked_edits']) is not bool
+                or type(checkout['commit']) is not str or len(checkout['commit']) != 40
+                or any(c not in '0123456789abcdef' for c in checkout['commit'])):
+            raise ValueError('invalid execution checkout record')
     rows=report.get('cases')
     if type(rows) is not list or len(rows)!=len(COHORT):
         raise ValueError('source cohort denominator was changed')
@@ -305,7 +358,9 @@ def check_trial(report:dict[str,Any],evidence_dir:Path) -> None:
         if not ident.startswith('jee2021') and (row.get('pdf_visible_caption')!=anchor or
                 row.get('official_paper_crosswalk_status')!='not_official_paper_claimed'):
             raise ValueError('false official-source attribution')
-        if route=='p61' and 'teacher-chosen' not in row.get('source_givens_vs_teacher',''):
+        if row.get('source_kind') != source_kind(ident, pdf):
+            raise ValueError('incorrect source kind: '+ident)
+        if row.get('source_givens_vs_teacher') != teacher_attribution(route):
             raise ValueError('teacher numerical attribution missing')
     for field,value in [('physically_native_and_independently_referenced_scoped_routes',12),
                         ('explicit_unsupported_original_geometry_count',2),
@@ -326,11 +381,19 @@ def check_trial(report:dict[str,Any],evidence_dir:Path) -> None:
             digest=record.get(stem+'_sha256')
             if type(rel) is not str or type(digest) is not str or len(digest)!=64:
                 raise ValueError('invalid evidence path/digest')
+            expected_name = NATIVE_FILES[route] if stem == 'native' else 'separate-reference.json'
+            if rel != f'{route}/{expected_name}':
+                raise ValueError('incorrect evidence file for '+stem+' in '+route)
             file=evidence_dir/rel
             if not file.is_file() or file.resolve().parent != (evidence_dir/route).resolve():
                 raise ValueError('missing or relocated actual evidence file')
             if file_sha(file)!=digest:
                 raise ValueError('actual native or independent SI evidence modified: '+route)
+        native = json.loads((evidence_dir / record['native_path']).read_text(encoding='utf-8'))
+        expected_reference = REFERENCE_CHECKERS[route](native)
+        saved_reference = json.loads((evidence_dir / record['separate_reference_path']).read_text(encoding='utf-8'))
+        if json.dumps(saved_reference, sort_keys=True) != json.dumps(expected_reference, sort_keys=True):
+            raise ValueError('saved reference differs from independent replay: '+route)
     # Digest equality certifies these detached bytes relative to this report,
     # NOT a trusted teacher history or arbitrary HTML published elsewhere.
 

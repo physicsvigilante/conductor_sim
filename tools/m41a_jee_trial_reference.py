@@ -16,12 +16,22 @@ def check(document:dict)->dict:
         raise ValueError('not an original p61 teacher model')
     if document.get('source_id')!='p61-external-grounded-sphere' or document.get('source_pdf_page')!=61 or document.get('source_anchor')!='Illustration 1':
         raise ValueError('false original p61 attribution')
+    if type(document.get('source_pdf_page')) is not int or document.get('original_asked') != (
+        'static final sphere charge after switch closure; no current-versus-time asked'
+    ):
+        raise ValueError('incorrect printed p61 question or page')
     v=document['teacher_numeric_values_not_printed']
     if type(v) is not dict or set(v)!={'Q_c','R_m','r_m','charge_position_m','sphere_center_m'}:
         raise ValueError('teacher source must be fully attributed')
     q,R,d=(v[k] for k in ('Q_c','R_m','r_m'))
     if any(type(x) is not float or not isfinite(x) for x in (q,R,d)) or q<=0 or not 0<R<d:
         raise ValueError('unqualified actual original grounded sphere example')
+    if (q, R, d) != (1e-9, 0.10, 0.32):
+        raise ValueError('p61 teacher example parameters differ from the published example')
+    for key in ('charge_position_m', 'sphere_center_m'):
+        coords = v[key]
+        if type(coords) is not list or len(coords) != 3 or any(type(x) is not float for x in coords):
+            raise ValueError('expected three numeric teacher coordinates')
     if v['charge_position_m']!=[-d,0.0,0.0] or v['sphere_center_m']!=[0.0,0.0,0.0]:
         raise ValueError('teacher geometry inconsistent with distance')
     if document['original_symbolic_givens']!=['external charge +Q','grounded conducting sphere radius R','centre distance r>R']:
@@ -31,7 +41,7 @@ def check(document:dict)->dict:
     expected_charge = -q*R/d
     for key in ('native_sphere_net_charge_c','native_image_charge_c'):
         got=document.get(key)
-        if type(got) is not float or not isfinite(got) or not isclose(got,expected_charge,rel_tol=5e-14,abs_tol=1e-24):
+        if type(got) is not float or not isfinite(got) or not isclose(got,expected_charge,rel_tol=5e-14,abs_tol=0.):
             raise ValueError('induced Kelvin net charge does not match original p61')
     if type(document.get('native_sphere_potential_v')) is not float or document['native_sphere_potential_v']!=0.0:
         raise ValueError('grounded sphere must have zero potential')
@@ -51,7 +61,7 @@ def check(document:dict)->dict:
         # Distinct denominator expression to the production's stable hypot route.
         distance = (d*d+R*R-2*d*R*cos(theta))**1.5
         analytic = -q*(d*d-R*R)/(4*pi*R*distance)
-        if not isclose(sigma,analytic,rel_tol=1.5e-13,abs_tol=1e-25):
+        if not isclose(sigma,analytic,rel_tol=1.5e-13,abs_tol=0.):
             raise ValueError(f'signed p61 local density mismatch at {i}')
     return {
         'schema':'conductor_sim.m41a_p61_kelvin_reference.v1',

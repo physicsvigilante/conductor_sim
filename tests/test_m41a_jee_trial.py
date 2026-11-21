@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 import pytest
@@ -78,6 +79,7 @@ def test_p61_static_source_givens_are_not_teacher_numbers(evidence):
     ('visual_html_status','actual_browser_pass'),
     ('educational_usefulness','improved_jee_scores'),
     ('textbook_answer_completeness','full_original_answer_verified'),
+    ('source_kind','official exam question'),('source_givens_vs_teacher','all numbers printed'),
     ('pdf_visible_caption','wrong'),('official_paper_crosswalk_status','new official exam evidence'),
 ])
 def test_forged_single_case_refused(evidence,field,value):
@@ -89,6 +91,7 @@ def test_forged_single_case_refused(evidence,field,value):
 
 
 @pytest.mark.parametrize('field,bad',[
+    ('frozen_charter_main_commit','invented'),
     ('registered_source_anchor_denominator',True),
     ('registered_source_anchor_denominator',13),
     ('physically_native_and_independently_referenced_scoped_routes',14),
@@ -135,7 +138,8 @@ def test_substituted_artifact_digest_and_removed_artifact_refused(evidence):
 
 @pytest.mark.parametrize('mutation',[
   ('source_id','p60-fake-grounded'),
-  ('source_pdf_page',False),
+  ('source_pdf_page',False), ('source_pdf_page',61.0),
+  ('original_asked','What is the switch current at t=1 s?'),
   ('not_physical_time_evolution',False),
   ('source_symbolic_final_charge','-Q*R/(r-R)'),
   ('native_sphere_net_charge_c',False),
@@ -152,10 +156,53 @@ def test_forged_p61_source_and_si_refused(evidence,mutation):
 def test_p61_forged_signed_density_and_bool_q_refused(evidence):
     directory,_=evidence
     native=json.loads((directory/'p61/p61-native.json').read_text())
-    for case in ['charge','sigma','angle','source-position']:
+    for case in ['charge','sigma','angle','source-position','boolean-coordinate']:
         data=deepcopy(native)
+        if case=='boolean-coordinate': data['teacher_numeric_values_not_printed']['sphere_center_m'][2]=False
         if case=='charge': data['teacher_numeric_values_not_printed']['Q_c']=True
         if case=='sigma': data['native_signed_sigma_samples'][0]['sigma_c_per_m2']*=-1
         if case=='angle': data['native_signed_sigma_samples'][0]['theta_rad']=False
         if case=='source-position': data['teacher_numeric_values_not_printed']['charge_position_m'][0]=-.31
         with pytest.raises(ValueError): check_p61(data)
+
+
+def test_native_file_cannot_stand_in_for_reference(evidence):
+    directory, original = evidence
+    report = deepcopy(original)
+    files = report['evidence_files']['p61']
+    files['separate_reference_path'] = files['native_path']
+    files['separate_reference_sha256'] = files['native_sha256']
+    with pytest.raises(ValueError):
+        check_trial(report, directory)
+
+
+def test_rehashed_wrong_signed_native_charge_rejected(evidence, tmp_path):
+    import shutil
+
+    directory, original = evidence
+    report = deepcopy(original)
+    files = report['evidence_files']
+    for record in files.values():
+        for field in ('native_path', 'separate_reference_path'):
+            path = Path(record[field])
+            (tmp_path / path.parent).mkdir(exist_ok=True)
+            shutil.copyfile(directory / path, tmp_path / path)
+    path = tmp_path / files['p61']['native_path']
+    data = json.loads(path.read_text(encoding='utf-8'))
+    data['native_sphere_net_charge_c'] *= -1
+    path.write_text(json.dumps(data), encoding='utf-8')
+    files['p61']['native_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match='induced Kelvin net charge'):
+        check_trial(report, tmp_path)
+
+
+def test_tiny_opposite_sign_teacher_example_rejected(evidence):
+    directory, _ = evidence
+    case = json.loads((directory / 'p61/p61-native.json').read_text(encoding='utf-8'))
+    case['teacher_numeric_values_not_printed']['Q_c'] = 1e-31
+    for field in ('native_sphere_net_charge_c', 'native_image_charge_c'):
+        case[field] *= -1e-22
+    for point in case['native_signed_sigma_samples']:
+        point['sigma_c_per_m2'] *= -1e-22
+    with pytest.raises(ValueError, match='teacher example parameters'):
+        check_p61(case)
