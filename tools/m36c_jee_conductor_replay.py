@@ -18,6 +18,7 @@ from conductor_sim import (
     ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell,
 )
 from conductor_sim.solver import SingularField
+from tools.legacy_source_fallback import with_static_summary
 from conductor_sim.visualization import SliceSpec, sample_sweep, write_visualization
 from conductor_sim.pdf_benchmark import load_case, measure, export_case
 from conductor_sim.pdf_benchmark import PDF_NAME, PDF_SHA256
@@ -266,8 +267,10 @@ def _p27_original_A_B(directory: Path) -> dict:
         f'V(B) = {o.potential_at(B):.9g} V. '
         f'Printed ideal-thin formula comparison: V(A) = {ideal_A:.9g} V, '
         f'V(B) = {ideal_B:.9g} V. '
-        'A is an illustrative cavity probe at r=0.04m; B is an illustrative '
-        'gap probe at r1=0.15m. Source original radii/charges are symbolic; '
+        f'Teacher example: central q = {q*1e9:g} nC, inner shell q₁ = {q1*1e9:g} nC, '
+        f'outer shell q₂ = {q2*1e9:g} nC. The shell radii are a = {a:.2f} m and b = {b:.2f} m. '
+        f'A is an illustrative cavity probe at r={r_A:g}m; B is an illustrative '
+        f'gap probe at r1={r_B:g}m. Source original radii/charges are symbolic; '
         'these numerical values and a 1-micrometre metal thickness are TEACHER choices. '
         'The second stored state moves the charge by 2cm as a TEACHER EXTENSION ONLY; '
         'it does NOT answer the original central-charge V(A)/V(B) formula.'
@@ -277,7 +280,14 @@ def _p27_original_A_B(directory: Path) -> dict:
     if "</header>" not in html:
         raise ValueError("cannot render original p27 A/B observables visibly")
     output.write_text(
-        html.replace("</header>",original_readout+"</header>",1),
+        with_static_summary(
+            html.replace("</header>",original_readout+"</header>",1),
+            hide="main > section.card, main > aside",
+            summary=("For the printed thin shells, V(A) = k(q/r + q₁/a + q₂/b) and "
+                     "V(B) = k((q + q₁)/r₁ + q₂/b), with zero potential at infinity. "
+                     "The source panel above gives the native values for the teacher’s numerical example. "
+                     "The cross-section, density plot and shifted-charge comparison require JavaScript."),
+        ),
         encoding="utf-8",
     )
     # Record actual finite-thickness results separately from the zero-metal-

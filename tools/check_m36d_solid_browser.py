@@ -26,7 +26,7 @@ SOURCE_INTRO = (
 SOURCE_BANNER = (
     "SOURCE GEOMETRY: genuinely SOLID conducting sphere. "
     "The original p26 Illustration 1 asks V(R/2) and V(3R/2) "
-    "of a charged SOLID conductor, and zero E inside its metal. "
+    "of a charged SOLID conductor. The native zero field inside the metal is an additional check. "
     "The first stored state uses REAL SolidSphere physics and a solid "
     "disk cross-section, NOT the historical hollow-shell proxy. "
     "A TRUE SOLID has ONE outer charged face and NO physical inner face; "
@@ -117,7 +117,7 @@ def check(directory:Path)->dict:
                 answer_panel=page.locator("#m36e-source-observations")
                 if not answer_panel.is_visible():
                     raise AssertionError("JEE original source potential readouts not visibly presented")
-                if "Original JEE p26: native potential observations" not in answer_panel.inner_text():
+                if "Notes p26 Illustration 1 · native potential observations" not in answer_panel.inner_text():
                     raise AssertionError("original textbook question not visibly identified")
                 if answer_panel.locator("p").first.inner_text().strip()!=SOURCE_INTRO:
                     raise AssertionError(
