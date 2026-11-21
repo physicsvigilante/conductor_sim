@@ -8,6 +8,7 @@ is never used to paint a two-dimensional field map.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from fractions import Fraction
 from html import escape
 import json
 from math import fsum, hypot, isclose, isfinite, ulp
@@ -15,6 +16,7 @@ from pathlib import Path
 import re
 
 from .model import ElectrostaticProblem, PointCharge
+from .affine_fields import AffineFieldAssembly, _observed
 from .prescribed_fields import (
     PrescribedField, FixedPointField, UniformElectricField,
     UniformRingAxisField, UniformDiskAxisField, UniformShellField, UniformRodField,
@@ -331,20 +333,26 @@ def endpoint_field_work(field: PrescribedField, *, source_annotations,
     if start == end:
         raise ValueError("work endpoints must differ")
     components=[]
+    voltage_drops = []
     for entry,source in zip(ann,field.sources):
         try:
             va = source.potential_at(start, permittivity_f_m=field.permittivity_f_m)
             vb = source.potential_at(end, permittivity_f_m=field.permittivity_f_m)
         except SingularField as err:
             raise UnsupportedProblem("work endpoint lies on an ideal fixed-source singularity") from err
+        # Uniform fields admit a direct line integral, independent of their
+        # arbitrary reference. Keep absolute potentials as display observations.
+        if type(source) is UniformElectricField:
+            drop = -AffineFieldAssembly((source,))._voltage_change(start, end)
+        else:
+            drop = Fraction(va) - Fraction(vb)
+        voltage_drops.append(drop)
         components.append(dict(id=entry["id"],label=entry["label"],kind=entry["kind"],
                                start_potential_v=va,end_potential_v=vb,
-                               field_work_j=q*(va-vb)))
+                               field_work_j=_observed(Fraction(q)*drop)))
     va = field.potential_at(start)
     vb = field.potential_at(end)
-    work = q*fsum(x["start_potential_v"]-x["end_potential_v"] for x in components)
-    if not isclose(work,q*(va-vb),rel_tol=5e-12,abs_tol=1e-11):
-        raise ValueError("work decomposition contradicts source potentials")
+    work = _observed(Fraction(q) * sum(voltage_drops))
     # Work requires endpoint potentials, not a defined E at an ideal surface.
     # Retain the optional field observations where available; never substitute
     # zero, suppress an unsupported law, or conceal an undefined potential.
