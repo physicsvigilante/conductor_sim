@@ -241,3 +241,7 @@ __all__ += [
 
 from .conducting_drops import ConductingDropEquilibria, combine_isolated_drops
 __all__ += ["ConductingDropEquilibria", "combine_isolated_drops"]
+
+
+from .point_charge_work import PointChargeRearrangement, rearrange_point_charges
+__all__ += ["PointChargeRearrangement", "rearrange_point_charges"]
