@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Integral
 from typing import TypeAlias
 
 from ._directions import unit_direction
@@ -21,7 +22,10 @@ def _position(value: Vector3, name: str) -> Vector3:
         valid = False
     if not valid:
         raise ValueError(f"{name} must contain exactly three finite coordinates")
-    return tuple(float(v) for v in value)
+    normalized = tuple(float(v) for v in value)
+    if any(isinstance(v, Integral) and int(v) != stored for v, stored in zip(value, normalized)):
+        raise ValueError(f"{name} contains an integer coordinate that loses precision in binary64")
+    return normalized
 
 @dataclass(frozen=True, slots=True)
 class Grounded:
