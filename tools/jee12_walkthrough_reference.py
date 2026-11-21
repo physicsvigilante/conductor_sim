@@ -31,7 +31,18 @@ def number(value, label: str, expected: float, *, rtol: float = 3e-11, atol: flo
 
 
 def exact(value, expected, label: str):
-    demand(type(value) is type(expected) and value == expected, label + " source/provenance mismatch")
+    mismatch = label + " source/provenance mismatch"
+    demand(type(value) is type(expected), mismatch)
+    if isinstance(expected, dict):
+        demand(value.keys() == expected.keys(), mismatch)
+        for key in expected:
+            exact(value[key], expected[key], f"{label}.{key}")
+    elif isinstance(expected, list):
+        demand(len(value) == len(expected), mismatch)
+        for i, item in enumerate(expected):
+            exact(value[i], item, f"{label}[{i}]")
+    else:
+        demand(value == expected, mismatch)
 
 
 def source(record: dict, *, case: str, page: int, anchor: str):

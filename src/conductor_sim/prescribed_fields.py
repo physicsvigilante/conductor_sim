@@ -6,7 +6,7 @@ true off-axis E/V; the historical axial-only type stays unchanged. Charged mater
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import copysign, fsum, hypot, inf, isfinite, log1p, pi, sqrt, ulp
+from math import copysign, frexp, fsum, hypot, inf, isfinite, ldexp, log1p, pi, sqrt, ulp
 from typing import Protocol
 from sys import float_info
 
@@ -27,7 +27,13 @@ def _number(value, name, *, positive=False, nonzero=False):
 def _vector(value, name):
     if not isinstance(value, (tuple, list)) or len(value) != 3:
         raise ValueError(f'{name} must contain three finite numbers')
-    return tuple(_number(x, name) for x in value)
+    try:
+        converted = tuple(_number(x, name) for x in value)
+    except OverflowError as exc:
+        raise ValueError(f'{name} is outside binary64 range') from exc
+    if any(x != rounded for x, rounded in zip(value, converted)):
+        raise ValueError(f'{name} integer is not exactly representable in binary64')
+    return converted
 
 
 def _sub(a, b):
@@ -126,7 +132,7 @@ class FixedPointField(_FixedSource):
         return k*self.charge_c/r, _mul(d, (k*self.charge_c/r)/r/r)
 
     def clearance_at(self, point_m):
-        return hypot(*_sub(point_m, self.position_m))
+        return hypot(*_sub(_vector(point_m, 'sample position'), self.position_m))
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +174,7 @@ class UniformShellField(_RadialDistribution):
         return k*self.charge_c/max(r, self.radius_m), field
 
     def clearance_at(self, point_m):
-        return abs(hypot(*_sub(point_m, self.center_m))-self.radius_m)
+        return abs(hypot(*_sub(_vector(point_m, 'sample position'), self.center_m))-self.radius_m)
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,10 +298,11 @@ class UniformRingField(_AxialDistribution):
             c2 = (a2-2*z2)/(4*h2*h2)
             c4 = (9*a2*a2-72*a2*z2+24*z2*z2)/(64*h2**4)
             pot = (1 + c2*rr*rr + c4*rr**4)/h
-            radial = -(2*c2*rr + 4*c4*rr**3)/h
-            axial_field = (zz/h**3 +
-                rr*rr*zz*(9*a2-6*z2)/(4*h2**3.5) +
-                rr**4*zz*(225*a2*a2-600*a2*z2+120*z2*z2)/(64*h2**5.5))
+            radial_factor = -(2*c2 + 4*c4*rr**2)/h
+            radial_length = scale
+            axial_factor = (1/h**3 +
+                rr*rr*(9*a2-6*z2)/(4*h2**3.5) +
+                rr**4*(225*a2*a2-600*a2*z2+120*z2*z2)/(64*h2**5.5))
         else:
             b = hypot(aa+rr, zz)
             d = hypot(aa-rr, zz)
@@ -304,15 +311,35 @@ class UniformRingField(_AxialDistribution):
                 raise SingularField("ring is too near its ideal wire for resolved E/V")
             K, E = _complete_ring_elliptics(complementary)
             pot = 2*K/(pi*b)
-            axial_field = 2*zz*E/(pi*b*d*d)
-            radial = (K + ((rr*rr-aa*aa-zz*zz)/(d*d))*E)/(pi*rr*b)
-        strength = k*self.charge_c
-        potential = strength*pot/scale
-        ez = strength*axial_field/(scale*scale)
-        er = strength*radial/(scale*scale)
-        if rho == 0:
-            return potential, _mul(self.axis, ez)
-        return potential, tuple(ez*self.axis[i]+er*transverse[i]/rho for i in range(3))
+            axial_factor = 2*E/(pi*b*d*d)
+            radial_factor = (K + ((rr*rr-aa*aa-zz*zz)/(d*d))*E)/(pi*rr*b)
+            radial_length = rho
+        # Restore SI dimensions without forming kQ or scale² at full size.
+        # Mantissas have bounded magnitude even when their exponents exceed
+        # the binary64 range; round only after applying the combined exponent.
+        km, ke = frexp(k)
+        qm, qe = frexp(self.charge_c)
+        sm, se = frexp(scale)
+        def dimensional(value, power, *factors, divisor=1.):
+            # Keep tiny physical offsets and direction components factored
+            # until kQ and the length denominators have all been accounted for.
+            mantissa, exponent = frexp(value)
+            for factor in factors:
+                fm, fe = frexp(factor)
+                mantissa *= fm
+                exponent += fe
+            dm, de = frexp(divisor)
+            try:
+                return ldexp(km*qm*mantissa / (sm**power*dm),
+                             ke+qe+exponent-power*se-de)
+            except OverflowError as exc:
+                raise ValueError('ring observation exceeds binary64 range') from exc
+
+        potential = dimensional(pot, 1)
+        return potential, tuple(
+            dimensional(axial_factor, 3, z, axis)
+            + dimensional(radial_factor, 2, offset, divisor=radial_length)
+            for axis, offset in zip(self.axis, transverse))
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,7 +356,7 @@ class UniformDiskAxisField(_AxialDistribution):
         return potential, _mul(self.axis, copysign(1., z)*2*k*self.charge_c/h/(h+abs(z)))
 
     def clearance_at(self, point_m):
-        return abs(self._coordinate(point_m))
+        return abs(self._coordinate(_vector(point_m, 'sample position')))
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,7 +405,7 @@ class UniformRodField(_FixedSource):
         return potential, tuple(axial*n[i]+radial_factor*transverse[i] for i in range(3))
 
     def clearance_at(self, point_m):
-        length, _, s, _, rho = self._coordinates(point_m)
+        length, _, s, _, rho = self._coordinates(_vector(point_m, 'sample position'))
         return hypot(rho, max(-s, s-length, 0.))
 
 
