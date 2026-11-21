@@ -29,6 +29,21 @@ def _inverse_distance_bounds(squared_distance, precision):
     return low, low + unit
 
 
+def reciprocal_distance_sum_at_most(terms, maximum):
+    """Certify a geometric row of positive weights against an exact limit."""
+    for bits in (64, 128, 256, 512, 1024):
+        lower = upper = Fraction(0)
+        for squared_distance, weight in terms:
+            lo, hi = _inverse_distance_bounds(squared_distance, bits)
+            lower += weight * lo
+            upper += weight * hi
+        if upper <= maximum:
+            return True
+        if lower > maximum:
+            return False
+    raise UnsupportedProblem("far-separation admission unresolved at the threshold")
+
+
 def _combine_commensurate_terms(terms):
     """Group reciprocal distances whose ratio is rational, without factoring coordinates."""
     groups = {}
@@ -45,12 +60,16 @@ def _combine_commensurate_terms(terms):
 
 def coulomb_sum(coefficients, permittivity):
     """Round k times a signed sum of weights over distances, keyed by squared distance."""
+    return reciprocal_distance_sum(coefficients, Fraction(4 * pi) * Fraction(permittivity))
+
+
+def reciprocal_distance_sum(coefficients, denominator=1):
+    """Round a signed sum of weights over distance, divided by a positive factor."""
     # Aggregate equal pair distances first. This proves cancellation for
     # symmetric configurations even when the common distance is irrational.
     terms = [(distance, weight) for distance, weight in coefficients.items() if weight]
     if not terms:
         return 0.0
-    denominator = Fraction(4 * pi) * Fraction(permittivity)
     for bits in (64, 128, 256, 512, 1024):
         if bits == 128:
             # The first bounds usually suffice. A second pass can prove exact
