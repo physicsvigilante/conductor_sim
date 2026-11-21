@@ -241,3 +241,6 @@ __all__ += [
 
 from .conducting_drops import ConductingDropEquilibria, combine_isolated_drops
 __all__ += ["ConductingDropEquilibria", "combine_isolated_drops"]
+
+from .radial_voltage import prepare_radial_voltages
+__all__ += ["prepare_radial_voltages"]
