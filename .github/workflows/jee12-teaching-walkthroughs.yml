@@ -1,0 +1,110 @@
+name: JEE-12 native original answers and offline Chromium
+on:
+  push:
+    branches: [jee12-two-original-answer-walkthroughs, main]
+    paths:
+      - '.github/workflows/jee12-teaching-walkthroughs.yml'
+      - 'tools/jee12_walkthroughs.py'
+      - 'tools/jee12_walkthrough_reference.py'
+      - 'tools/check_jee12_walkthroughs_browser.py'
+      - 'tools/test_jee12_walkthroughs_browser.py'
+      - 'tests/test_jee12_walkthroughs.py'
+      - 'src/conductor_sim/**'
+      - 'examples/solid_sphere_connected.py'
+      - 'docs/jee12_evaluation_cohort.json'
+      - '02_conductors_half_size.pdf'
+      - 'pyproject.toml'
+  pull_request:
+    paths:
+      - '.github/workflows/jee12-teaching-walkthroughs.yml'
+      - 'tools/jee12_walkthroughs.py'
+      - 'tools/jee12_walkthrough_reference.py'
+      - 'tools/check_jee12_walkthroughs_browser.py'
+      - 'tools/test_jee12_walkthroughs_browser.py'
+      - 'tests/test_jee12_walkthroughs.py'
+      - 'src/conductor_sim/**'
+      - 'examples/solid_sphere_connected.py'
+      - 'docs/jee12_evaluation_cohort.json'
+      - '02_conductors_half_size.pdf'
+      - 'pyproject.toml'
+permissions:
+  contents: read
+
+jobs:
+  qualified-native-and-standalone-si:
+    name: native source answers and independent SI (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install released engine and pytest
+        run: python -m pip install -e ".[test]"
+      - name: Record actual source identity and original PDF hash
+        run: |
+          mkdir -p review-artifacts/jee12-walkthroughs
+          git rev-parse HEAD | tee review-artifacts/jee12-walkthroughs/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/jee12-walkthroughs/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/jee12-walkthroughs/pdf-sha256.txt
+      - name: Execute real native original/teacher cases and tamper refusals
+        run: |
+          python -m pytest tests/test_jee12_walkthroughs.py -q --junitxml=review-artifacts/jee12-walkthroughs/focused-tests.xml
+      - name: Generate authentic static pages and independently check source SI
+        run: |
+          python -m tools.jee12_walkthroughs --output-dir review-artifacts/jee12-walkthroughs/pages
+          python -m tools.jee12_walkthrough_reference --input-dir review-artifacts/jee12-walkthroughs/pages | tee review-artifacts/jee12-walkthroughs/independent-si.log
+      - name: Retain actual source SI and first failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jee12-walkthroughs-native-${{ matrix.python-version }}
+          path: review-artifacts/jee12-walkthroughs/
+          retention-days: 21
+          if-no-files-found: warn
+
+  real-offline-chromium:
+    name: two original answer diagrams in actual offline Chromium JS-on/off
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install released engine, pytest and real Chromium
+        run: |
+          python -m pip install -e ".[test]" "playwright==1.57.0"
+          python -m playwright install chromium
+      - name: Record original exact source and PDF bytes
+        run: |
+          mkdir -p review-artifacts/jee12-walkthroughs
+          git rev-parse HEAD | tee review-artifacts/jee12-walkthroughs/source-head.txt
+          git rev-parse HEAD^{tree} | tee review-artifacts/jee12-walkthroughs/source-tree.txt
+          sha256sum 02_conductors_half_size.pdf | tee review-artifacts/jee12-walkthroughs/pdf-sha256.txt
+      - name: Re-execute native physics and independent original SI checker
+        run: |
+          python -m tools.jee12_walkthroughs --output-dir review-artifacts/jee12-walkthroughs/pages
+          python -m tools.jee12_walkthrough_reference --input-dir review-artifacts/jee12-walkthroughs/pages
+      - name: Inspect actual offline original-answer diagrams and no-JS/mobile data
+        run: |
+          python -m tools.check_jee12_walkthroughs_browser --input-dir review-artifacts/jee12-walkthroughs/pages | tee review-artifacts/jee12-walkthroughs/browser.log
+      - name: Reject incorrect visible field-work sign in Chromium
+        run: python -m pytest tools/test_jee12_walkthroughs_browser.py -q
+      - name: Retain real browser screenshots/logs including first failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jee12-walkthroughs-chromium
+          path: review-artifacts/jee12-walkthroughs/
+          retention-days: 21
+          if-no-files-found: warn
