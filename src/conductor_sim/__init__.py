@@ -237,3 +237,7 @@ __all__ += [
     "author_prescribed_grounded_sphere", "PrescribedSphereRadialSpec", "PrescribedSphereSample", "PrescribedSphereTrace",
     "sample_prescribed_sphere_radial",
 ]
+
+
+from .conducting_drops import ConductingDropEquilibria, combine_isolated_drops
+__all__ += ["ConductingDropEquilibria", "combine_isolated_drops"]

@@ -7,6 +7,7 @@
 | Layer | Reusable entry points | Qualified scope and limits |
 | --- | --- | --- |
 | Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. |
+| Conducting drops | [combine_isolated_drops](conducting_drop_equilibria.md) | Combines independently equilibrated spherical drops by conserving charge and volume, then solves the final sphere. Accepts unequal radii and either charge sign. |
 | Prescribed sources | `PrescribedField` and supported point, rod, ring, disk-axis, sphere/shell and uniform-field components | Fixed nonresponding source fields can be superposed where all component domains are valid. Full ring and ring-axis providers have different domains; a prescribed source is not automatically a responding conductor. |
 | Particle observations | `TestChargeMotionSpec`, native trajectory/event/driven APIs, qualified electric/gravity composition | Real elapsed-time integration in certified axes/planes, with guards, terminal events and censored outcomes. Not unrestricted many-body or general 3D motion. |
 | Physical/structural revision | `PrescribedScenario`, `revise_scenario`, named-source `reassemble_scenario` | Retained models, stable source IDs, parameter changes and atomic source-inventory revisions. Every revised system is requalified. This identity layer is not a universal schema for every older backend. |
