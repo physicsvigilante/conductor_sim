@@ -522,8 +522,7 @@ def validate_event_run(run):
                 abs(_dot(row.displacement_m,spec.plane_normal)) > 1e-9*max(
                     spec.length_scale_m, hypot(*row.displacement_m))):
             raise ValueError('saved event displacement violates launch plane')
-        if (not reconstructs_position(spec.particle.position_m, row.displacement_m, row.position_m)
-                and row.displacement_m != expected.displacement_m):
+        if not reconstructs_position(spec.particle.position_m, row.displacement_m, row.position_m):
             raise ValueError('saved event displacement mismatch')
         for key in ('force_n','electric_field_v_m','acceleration_m_s2'):
             if getattr(row,key)!=getattr(expected,key):raise ValueError('saved event force/field mismatch')

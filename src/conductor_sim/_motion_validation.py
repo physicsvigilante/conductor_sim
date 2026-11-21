@@ -35,8 +35,8 @@ def _close(a, b):
 
 
 def reconstructs_position(origin, displacement, position):
-    """A resolved displacement can be smaller than the world-position ULP."""
-    return all(a + d == p for a, d, p in zip(origin, displacement, position))
+    """Each RK axis stores either world position or launch-relative displacement."""
+    return all(a + d == p or p - a == d for a, d, p in zip(origin, displacement, position))
 
 
 def normal_roundoff(position, normal):

@@ -10,6 +10,7 @@ from conductor_sim import (
     SphericalShell, integrate_test_charge,
 )
 from conductor_sim.jee_potential_explorer import endpoint_field_work
+from conductor_sim._motion_validation import reconstructs_position
 from conductor_sim.model import EPSILON_0
 from conductor_sim.prescribed_fields import (
     FixedPointField, PrescribedField, UniformElectricField, UniformRingAxisField, UniformRingField,
@@ -68,6 +69,13 @@ def test_rebasing_respects_the_tighter_oblique_plane_tolerance():
     result = integrate_test_charge(spec)
     assert result.termination == "duration"
     assert result.samples[-1].displacement_m == pytest.approx((speed, speed, 0.), abs=1e-12)
+
+
+def test_mixed_motion_axes_validate_the_observation_kept_on_each_axis():
+    launch, position = (1e9, 1., 0.), (1e9, .1, 0.)
+    displacement = (1e-8, position[1] - launch[1], 0.)
+    assert reconstructs_position(launch, displacement, position)
+    assert not reconstructs_position(launch, displacement, (1e9, .11, 0.))
 
 
 def test_inner_density_at_accepted_surface_direction():
