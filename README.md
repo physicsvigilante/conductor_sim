@@ -11,7 +11,7 @@ Scientifically qualified, LLM-authorable **teaching simulations for JEE electros
 | What are the field, potential, force and energy near a qualified conductor? | Typed `ElectrostaticProblem`, analytical backends and optional FEMM; [architecture](docs/architecture.md), [force/energy examples](examples/force_energy.py). |
 | How does a test charge move in a supported fixed-source arrangement? | Prescribed fields, native motion/event observers and source guards; [prescribed-source distinction](docs/m19a.md), [structural source reuse](docs/m22a.md). |
 | How does a physical revision change a verified observation? | Retained `PrescribedScenario`, source identities, sweeps and optional graph/fork inquiries; [multi-stage exploration](docs/m35a.md). |
-| Which existing examples are tied to original JEE source material? | [M36b](docs/m36b.md), [M36c](docs/m36c.md), [actual solid-sphere refinement](docs/m36d.md), [constant-speed grounding current](docs/m37b.md). Source givens and teacher choices stay separate. |
+| Which existing examples are tied to original JEE source material? | [M36b](docs/m36b.md), [M36c](docs/m36c.md), [actual solid-sphere refinement](docs/m36d.md), [constant-speed grounding current](docs/m37b.md), and [speed at the origin, workbook p14 Q6](examples/workbook_origin_crossing.py) (`python -m examples.workbook_origin_crossing`). Source givens and teacher choices stay separate. |
 | Why can a neutral cavity face have nonzero local induced charge density? | [M39a whole-face Gauss totals](docs/m39a.md), [M40a spherical local sigma](docs/m40a.md), [M40b offline geometry and point atlas](docs/m40b.md). |
 
 ## Generate an offline example
