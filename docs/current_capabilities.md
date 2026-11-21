@@ -8,6 +8,7 @@ The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve h
 | --- | --- | --- |
 | Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. |
 | Straight-guide energy barrier | `straight_path_energy_barrier` | Finds the maximum potential energy rise along a straight segment in combined affine fields and uniform volume-sphere interiors. [Workbook p3 Q35](straight_path_energy_barrier.md) |
+| Radial field graphs | `RadialFieldGraph` | Evaluate a signed outward field profile at Cartesian probes about a common centre. [Workbook p4 Q38](radial_field_graph.md) |
 | Point-charge assembly energy | `insert_point_charge`, `interaction_energy_j` | Total pair energy and signed work of bringing one charge from infinity. [Workbook p4 Q37 and Q44](point_charge_assembly.md) |
 | Infinite parallel charged sheets | `ParallelSheetField` | Signed regional fields, continuous potentials and endpoint work, with qualified axial gap graphs. [Workbook Q46 and Q48](parallel_sheet_field.md) |
 | Axial field graphs | `AxialFieldGraph` | Integrates continuous piecewise-linear fields and superposes them over their common axis interval. [Workbook p4 Q40](axial_field_graph.md) |
