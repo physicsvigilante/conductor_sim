@@ -13,9 +13,10 @@ from math import copysign, fsum, hypot, isfinite, sqrt, ulp
 import re
 
 from ._motion_rk4 import rk4_step
+from ._motion_validation import reconstructs_position
 from .conservative_forces import CONTRIBUTION_KEYS
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
-from .motion_2d import _SurfaceGuard, _ChargeGuard
+from .motion_2d import _SurfaceGuard, _ChargeGuard, _world_state
 from .prescribed_fields import _dot, _sub, _mul, _unit, _vector, _number
 from .prescribed_motion import (_FixedDomain, _integrate_test_charge,
                                 TestChargeSample, TestChargeMotionResult)
@@ -228,7 +229,7 @@ class EventRun:
                 'Terminal planes stop observation, never imply impact/charge transfer.'))
 
 
-def _sample(spec, t, state):
+def _sample(spec, t, state, displacement=None):
     p,v=tuple(state[:3]),tuple(state[3:])
     obs=spec.forces.observe(p,charge_c=spec.particle.charge_c,mass_kg=spec.mass_kg)
     initial=spec.forces.observe(spec.particle.position_m,charge_c=spec.particle.charge_c,mass_kg=spec.mass_kg)
@@ -237,7 +238,9 @@ def _sample(spec, t, state):
         obs.electric_potential_energy_j-initial.electric_potential_energy_j,
         obs.gravitational_potential_energy_j-initial.gravitational_potential_energy_j))
     parts={key:getattr(obs,key) for key in CONTRIBUTION_KEYS} if spec.gravity else {}
-    return TestChargeSample(t,_sub(p,spec.particle.position_m),p,v,
+    if displacement is None:
+        displacement = _sub(p,spec.particle.position_m)
+    return TestChargeSample(t,displacement,p,v,
         tuple(f/spec.mass_kg for f in obs.force_n),spec.field.electric_field_at(p),
         spec.field.potential_at(p),obs.force_n,k,obs.potential_energy_j,
         k+obs.potential_energy_j,drift,**parts)
@@ -296,6 +299,14 @@ class _Monitor:
 
     def __call__(self,t,y,h,half,fine,rhs):
         cache={0.:y,1.:fine}
+        origin = self.spec.particle.position_m
+
+        def value(q, local):
+            if type(q) is PlaneEvent:
+                plane_offset = _sub(q.point_m, origin)
+                return _dot(_sub(local[:3], plane_offset), q.normal)
+            return _dot(local[3:6], q.axis)
+
         def state(x):
             if x in cache:return cache[x]
             self.evaluations+=1
@@ -308,15 +319,15 @@ class _Monitor:
                 z=rk4_step(middle,dt/2,rhs)
             except (_SurfaceGuard,_ChargeGuard):raise _Refine()
             ps=max(1e-11*self.spec.length_scale_m,self.spec.relative_tolerance*max(
-                self.spec.length_scale_m,hypot(*_sub(y[:3],self.spec.particle.position_m)),
-                hypot(*_sub(z[:3],self.spec.particle.position_m))))
+                self.spec.length_scale_m,hypot(*y[:3]),hypot(*z[:3])))
             vs=max(1e-10,self.spec.relative_tolerance*max(1.,hypot(*y[3:6]),hypot(*z[3:6])))
             if max(hypot(*_sub(coarse[:3],z[:3]))/(15*ps),
                    hypot(*_sub(coarse[3:6],z[3:6]))/(15*vs))>1:raise _Refine()
             if self.work_error is not None and self.work_error(coarse,z,y)>1:raise _Refine()
-            if (self.domain.clearance(z[:3])<=0 or
-                self.domain.charge_segment_clearance(y[:3],middle[:3])<=0 or
-                self.domain.charge_segment_clearance(middle[:3],z[:3])<=0):raise _Refine()
+            start, mid, end = (_world_state(origin,s)[:3] for s in (y,middle,z))
+            if (self.domain.clearance(end)<=0 or
+                self.domain.charge_segment_clearance(start,mid)<=0 or
+                self.domain.charge_segment_clearance(mid,end)<=0):raise _Refine()
             if hypot(*z[3:6])>=_NONRELATIVISTIC_SPEED_LIMIT_M_S:
                 raise UnsupportedProblem('event evaluation exceeds nonrelativistic regime')
             cache[x]=z
@@ -324,7 +335,7 @@ class _Monitor:
         located=[];uncertain=[];event_states={}
         try:
             for q in self.study.questions:
-                g0,g1=_value(q,y),_value(q,fine)
+                g0,g1=value(q,y),value(q,fine)
                 d0,d1=_derivative(q,y,rhs)*h,_derivative(q,fine,rhs)*h
                 a,b=2*g0-2*g1+d0+d1,-3*g0+3*g1-2*d0-d1
                 if not all(isfinite(v) for v in (g0,g1,d0,d1,a,b)):
@@ -335,7 +346,7 @@ class _Monitor:
                 # Dense polynomial proposes topology only. Check it against
                 # actual independent fractional steps before trusting proposals.
                 for x in (.25,.5,.75):
-                    gx=_value(q,state(x));values.append(gx)
+                    gx=value(q,state(x));values.append(gx)
                     if abs(gx-polynomial(x))>tol*.25:raise _Refine()
                 if all(v==0 for v in values) and d0==d1==0:
                     # No isolated root can be asserted for a continuum of zeros.
@@ -343,7 +354,7 @@ class _Monitor:
                         uncertain.append((q.event_id,t,t+h,'trajectory-on-or-unresolved-near-plane'))
                     continue
                 nodes=[0.,*_critical(a,b,d0),1.]
-                vals=[_value(q,state(x)) for x in nodes]
+                vals=[value(q,state(x)) for x in nodes]
                 for x,g in zip(nodes[1:-1],vals[1:-1]):
                     if abs(g)<=tol:
                         uncertain.append((q.event_id,t,t+h,'grazing-or-near-tangent: no transverse root certified'))
@@ -361,7 +372,7 @@ class _Monitor:
                         x=hi;L=H=x
                     else:
                         for _ in range(90):
-                            x=(L+H)/2;gx=_value(q,state(x))
+                            x=(L+H)/2;gx=value(q,state(x))
                             if H-L<=self.policy.time_tolerance_s/h and abs(gx)<=tol:break
                             if x==L or x==H:raise _Refine()
                             if gx==0:L=H=x;break
@@ -381,7 +392,9 @@ class _Monitor:
                             uncertain.append((q.event_id,previous.sample.time_s,time,
                                               'opposite crossings not temporally resolved'))
                         continue
-                    z=state(x);residual=_value(q,z)
+                    z=state(x)
+                    world = _world_state(origin, z)
+                    residual=_value(q,world)
                     derivative=_derivative(q,z,rhs)
                     # A near-stationary surface root is not a certified hit.
                     if type(q) is PlaneEvent and abs(derivative)<=self.policy.velocity_tolerance_m_s:
@@ -397,8 +410,8 @@ class _Monitor:
                         uncertain.append((q.event_id,t+L*h,t+H*h,
                             'near-stationary velocity root: reversal not resolved'))
                         continue
-                    row=(self.sample_factory(time,z) if self.sample_factory is not None
-                         else _sample(self.spec,time,z))
+                    row=(self.sample_factory(time,world) if self.sample_factory is not None
+                         else _sample(self.spec,time,world,z[:3]))
                     event_states[(q.event_id,time)]=z
                     located.append(LocatedEvent(q.event_id,
                         'plane-crossing' if type(q) is PlaneEvent else 'directional-reversal',
@@ -505,7 +518,14 @@ def validate_event_run(run):
             _vector(getattr(row,key),key)
         if _FixedDomain(spec).clearance(row.position_m)<=0:raise ValueError('event inside source guard')
         expected=_sample(spec,row.time_s,(*row.position_m,*row.velocity_m_s))
-        for key in ('displacement_m','force_n','electric_field_v_m','acceleration_m_s2'):
+        if ((row.time_s == 0 and any(row.displacement_m)) or
+                abs(_dot(row.displacement_m,spec.plane_normal)) > 1e-9*max(
+                    spec.length_scale_m, hypot(*row.displacement_m))):
+            raise ValueError('saved event displacement violates launch plane')
+        if (not reconstructs_position(spec.particle.position_m, row.displacement_m, row.position_m)
+                and row.displacement_m != expected.displacement_m):
+            raise ValueError('saved event displacement mismatch')
+        for key in ('force_n','electric_field_v_m','acceleration_m_s2'):
             if getattr(row,key)!=getattr(expected,key):raise ValueError('saved event force/field mismatch')
         for key in ('potential_v','kinetic_energy_j','potential_energy_j','total_energy_j','energy_drift_j'):
             a,b=getattr(row,key),getattr(expected,key)

@@ -7,11 +7,12 @@ numerical FEMM output and it does not describe several physical shells.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import fsum, isclose, isfinite, pi, sqrt
+from math import fsum, hypot, isclose, isfinite, pi, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, FixedNetCharge, PointCharge, SphericalShell, Vector3
 from .kelvin import image_term
+from .spherical_multicavity import _near_wall_sigma_precision
 from .model import _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 
@@ -86,20 +87,26 @@ class MultiImageShellSolution:
         expected_radius = self.shell.inner_radius_m if surface == "inner" else self.shell.outer_radius_m
         if len(point_m) != 3 or any(not isfinite(x) for x in point_m):
             raise ValueError("surface point must have three finite coordinates")
-        radius = _norm(_delta(point_m, self.shell.center_m))
-        if not isclose(radius, expected_radius, rel_tol=1e-10, abs_tol=1e-13):
+        direction = _delta(point_m, self.shell.center_m)
+        radius = hypot(*direction)
+        if radius == 0 or not isclose(radius, expected_radius, rel_tol=1e-10, abs_tol=1e-13):
             raise ValueError("point is not on the specified spherical surface")
         if surface == "outer":
             return self.conductor_results[0].outer_surface_charge_c/(4*pi*expected_radius**2)
         a = self.shell.inner_radius_m
         c = self.shell.center_m
-        sigma = 0.
+        wall = tuple((x / radius) * a for x in direction)
+        terms = []
         for source in self.charges:
             displacement = _delta(source.position_m, c)
-            d = _norm(displacement)
-            separation = _norm(_delta(point_m, source.position_m))
-            sigma -= source.charge_c*(a-d)*(a+d)/(4*pi*a*separation**3)
-        return sigma
+            d = hypot(*displacement)
+            if a - d < 1e-5 * a:
+                terms.append(_near_wall_sigma_precision(
+                    source.charge_c, a, source.position_m, c, point_m, normal_origin=c))
+            else:
+                separation = hypot(*_delta(wall, displacement))
+                terms.append(-source.charge_c*(a-d)*(a+d)/(4*pi*a*separation**3))
+        return fsum(terms)
 
 
 class MultiImageShellBackend:

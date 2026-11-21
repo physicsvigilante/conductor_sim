@@ -14,7 +14,8 @@ from math import fsum, hypot, inf, isfinite, ulp
 
 from .model import Vector3
 from .prescribed_fields import PrescribedField, UniformElectricField, _dot, _sub, _vector, _number
-from .prescribed_motion import _FixedDomain, _in_plane
+from .prescribed_motion import _FixedDomain
+from ._motion_validation import normal_roundoff
 from .scenarios import PrescribedScenario
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .motion_2d import _integrate_vector_motion, _SurfaceGuard
@@ -185,7 +186,9 @@ class DrivenStudy:
 def _observe(model, phase_index, position, velocity):
     spec=model.spec;domain=_FixedDomain(spec)
     if domain.clearance(position)<=0:raise _SurfaceGuard()
-    if not _in_plane(position,domain.origin,domain.normal,domain.scale):
+    delta = _sub(position, domain.origin)
+    if abs(_dot(delta, domain.normal)) > (1e-11 * max(domain.scale, hypot(*delta))
+                                          + normal_roundoff(position, domain.normal)):
         raise UnsupportedProblem('driven particle left qualified physical plane')
     if hypot(*velocity)>=_NONRELATIVISTIC_SPEED_LIMIT_M_S:
         raise UnsupportedProblem('driven motion must remain below 0.1c')
