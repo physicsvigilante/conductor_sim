@@ -8,7 +8,7 @@ by this solver. A true isolated SolidSphere has NO phantom inner cavity.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import fsum, hypot, isclose, pi
+from math import frexp, fsum, hypot, isclose, ldexp, pi
 from typing import Literal
 
 from .model import (ElectrostaticProblem, FixedNetCharge, Grounded,
@@ -98,8 +98,16 @@ class MixedRadialSolution:
             if r < conductor.outer_radius_m:
                 return (0.,0.,0.)
             if i+1 < len(shapes) and r < shapes[i+1].inner_radius_m:
-                return tuple(self._k*flux[i]*x/r**3 for x in delta)
-        return tuple(self._k*flux[-1]*x/r**3 for x in delta)
+                break
+        else:
+            i = len(flux) - 1
+        # Evaluate kQ/r² along the unit radius without forming r³. Splitting
+        # exponents preserves representable fields at large or small distances.
+        q_m, q_e = frexp(flux[i])
+        r_m, r_e = frexp(r)
+        k_m, k_e = frexp(self._k)
+        magnitude = ldexp(k_m*q_m/(r_m*r_m), k_e+q_e-2*r_e)
+        return tuple(magnitude * (x/r) for x in delta)
 
     def surface_charge_density_at(self, conductor_name: str,
                                   surface: Literal['inner','outer'],
