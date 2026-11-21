@@ -8,6 +8,7 @@ The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve h
 | --- | --- | --- |
 | Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. |
 | Straight-guide energy barrier | `straight_path_energy_barrier` | Finds the maximum potential energy rise along a straight segment in combined affine fields and uniform volume-sphere interiors. [Workbook p3 Q35](straight_path_energy_barrier.md) |
+| Axial field graphs | `AxialFieldGraph` | Integrates continuous piecewise-linear fields and superposes them over their common axis interval. [Workbook p4 Q40](axial_field_graph.md) |
 | Conservative affine fields | `ConservativeAffineField`, `AffineFieldAssembly` | Static E, potential and signed endpoint work for superposed symmetric-gradient and uniform fields. [Workbook p3 Q28](conservative_affine_fields.md) |
 | Ideal concentric conducting shells | `ConcentricThinShell`, `solve_thin_shell_charges` | Static net charges for isolated, grounded and floating-linked mathematical shells at specified radii. [Workbook p3 Q36](concentric_thin_shells.md) |
 | Successive grounding of distant spheres | `ground_and_disconnect_distant_sphere` | Named, one-at-a-time grounding in the explicit centre-monopole approximation. [Workbook p3 Q31](successive_distant_grounding.md) |

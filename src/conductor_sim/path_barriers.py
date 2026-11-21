@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from math import pi
 
-from .affine_fields import AffineFieldAssembly, _dot, _observed, _point, _scalar
+from .affine_fields import AffineFieldAssembly, _dot, _linear_integral, _observed, _point, _scalar
 from .model import EPSILON_0
 from .prescribed_fields import PrescribedField, UniformElectricField, UniformSphereField
 from .solver import UnsupportedProblem
@@ -85,7 +85,7 @@ class StraightPathEnergyProfile:
         s = fraction if isinstance(fraction, Fraction) else Fraction(_scalar(fraction))
         if not 0 <= s <= 1:
             raise ValueError("segment fraction must be between zero and one")
-        return _observed(s * (self.initial_slope + s * (self.final_slope - self.initial_slope) / 2))
+        return _observed(_linear_integral(self.initial_slope, self.final_slope, s))
 
     def barrier(self):
         if self.initial_slope > 0 > self.final_slope:
