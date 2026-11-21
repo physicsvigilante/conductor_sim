@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 from ._coulomb_sum import coulomb_sum
-from .model import EPSILON_0
+from .model import EPSILON_0, FixedNetCharge, SolidSphere
 from .prescribed_fields import _number
+from .solver import UnsupportedProblem
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,4 +71,22 @@ class CoaxialArcAssembly:
         q = Fraction(probe_charge_c)
         terms = ((distance, sign*q*weight) for z, sign in ((start_z_m, 1), (end_z_m, -1))
                  for distance, weight in self._terms(z))
+        return self._observe(terms)
+
+    def isolated_sphere_voltage_v(self, sphere):
+        """Equilibrium voltage relative to infinity of one isolated coaxial sphere."""
+        if type(sphere) is not SolidSphere or type(sphere.constraint) is not FixedNetCharge:
+            raise UnsupportedProblem("requires one solid sphere with fixed net charge")
+        x, y, z = sphere.center_m
+        if x != 0 or y != 0:
+            raise UnsupportedProblem("sphere centre must lie on the arc axis")
+        _number(sphere.radius_m, "sphere radius", positive=True)
+        _number(sphere.constraint.charge_c, "sphere net charge")
+        radius_squared = Fraction(sphere.radius_m)**2
+        terms = [(radius_squared, Fraction(sphere.constraint.charge_c))]
+        for distance_squared, charge in self._terms(z):
+            if distance_squared <= radius_squared:
+                raise UnsupportedProblem("all charge arcs must lie strictly outside the sphere")
+            terms.append((distance_squared, charge))
+        # Every surface charge element has the same distance to the centre.
         return self._observe(terms)
