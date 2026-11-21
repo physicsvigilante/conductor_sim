@@ -11,7 +11,7 @@ The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve h
 | Radial field graphs | `RadialFieldGraph` | Evaluate a signed outward field profile at Cartesian probes about a common centre. [Workbook p4 Q38](radial_field_graph.md) |
 | Point-charge assembly energy | `insert_point_charge`, `interaction_energy_j` | Total pair energy and signed work of bringing one charge from infinity. [Workbook p4 Q37 and Q44](point_charge_assembly.md) |
 | Infinite parallel charged sheets | `ParallelSheetField` | Signed regional fields, continuous potentials and endpoint work, with qualified axial gap graphs. [Workbook Q46 and Q48](parallel_sheet_field.md) |
-| Axial field graphs | `AxialFieldGraph` | Integrates continuous piecewise-linear fields and superposes them over their common axis interval. [Workbook p4 Q40](axial_field_graph.md) |
+| Axial field graphs | `AxialFieldGraph` | Integrates continuous linear or quadratic segments and superposes fields over their common axis interval. [Workbook Q40](axial_field_graph.md) and [Q55](quadratic_field_graph.md) |
 | Conservative affine fields | `ConservativeAffineField`, `AffineFieldAssembly` | Static E, potential and signed endpoint work for superposed symmetric-gradient and uniform fields. [Workbook p3 Q28](conservative_affine_fields.md) |
 | Ideal concentric conducting shells | `ConcentricThinShell`, `solve_thin_shell_charges` | Static net charges for isolated, grounded and floating-linked mathematical shells at specified radii. [Workbook p3 Q36](concentric_thin_shells.md) |
 | Successive grounding of distant spheres | `ground_and_disconnect_distant_sphere` | Named, one-at-a-time grounding in the explicit centre-monopole approximation. [Workbook p3 Q31](successive_distant_grounding.md) |
