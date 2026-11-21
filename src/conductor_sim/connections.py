@@ -9,6 +9,7 @@ HTML viewer stay unchanged. No conductor merger geometry or FEMM force claim.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from math import fsum, isclose, pi
 from typing import Literal
 
@@ -20,7 +21,7 @@ from .solver import UnsupportedProblem
 
 @dataclass(frozen=True, slots=True)
 class ElectricalLink:
-    """One wire connecting 2+ named shells, optionally tied to ideal ground.
+    """One floating wire joining shells, or a wire from named shells to earth.
 
     A floating link conserves the **sum** of its members' initial net charges.
     Its members must initially have individually prescribed FixedNetCharge.
@@ -35,10 +36,11 @@ class ElectricalLink:
         if not isinstance(self.members, (tuple, list)):
             raise TypeError('link members must be an ordered sequence of conductor names')
         members = tuple(self.members)
-        if (len(members) < 2 or any(not isinstance(name, str) or not name.strip()
+        minimum = 1 if self.mode == 'grounded' else 2
+        if (len(members) < minimum or any(not isinstance(name, str) or not name.strip()
                                      for name in members)
                 or len(set(members)) != len(members)):
-            raise ValueError('a link must name at least two distinct nonempty conductors')
+            raise ValueError(f'{self.mode} link needs at least {minimum} distinct nonempty conductor names')
         if self.mode not in ('floating', 'grounded'):
             raise ValueError("link mode must be 'floating' or 'grounded'")
         object.__setattr__(self, 'members', members)
@@ -88,6 +90,26 @@ class ConnectionResult:
     radial_field_energy_before_j: float
     radial_field_energy_after_j: float
     released_field_energy_j: float
+
+    def charge_to_ground_c(self, link: ElectricalLink) -> float:
+        """Signed conventional charge delivered to earth through this plan link."""
+        if link not in self.plan.links or link.mode != 'grounded':
+            raise ValueError("expected a grounded link in this connection plan")
+        if any(c.name in link.members and isinstance(c.constraint, Grounded)
+               for c in self.plan.initial.conductors):
+            raise UnsupportedProblem("an existing earth path makes transfer through the new wire ambiguous")
+        # Resolve the same radial equations with rational SI inputs before
+        # subtracting. Rounded equilibrium charges can reverse a small transfer.
+        shells, links, grouped = _layout(self.plan)
+        cavity = sum(Fraction(c.charge_c) for c in self.plan.initial.charges)
+        A, b = _coefficients(shells, cavity, exact=True)
+        after = _connection_charges(shells, links, grouped, A, b, exact=True)
+        received = sum(Fraction(shell.constraint.charge_c) - q
+                       for shell, q in zip(shells, after) if shell.name in link.members)
+        value = float(received)
+        if received and not value:
+            raise UnsupportedProblem("ground transfer is below the representable charge range")
+        return value
 
     def visualization(self, *, resolution: int = 31, line_steps: int = 140,
                       seeds=None, profile_samples: int = 55):
@@ -157,16 +179,52 @@ def _layout(plan: ConnectionPlan):
     return shells, tuple(linked), set(indices[name] for name in seen)
 
 
-def _coefficients(shells: tuple[SphericalShell, ...], charge_in_cavity: float):
+def _coefficients(shells: tuple[SphericalShell, ...], charge_in_cavity: float, *, exact=False):
     """Exact radial response V_i/k = b_i + sum_j A_ij Q_j."""
     n = len(shells)
-    gaps = [1/shells[k].outer_radius_m - 1/shells[k + 1].inner_radius_m
+    inverse = (lambda radius: 1 / Fraction(radius)) if exact else (lambda radius: 1 / radius)
+    total = sum if exact else fsum
+    gaps = [inverse(shells[k].outer_radius_m) - inverse(shells[k + 1].inner_radius_m)
             for k in range(n - 1)]
-    inv_outer = 1/shells[-1].outer_radius_m
-    A = [[inv_outer + fsum(gaps[k] for k in range(i, n - 1) if j <= k)
+    inv_outer = inverse(shells[-1].outer_radius_m)
+    A = [[inv_outer + total(gaps[k] for k in range(i, n - 1) if j <= k)
           for j in range(n)] for i in range(n)]
-    b = [charge_in_cavity * (inv_outer + fsum(gaps[i:])) for i in range(n)]
+    b = [charge_in_cavity * (inv_outer + total(gaps[i:])) for i in range(n)]
     return A, b
+
+
+def _connection_charges(shells, links, grouped, A, b, *, exact=False):
+    n = len(shells)
+    matrix: list[list[float]] = []
+    rhs: list[float] = []
+
+    for link, members in links:
+        reference = members[0]
+        for i in members[1:]:
+            matrix.append([A[i][j] - A[reference][j] for j in range(n)])
+            rhs.append(b[reference] - b[i])
+        if link.mode == 'floating':
+            matrix.append([1. if j in members else 0. for j in range(n)])
+            rhs.append(sum(Fraction(shells[i].constraint.charge_c) for i in members) if exact else
+                       fsum(shells[i].constraint.charge_c for i in members))
+        else:
+            matrix.append(A[reference][:])
+            rhs.append(-b[reference])
+    for i, shell in enumerate(shells):
+        if i in grouped:
+            continue
+        if isinstance(shell.constraint, Grounded):
+            matrix.append(A[i][:])
+            rhs.append(-b[i])
+        else:
+            matrix.append([1. if j == i else 0. for j in range(n)])
+            rhs.append(shell.constraint.charge_c)
+    if len(matrix) != n:
+        raise UnsupportedProblem('connection constraints do not determine one net charge per shell')
+    if exact:
+        matrix = [list(map(Fraction, row)) for row in matrix]
+        rhs = list(map(Fraction, rhs))
+    return _solve_linear(matrix, rhs)
 
 
 def _field_energy(solution: NestedShellSolution | MixedRadialSolution) -> float:
@@ -202,33 +260,7 @@ class ConnectedShellBackend:
         before = solver.solve(original)
         q_cavity = before.charge_inside_c
         A, b = _coefficients(shells, q_cavity)
-        n = len(shells)
-        matrix: list[list[float]] = []
-        rhs: list[float] = []
-
-        for link, members in links:
-            reference = members[0]
-            for i in members[1:]:
-                matrix.append([A[i][j] - A[reference][j] for j in range(n)])
-                rhs.append(b[reference] - b[i])
-            if link.mode == 'floating':
-                matrix.append([1. if j in members else 0. for j in range(n)])
-                rhs.append(fsum(shells[i].constraint.charge_c for i in members))
-            else:
-                matrix.append(A[reference][:])
-                rhs.append(-b[reference])
-        for i, shell in enumerate(shells):
-            if i in grouped:
-                continue
-            if isinstance(shell.constraint, Grounded):
-                matrix.append(A[i][:])
-                rhs.append(-b[i])
-            else:
-                matrix.append([1. if j == i else 0. for j in range(n)])
-                rhs.append(shell.constraint.charge_c)
-        if len(matrix) != n:
-            raise UnsupportedProblem('connection constraints do not determine one net charge per shell')
-        net = _solve_linear(matrix, rhs)
+        net = _connection_charges(shells, links, grouped, A, b)
         replacements = {}
         for i, shell in enumerate(shells):
             # Keep grounded members grounded when lowering; the existing
