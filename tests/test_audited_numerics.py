@@ -25,10 +25,6 @@ K = 1 / (4 * pi * EPSILON_0)
 ELECTRON_CHARGE = -1.602176634e-19
 
 
-def known_issue(number):
-    return pytest.mark.xfail(strict=True, raises=AssertionError, reason=f"Open audit finding #{number}")
-
-
 @pytest.mark.parametrize("x, speed", [(0., 1e-4), (1e9, 1e-4), (1e9, -1e-8)])
 def test_free_drift_after_translation(x, speed):
     field = PrescribedField((UniformElectricField((0., 0., 0.)),))
@@ -143,7 +139,6 @@ def test_shifted_uniform_field_composes_with_point_source_work():
     assert result["field_work_j"] == pytest.approx(expected, rel=1e-14, abs=0.)
 
 
-@known_issue(5)
 @pytest.mark.parametrize("mutate_page", [True, False])
 def test_boolean_is_not_source_or_geometry_evidence(mutate_page):
     record = work_record()
@@ -151,28 +146,54 @@ def test_boolean_is_not_source_or_geometry_evidence(mutate_page):
         record["source"]["pdf_page_index"] = True
     else:
         record["derived"]["start_m"][0] = False
-    try:
+    with pytest.raises(AssertionError, match="source/provenance mismatch"):
         verify_work(record)
-    except AssertionError:
-        return
-    assert False, "verifier accepted a Boolean in a numeric evidence field"
 
 
-@known_issue(6)
-def test_integer_source_separation_is_preserved_or_refused():
-    try:
-        source = FixedPointField(1e-9, (2**53 + 1, 0, 0))
-    except ValueError:
-        return
-    point = (2**53 + 2, 0, 0)
-    assert source.potential_at(point) == pytest.approx(K * 1e-9)
-    assert source.electric_field_at(point)[0] == pytest.approx(K * 1e-9)
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_integer_source_separation_is_preserved_or_refused(sign):
+    inexact = (sign * (2**53 + 1), 0, 0)
+    with pytest.raises(ValueError, match="not exactly representable"):
+        FixedPointField(1e-9, inexact)
+    source = FixedPointField(1e-9, (sign * (2**53 + 2), 0, 0))
+    for observe in (source.potential_at, source.electric_field_at, source.clearance_at):
+        with pytest.raises(ValueError, match="not exactly representable"):
+            observe(inexact)
+    point = (sign * (2**53 + 4), 0, 0)
+    assert source.potential_at(point) == pytest.approx(K * 1e-9 / 2)
+    assert source.electric_field_at(point)[0] == pytest.approx(sign * K * 1e-9 / 4)
 
 
-@known_issue(7)
-def test_full_ring_agrees_with_axial_solution_at_large_scale():
-    radius, charge = 1e160, 1e200
+@pytest.mark.parametrize("radius,charge", [(1e160, 1e200), (1e-160, -1e-250)])
+def test_full_ring_agrees_with_axial_solution_at_extreme_scale(radius, charge):
     expected = K * (charge / radius) / radius / (2 * sqrt(2))
     for provider in (UniformRingAxisField, UniformRingField):
         field = provider(charge, radius).electric_field_at((0., 0., radius))
         assert field[2] == pytest.approx(expected, rel=1e-12, abs=0.)
+
+
+@pytest.mark.parametrize("length,charge", [(1e160, -1e200), (1e-160, 1e-250)])
+def test_off_axis_ring_scales_as_inverse_length_squared(length, charge):
+    point = (.25, -.5, .75)
+    unit = UniformRingField(1., 1.)
+    ring = UniformRingField(charge, length)
+    scaled = tuple(x * length for x in point)
+    expected = tuple(x * (charge / length) / length for x in unit.electric_field_at(point))
+    assert ring.electric_field_at(scaled) == pytest.approx(expected, rel=1e-12, abs=0.)
+    assert ring.potential_at(scaled) == pytest.approx(
+        unit.potential_at(point) * (charge / length), rel=1e-12, abs=0.)
+
+
+def test_ring_retains_resolvable_fields_from_tiny_offsets():
+    radius, charge, offset = 1e100, 1e290, 1e-300
+    ring = UniformRingField(charge, radius)
+    # At the centre the axial slope is kQ/a³ and each transverse slope is
+    # -kQ/(2a³). Higher-order corrections here are below binary64 precision.
+    slope = K * (charge / radius) / radius / radius
+    assert ring.electric_field_at((0., 0., offset))[2] == pytest.approx(
+        slope * offset, rel=1e-12, abs=0.)
+    assert ring.electric_field_at((offset, 0., 0.))[0] == pytest.approx(
+        -.5 * slope * offset, rel=1e-12, abs=0.)
+    x = .5 * radius
+    ex, ey, _ = ring.electric_field_at((x, offset, x))
+    assert ey == pytest.approx((ex / x) * offset, rel=1e-12, abs=0.)
