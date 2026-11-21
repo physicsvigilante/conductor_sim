@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from ._coulomb_sum import coulomb_sum
+from .affine_fields import AffineFieldAssembly
 
 from .model import ElectrostaticProblem, PointCharge, Vector3
 from .solver import UnsupportedProblem
@@ -49,6 +50,17 @@ def interaction_energy_j(problem: ElectrostaticProblem) -> float:
     coefficients = {}
     _pairs(coefficients, _sites(problem), 1)
     return coulomb_sum(coefficients, problem.permittivity_f_per_m)
+
+
+def configuration_energy_j(problem: ElectrostaticProblem, background: AffineFieldAssembly) -> float:
+    """Mutual pair energy plus coupling to an independently prescribed background."""
+    if type(background) is not AffineFieldAssembly:
+        raise UnsupportedProblem("requires a prescribed affine field assembly")
+    sites = _sites(problem)
+    coefficients = {}
+    _pairs(coefficients, sites, 1)
+    external = sum(charge * background._potential(position) for charge, position in sites)
+    return coulomb_sum(coefficients, problem.permittivity_f_per_m, offset=external)
 
 
 @dataclass(frozen=True, slots=True)
