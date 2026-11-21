@@ -21,7 +21,7 @@ def _dist(a: Vector3, b: Vector3) -> float:
     return sqrt(sum((x-y)**2 for x,y in zip(a,b)))
 
 
-def _solve_linear(matrix: list[list[float]], rhs: list[float]) -> list[float]:
+def _solve_linear(matrix: list[list[float]], rhs: list[float], *, exact=False) -> list[float]:
     """Small dense Gaussian elimination with row pivoting; no NumPy dependency."""
     n = len(rhs)
     if not n:
@@ -32,7 +32,9 @@ def _solve_linear(matrix: list[list[float]], rhs: list[float]) -> list[float]:
         raise UnsupportedProblem("singular grounding constraints")
     for col in range(n):
         pivot = max(range(col,n), key=lambda i: abs(work[i][col]))
-        if abs(work[pivot][col]) < 1e-13*magnitude:
+        if work[pivot][col] == 0:
+            raise UnsupportedProblem("singular grounding constraints")
+        if not exact and abs(work[pivot][col]) < 1e-13*magnitude:
             raise UnsupportedProblem("ill-conditioned nested-shell ground constraints")
         work[col],work[pivot] = work[pivot],work[col]
         for i in range(col+1,n):
