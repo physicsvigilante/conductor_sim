@@ -46,3 +46,17 @@ Older model constructors deliberately retain some Boolean/coercion behavior for 
 Milestone layering now creates substantial private-symbol coupling, repeated validation/serialization and a large eager public import surface. These are maintenance risks, not evidence that a universal replacement would be better. Prefer a few tested internal services with preserved record semantics; measure repeated revalidation before caching it across mutable object references.
 
 CI must exercise downstream consumers when upstream source or independent-reference tools change. Audit corrections widen several late-milestone PR filters conservatively without deleting old checks. Further duration/concurrency consolidation should preserve scientific coverage, old red evidence and exact-head provenance. Required release gates remain independent scoped review, explicit owner approval, guarded merge, reviewed-tree equality and actual post-merge CI. See the [audit report](post_m40b_audit.md) for reproducible findings and remaining work.
+
+## Engineering conventions (post-M01)
+
+These conventions govern new work following the M01 collaborative assessment and Phase 0 stabilization; existing legacy backends are preserved unless modified by a separately authorized milestone.
+
+- **Responding-conductor composition.** Responding conductors compose via Faraday region decomposition with one scalar state `(V_m, Q_metal)` per connected conductor, introducing a capacitance/elastance matrix only when two or more coupled conductors require it. Image charges are Green-function terms, never authored sources.
+- **Units and gauge.** SI units throughout, one 3D Cartesian world frame, and `V(∞) = 0` for bounded systems. A single infinite conducting plane at nonzero `FixedPotential` is ill-posed under this gauge and is refused.
+- **Free-charge bookkeeping.** Authored and reported conductor charges are free charges (`D = εE`). Under `FixedNetCharge`, face totals are accumulated directly from original authored charges without intermediate rounding—never reconstructed from a rounded potential or rounded subtotals.
+- **Admission before coalescing.** Validate geometry and assign every source to a qualified nonmetal region before combining coincident sources; sources on walls or inside metal are refused even if their charges cancel.
+- **Precision and explicit refusal.** Report an exact zero only from a symmetry/boundary invariant or exact cancellation. Vector accuracy uses the norm of the final field; explicitly reported signed components require a resolved sign. Uncertifiable values return an explicit numerical refusal (distinct from scope refusal and ideal singularities).
+- **Truncated series.** Report local values only inside a domain certified by a derived remainder bound on the reported total; never return a silent wrong-sign value.
+- **Scale hygiene.** Structure kernel arithmetic to avoid unnecessary intermediate overflow or underflow (`math.hypot`, `k*(q/r)` before multiplying, image radius `a*(a/d)`).
+- **Energy reporting.** Report field energy, supply work, external-agent work, and an explicit energy residual separately; label "heat" only under a declared dissipation model.
+- **Growth rule.** Author new JEE items against shared layers and extend the smallest shared layer for genuinely missing physics rather than creating per-question modules. Homogeneous capacitors are acceptance cases of radial multi-conductor coupling, not a separate capacitor family.
