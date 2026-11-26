@@ -86,19 +86,18 @@ def _validated_gap_layers(
         else:
             # Accept authored decimal spellings summing to the gap width (e.g. 0.001 + 0.002 == 0.003)
             # or binary64 input rounding of the exact span.
+            max_scale = max(abs(float(start)), abs(float(end)), *(layer.thickness_m for layer in layers))
             widths_dec = tuple(Fraction(str(layer.thickness_m)) for layer in layers)
             span_dec = Fraction(str(float(end))) - Fraction(str(float(start)))
-            if sum(widths_dec, _ZERO) == span_dec and abs(expected_width - span_dec) <= Fraction(4 * ulp(max(abs(float(start)), abs(float(end)), float(expected_width)))):
+            if sum(widths_dec, _ZERO) == span_dec and abs(expected_width - span_dec) <= Fraction(8 * ulp(max_scale)):
                 # Reconcile final boundary exactly to `end` (at most a few ULPs) so geometry stays watertight.
                 widths = widths_dec[:-1] + (expected_width - sum(widths_dec[:-1], _ZERO),)
+            elif abs(total_bin - expected_width) <= Fraction((len(layers) + 4) * ulp(max_scale)):
+                widths = widths_bin[:-1] + (expected_width - sum(widths_bin[:-1], _ZERO),)
             else:
-                max_scale = max(float(expected_width), *(layer.thickness_m for layer in layers))
-                if abs(total_bin - expected_width) <= Fraction((len(layers) + 2) * ulp(max_scale)):
-                    widths = widths_bin[:-1] + (expected_width - sum(widths_bin[:-1], _ZERO),)
-                else:
-                    raise UnsupportedProblem(
-                        f"{label} gap {gap_index} layer thicknesses must sum exactly to the gap width"
-                    )
+                raise UnsupportedProblem(
+                    f"{label} gap {gap_index} layer thicknesses must sum exactly to the gap width"
+                )
         if any(w <= 0 for w in widths):
             raise UnsupportedProblem(f"{label} gap {gap_index} has non-positive reconciled layer thickness")
         # Build strictly increasing unsnapped boundaries first so snapping can never drift past `end`.
@@ -122,9 +121,10 @@ def _validated_gap_layers(
                     dec_f = float(cursor_dec)
                 except OverflowError:
                     dec_f = float("inf")
-                if isfinite(dec_f):
+                if isfinite(dec_f) and Fraction(str(dec_f)) == cursor_dec:
                     nxt_dec = Fraction(dec_f)
-                    tol = Fraction(4 * ulp(max(abs(float(points[-1])), abs(float(nxt_raw)))))
+                    min_adj = min(layer.thickness_m, layers[idx + 1].thickness_m)
+                    tol = Fraction(4 * ulp(min_adj))
                     if points[-1] < nxt_dec < upper and abs(nxt_dec - nxt_raw) <= tol:
                         nxt = nxt_dec
             points.append(nxt)
@@ -154,15 +154,15 @@ def _validated_exterior_layers(
     for layer in exterior_layers:
         cursor_dec += Fraction(str(layer.thickness_m))
         nxt_raw = cursor + Fraction(layer.thickness_m)
-        nxt_raw_f = _representable(nxt_raw, "exterior dielectric radius")
+        _representable(nxt_raw, "exterior dielectric radius")
         nxt = nxt_raw
         try:
             dec_f = float(cursor_dec)
         except OverflowError:
             dec_f = float("inf")
-        if isfinite(dec_f):
+        if isfinite(dec_f) and Fraction(str(dec_f)) == cursor_dec:
             nxt_dec = Fraction(dec_f)
-            tol = Fraction(4 * ulp(max(abs(float(cursor)), abs(nxt_raw_f))))
+            tol = Fraction(4 * ulp(layer.thickness_m))
             if nxt_dec > cursor and abs(nxt_dec - nxt_raw) <= tol:
                 nxt = nxt_dec
         if nxt <= cursor:

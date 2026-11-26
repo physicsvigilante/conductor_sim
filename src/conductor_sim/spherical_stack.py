@@ -165,12 +165,20 @@ def _sample_region(problem: SphericalStackProblem, point: Vector3) -> tuple[Sphe
     return SphericalStackRegion("exterior"), len(problem.conductors) - 1, radial, radius
 
 
-def _radial_gap_fraction(point: Vector3, center: Vector3, r: float, radius: Fraction) -> Fraction:
+def _exact_radial_frame(radial: Vector3) -> tuple[Fraction, Vector3]:
+    """Full-precision radius Fraction and unit radial direction, immune to subnormal underflow."""
+    scale = max(abs(radial[0]), abs(radial[1]), abs(radial[2]))
+    u = (radial[0] / scale, radial[1] / scale, radial[2] / scale)
+    u_norm = _distance(u)
+    return Fraction(scale) * Fraction(u_norm), (u[0] / u_norm, u[1] / u_norm, u[2] / u_norm)
+
+
+def _radial_gap_fraction(point: Vector3, center: Vector3, r_frac: Fraction, radius: Fraction) -> Fraction:
     """Exact signed radial offset (r - radius) via exact squared-distance difference."""
     squared_gap = _squared_distance(point, center) - radius * radius
     if squared_gap == 0:
         return _ZERO
-    return squared_gap / (Fraction(r) + radius)
+    return squared_gap / (r_frac + radius)
 
 
 def _same_outer_medium(kappa: Fraction, permittivity_f_per_m: float) -> bool:
@@ -245,14 +253,14 @@ class SphericalStackSolution:
         if sites:
             raise UnsupportedProblem("local observations in a charged annulus require its Green function")
 
-    def _layered_gap_potential(self, i: int, point: Vector3, r: float) -> float:
+    def _layered_gap_potential(self, i: int, point: Vector3, radial: Vector3) -> float:
         assert self._gap_sublayers is not None
         layers = self._gap_sublayers[i]
         q_enc = self._state.right_faces[i]
         v_outer = self._state.voltages[i + 1]
-        r_frac = Fraction(r)
+        r_frac, _ = _exact_radial_frame(radial)
         for idx, (_lo, hi, kappa) in enumerate(layers):
-            g_hi = _radial_gap_fraction(point, self.problem.center_m, r, hi)
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
             if g_hi <= 0:
                 elastance_out = sum(
                     ((1 / l_lo - 1 / l_hi) / (self._inverse_k0 * l_k) for l_lo, l_hi, l_k in layers[idx + 1:]),
@@ -263,34 +271,35 @@ class SphericalStackSolution:
                 return _representable(v_outer + q_enc * elastance_out, "layered gap potential")
         return _representable(v_outer, "layered gap potential")
 
-    def _layered_gap_field(self, i: int, point: Vector3, radial: Vector3, r: float) -> Vector3:
+    def _layered_gap_field(self, i: int, point: Vector3, radial: Vector3) -> Vector3:
         assert self._gap_sublayers is not None
         layers = self._gap_sublayers[i]
         q_enc = self._state.right_faces[i]
+        r_frac, unit_dir = _exact_radial_frame(radial)
         r_sq = _squared_distance(point, self.problem.center_m)
         for idx, (_lo, hi, kappa) in enumerate(layers):
-            g_hi = _radial_gap_fraction(point, self.problem.center_m, r, hi)
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
             if g_hi < 0:
                 factor = _representable(q_enc / (self._inverse_k0 * kappa * r_sq), "layered radial field")
-                return tuple(factor * (x / r) for x in radial)
+                return tuple(factor * d for d in unit_dir)
             if g_hi == 0 and idx + 1 < len(layers):
                 next_kappa = layers[idx + 1][2]
                 if kappa != next_kappa:
                     raise SingularField("electric field has a jump discontinuity at a dielectric interface")
                 factor = _representable(q_enc / (self._inverse_k0 * kappa * r_sq), "layered radial field")
-                return tuple(factor * (x / r) for x in radial)
+                return tuple(factor * d for d in unit_dir)
         kappa = layers[-1][2]
         factor = _representable(q_enc / (self._inverse_k0 * kappa * r_sq), "layered radial field")
-        return tuple(factor * (x / r) for x in radial)
+        return tuple(factor * d for d in unit_dir)
 
-    def _coated_exterior_potential(self, point: Vector3, r: float) -> float:
+    def _coated_exterior_potential(self, point: Vector3, radial: Vector3) -> float:
         layers = self._exterior_sublayers
         q_enc = self._state.right_faces[-1]
-        r_frac = Fraction(r)
+        r_frac, _ = _exact_radial_frame(radial)
         r_coat_out = layers[-1][1]
         tail_elastance = 1 / (self._inverse_k * r_coat_out)
         for idx, (_lo, hi, kappa) in enumerate(layers):
-            g_hi = _radial_gap_fraction(point, self.problem.center_m, r, hi)
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
             if g_hi <= 0:
                 elastance = tail_elastance + sum(
                     ((1 / l_lo - 1 / l_hi) / (self._inverse_k0 * l_k) for l_lo, l_hi, l_k in layers[idx + 1:]),
@@ -301,15 +310,16 @@ class SphericalStackSolution:
                 return _representable(q_enc * elastance, "coated exterior potential")
         return _representable(q_enc / (self._inverse_k * r_frac), "coated exterior potential")
 
-    def _coated_exterior_field(self, point: Vector3, radial: Vector3, r: float) -> Vector3:
+    def _coated_exterior_field(self, point: Vector3, radial: Vector3) -> Vector3:
         layers = self._exterior_sublayers
         q_enc = self._state.right_faces[-1]
+        r_frac, unit_dir = _exact_radial_frame(radial)
         r_sq = _squared_distance(point, self.problem.center_m)
         for idx, (_lo, hi, kappa) in enumerate(layers):
-            g_hi = _radial_gap_fraction(point, self.problem.center_m, r, hi)
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
             if g_hi < 0:
                 factor = _representable(q_enc / (self._inverse_k0 * kappa * r_sq), "coated exterior field")
-                return tuple(factor * (x / r) for x in radial)
+                return tuple(factor * d for d in unit_dir)
             if g_hi == 0:
                 if idx + 1 < len(layers):
                     if kappa != layers[idx + 1][2]:
@@ -317,18 +327,18 @@ class SphericalStackSolution:
                 elif not _same_outer_medium(kappa, self.problem.permittivity_f_per_m):
                     raise SingularField("electric field has a jump discontinuity at a dielectric interface")
                 factor = _representable(q_enc / (self._inverse_k0 * kappa * r_sq), "coated exterior field")
-                return tuple(factor * (x / r) for x in radial)
+                return tuple(factor * d for d in unit_dir)
         factor = _representable(q_enc / (self._inverse_k * r_sq), "coated exterior field")
-        return tuple(factor * (x / r) for x in radial)
+        return tuple(factor * d for d in unit_dir)
 
     def potential_at(self, point_m: Vector3) -> float:
         point = _world_point(point_m, "sample point")
-        region, i, _, r = _sample_region(self.problem, point)
+        region, i, radial, r = _sample_region(self.problem, point)
         voltages = self._state.voltages
         if region.kind == "annulus":
             self._require_source_free_annulus(i, point)
             if self._gap_sublayers is not None:
-                return self._layered_gap_potential(i, point, r)
+                return self._layered_gap_potential(i, point, radial)
             inner = self.problem.conductors[i].outer_radius_m
             outer = self.problem.conductors[i + 1].inner_radius_m
             weight = _inner_weight(point, self.problem.center_m, r, inner, outer)
@@ -338,7 +348,7 @@ class SphericalStackSolution:
             return self.conductor_results[i].potential_v
 
         if region.kind == "exterior" and self._exterior_sublayers:
-            return self._coated_exterior_potential(point, r)
+            return self._coated_exterior_potential(point, radial)
 
         cavity = region.kind == "cavity"
         kernel = self._cavity if cavity else self._exterior
@@ -361,13 +371,13 @@ class SphericalStackSolution:
         if region.kind == "annulus":
             self._require_source_free_annulus(i, point)
             if self._gap_sublayers is not None:
-                return self._layered_gap_field(i, point, radial, r)
+                return self._layered_gap_field(i, point, radial)
             factor = _representable(self._state.right_faces[i] / (self._inverse_k * Fraction(r)**2),
                                     "radial gap field")
             return tuple(factor * (x / r) for x in radial)
 
         if region.kind == "exterior" and self._exterior_sublayers:
-            return self._coated_exterior_field(point, radial, r)
+            return self._coated_exterior_field(point, radial)
 
         cavity = region.kind == "cavity"
         kernel = self._cavity if cavity else self._exterior

@@ -529,3 +529,48 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
     _approx(t_shift.supply_work_j, t_base.supply_work_j, rel=1e-13)
     _approx(t_shift.external_work_j, t_base.external_work_j, rel=1e-13)
     _approx(t_shift.delta_field_energy_j, t_base.delta_field_energy_j, rel=1e-13)
+
+    # Sol v2 Finding 1a: sub-ULP planar layers must NOT be altered by decimal snapping
+    w1, w2 = 5.0 * 2**-55, 11.0 * 2**-55
+    s_sub_p = solve_planar_stack(PlanarStackProblem(
+        ("a", "b"), (1.0, 1.0 + 2.0 * (nextafter(1.0, 2.0) - 1.0)), 1.0, g,
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+        gap_layers=((L(w1, 1.0), L(w2, 1e18)),),
+    ))
+    c_expected = 1.0 / (w1 / EPSILON_0 + w2 / (EPSILON_0 * 1e18))
+    _approx(s_sub_p.capacitance_matrix_f[0][0], c_expected, rel=1e-12)
+
+    # Sol v2 Finding 1b: sub-ULP spherical coating must NOT move across probe (1, 2e-8, 0)
+    # r = sqrt(1 + 4e-16) ~ 1 + 2e-16 > 1 + 5*2^-55 (~1 + 1.39e-16), so probe is OUTSIDE coating in k=1e18 background
+    s_sub_s = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 1.0),),
+        (_group("a", FixedNetCharge(1e-9)),),
+        permittivity_f_per_m=1e18 * EPSILON_0,
+        exterior_layers=(L(w1, 1.0),),
+    ))
+    e_sub_s = s_sub_s.electric_field_at((1.0, 2e-8, 0.0))[0]
+    _approx(e_sub_s, 1e-9 / (4.0 * pi * 1e18 * EPSILON_0 * (1.0 + 4e-16)), rel=1e-10)
+
+    # Sol v2 Finding 2: wide planar gap (-1e308, 1e308) with 1-ULP thickness shift must not raise raw OverflowError
+    s_wide = solve_planar_stack(PlanarStackProblem(
+        ("a", "b"), (-1e308, 1e308), 1e308, g,
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+        gap_layers=((L(1e308, 1e10), L(nextafter(1e308, 0.0), 1e10)),),
+    ))
+    assert s_wide.capacitance_matrix_f[0][0] > 0.0
+
+    # Sol v2 non-blocking: subnormal-radius coated sphere sampling retains full binary64 precision
+    r_sub = 2.0**-1025  # genuine subnormal (< DBL_MIN = 2^-1022)
+    q_sub = 2.0**-1065
+    s_subnorm = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, r_sub),),
+        (_group("a", FixedNetCharge(q_sub)),),
+        exterior_layers=(L(r_sub, 2.0),),
+    ))
+    # Probe at (3*r_sub, 4*r_sub, 0) -> exact r = 5*r_sub (in vacuum outside coating of radius 2*r_sub)
+    v_subnorm = s_subnorm.potential_at((3.0 * r_sub, 4.0 * r_sub, 0.0))
+    e_subnorm = s_subnorm.electric_field_at((3.0 * r_sub, 4.0 * r_sub, 0.0))
+    _approx(v_subnorm, float(F(q_sub) / (F(4 * pi) * F(EPSILON_0) * F(5) * F(r_sub))), rel=1e-14)
+    e_mag = float(F(q_sub) / (F(4 * pi) * F(EPSILON_0) * F(25) * F(r_sub) ** 2))
+    _approx(e_subnorm[0], e_mag * (3.0 / 5.0), rel=1e-14)
+    _approx(e_subnorm[1], e_mag * (4.0 / 5.0), rel=1e-14)
