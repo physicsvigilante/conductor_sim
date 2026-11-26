@@ -416,13 +416,17 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                         point = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
                         h_rem = conductor.signed_distance_m(point)
                         if abs(h_rem) > 1e-13:
-                            k = min(
-                                (i for i in range(3) if conductor.normal[i] != 0.0),
-                                key=lambda i: ulp(abs(point[i])) * abs(conductor.normal[i]),
-                            )
-                            adj = list(point)
-                            adj[k] -= h_rem / conductor.normal[k]
-                            point = tuple(adj)
+                            local_axes = [i for i in range(3) if abs(conductor.normal[i]) >= 0.1]
+                            if local_axes:
+                                k = min(
+                                    local_axes,
+                                    key=lambda i: ulp(abs(point[i])) * abs(conductor.normal[i]),
+                                )
+                                adj = list(point)
+                                adj[k] -= h_rem / conductor.normal[k]
+                                candidate = tuple(adj)
+                                if abs(conductor.signed_distance_m(candidate)) < abs(h_rem):
+                                    point = candidate
                     values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,

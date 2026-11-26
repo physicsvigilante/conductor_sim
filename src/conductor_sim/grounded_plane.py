@@ -124,8 +124,9 @@ class GroundedPlaneSolution:
             raise ValueError("the ideal plane has one exposed conducting surface")
         point = _position(point_m, "surface point")
         normal = self.plane.normal
-        if sum(n != 0.0 for n in normal) >= 2:
-            min_step = min(ulp(abs(point[i])) * abs(normal[i]) for i in range(3) if normal[i] != 0.0)
+        local_axes = [i for i in range(3) if abs(normal[i]) >= 0.1]
+        if len(local_axes) >= 2:
+            min_step = min(ulp(abs(point[i])) * abs(normal[i]) for i in local_axes)
             tol = max(1e-12, 2.0 * min_step)
         else:
             tol = 1e-12

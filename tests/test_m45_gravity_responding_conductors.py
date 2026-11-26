@@ -2090,3 +2090,46 @@ def test_m45_sol_v28_exact_signed_distance_anchor_invariance_and_resolvable_off_
     )
     with pytest.raises(ValueError, match="conducting plane"):
         sol_trans.surface_charge_density_at("outer", (5e-11, 1e6, 2e6))
+
+
+def test_m45_sol_v29_local_profile_snapping_and_signed_distance_extremes():
+    """Regression suite for both Sol v29 findings."""
+    # 1. Surface-density profile on anchor (0, 1e6, 2e6) with tiny normal x=1e-14 stays on x=0 slice
+    plane_tiny_x = ConductingPlane((0.0, 1e6, 2e6), (1e-14, 1.0, 1.0), Grounded())
+    # Place charge at distance sqrt(2) above anchor on x=0 slice
+    q_pos = (0.0, 1e6 + 1.0, 2e6 + 1.0)
+    prob_tx = ElectrostaticProblem((PointCharge(1e-6, q_pos),), (plane_tiny_x,))
+    spec_tx = Motion2DSpec(
+        prob_tx, 0, 1e-3, (0.0, 1.0, 1.0), 0.1, 0.05,
+        gravity=UniformGravity((0.0, -1.0, -1.0), reference_position_m=(0.0, 1e6, 2e6)),
+    )
+    b_tx = sample_motion_2d(spec_tx, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_tx, title="Sol v29 tiny-x oblique plane")
+    # Verify profile sigma values match analytical -q*h / (2*pi*(h^2 + r^2)^(3/2)) on the x=0 slice!
+    profile = b_tx["frames"][0]["profiles"][0]
+    h0 = plane_tiny_x.signed_distance_m(q_pos)
+    sol_tx = GroundedPlaneBackend().solve(prob_tx)
+    peak_analytic = sol_tx.surface_charge_density("outer", 0.0)
+    assert min(profile["sigma_c_per_m2"]) < 0.25 * peak_analytic  # strong negative peak near footpoint, not 1e-19!
+    # Check exact analytical agreement at every profile coordinate relative to the footpoint
+    from conductor_sim.geometry import slice_geometry
+    from conductor_sim.visualization import SliceSpec
+    sp = SliceSpec(**b_tx["frames"][0]["plane"])
+    geom = slice_geometry(plane_tiny_x, sp)
+    nx, ny = geom["normal_xy"]
+    norm_xy = sqrt(nx * nx + ny * ny)
+    tx, ty = (-ny / norm_xy, nx / norm_xy)
+    x0, y0 = geom["point_m"]
+    for d_coord, sigma_val in zip(profile["coordinate_m"], profile["sigma_c_per_m2"]):
+        pt_on_slice = sp.world((x0 + d_coord * tx, y0 + d_coord * ty))
+        dist_3d = sqrt(sum((pt_on_slice[i] - q_pos[i]) ** 2 for i in range(3)))
+        expected_sigma = -1e-6 * h0 / (2.0 * pi * dist_3d ** 3)
+        assert isclose(sigma_val, expected_sigma, rel_tol=1e-6, abs_tol=0.0)
+
+    # 2a. signed_distance_m handles opposing 1e308 coordinates without ValueError in fsum
+    p_huge = ConductingPlane((-1e308, 1e308, 0.0), (1.0, 1.0, 0.0), Grounded())
+    assert p_huge.signed_distance_m((1e308, -1e308, 0.0)) == 0.0
+
+    # 2b. signed_distance_m preserves subnormal nonzero distances (no premature underflow to 0)
+    p_sub = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), Grounded())
+    assert p_sub.signed_distance_m((5e-324, 5e-324, 0.0)) == 5e-324
