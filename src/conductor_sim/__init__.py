@@ -256,11 +256,11 @@ __all__ += ["CircularArcCharge", "CoaxialArcAssembly"]
 
 from .spherical_conductor import (
     SphericalCavity, SphericalConductorProblem, SphericalConductorSolution,
-    SphericalPointSource, SphericalRegion, solve_spherical_conductor,
+    SphericalPointSource, SphericalRegion, UniformBackgroundField, solve_spherical_conductor,
 )
 __all__ += [
     "SphericalCavity", "SphericalConductorProblem", "SphericalConductorSolution",
-    "SphericalPointSource", "SphericalRegion", "solve_spherical_conductor",
+    "SphericalPointSource", "SphericalRegion", "UniformBackgroundField", "solve_spherical_conductor",
 ]
 
 from .dielectric_layers import DielectricInterfaceCharge, DielectricLayer, DielectricLayerField
