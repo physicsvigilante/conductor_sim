@@ -253,3 +253,12 @@ __all__ += ["prepare_radial_voltages"]
 
 from .coaxial_arcs import CircularArcCharge, CoaxialArcAssembly
 __all__ += ["CircularArcCharge", "CoaxialArcAssembly"]
+
+from .spherical_conductor import (
+    SphericalCavity, SphericalConductorProblem, SphericalConductorSolution,
+    SphericalPointSource, SphericalRegion, solve_spherical_conductor,
+)
+__all__ += [
+    "SphericalCavity", "SphericalConductorProblem", "SphericalConductorSolution",
+    "SphericalPointSource", "SphericalRegion", "solve_spherical_conductor",
+]
