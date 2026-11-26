@@ -44,14 +44,10 @@ class MultiImageShellSolution:
         r = _norm(center_vec)
         a, b = self.shell.inner_radius_m, self.shell.outer_radius_m
         if r < a:
-            v = self.conductor_results[0].potential_v
-            for source in self.charges:
-                dist = _norm(_delta(point_m, source.position_m))
-                if dist == 0:
-                    raise SingularField("potential is singular at nonzero point source")
-                image_v, _ = image_term(point_m, source.position_m, self.shell.center_m, a)
-                v += self._k*source.charge_c*(1/dist + image_v)
-            return v
+            # One correctly rounded sum of every term: a running total would
+            # absorb a small surviving term before larger terms cancel.
+            return fsum((self.conductor_results[0].potential_v,
+                         *self._cavity_potential_terms(point_m)))
         if r <= b:
             return self.conductor_results[0].potential_v
         return self._k*self.conductor_results[0].outer_surface_charge_c/r
@@ -68,7 +64,7 @@ class MultiImageShellSolution:
         if r > b:
             scale = self._k * self.conductor_results[0].outer_surface_charge_c / r**3
             return tuple(scale*v for v in center_vec)
-        field = [0., 0., 0.]
+        terms: tuple[list[float], list[float], list[float]] = ([], [], [])
         for source in self.charges:
             dv = _delta(point_m, source.position_m)
             d = _norm(dv)
@@ -77,8 +73,24 @@ class MultiImageShellSolution:
             _, image_e = image_term(point_m, source.position_m, self.shell.center_m, a)
             scale = self._k*source.charge_c
             for i in range(3):
-                field[i] += scale*(dv[i]/d**3 + image_e[i])
-        return tuple(field)
+                terms[i].append(scale*(dv[i]/d**3 + image_e[i]))
+        # Exact accumulation per component (see potential_at).
+        return tuple(fsum(component) for component in terms)
+
+    def _cavity_potential_terms(self, point_m: Vector3) -> list[float]:
+        """Per-source cavity potential terms (direct plus Kelvin image), unsummed.
+
+        Callers add the conductor potential and sum all terms with one fsum.
+        """
+        a = self.shell.inner_radius_m
+        terms = []
+        for source in self.charges:
+            dist = _norm(_delta(point_m, source.position_m))
+            if dist == 0:
+                raise SingularField("potential is singular at nonzero point source")
+            image_v, _ = image_term(point_m, source.position_m, self.shell.center_m, a)
+            terms.append(self._k*source.charge_c*(1/dist + image_v))
+        return terms
 
     def surface_charge_density_at(self, surface: Literal["inner", "outer"], point_m: Vector3) -> float:
         """Exact local sigma at a point on the requested spherical surface."""
@@ -132,9 +144,16 @@ class MultiImageShellBackend:
             by_position.setdefault(charge.position_m, []).append(charge.charge_c)
         sources = tuple(PointCharge(q, pos) for pos, charges in sorted(by_position.items())
                         if (q := fsum(charges)) != 0.0)
-        q = fsum(source.charge_c for source in sources)
-        q_shell = shell.constraint.charge_c if isinstance(shell.constraint, FixedNetCharge) else -q
-        q_outer = q+q_shell
+        # Face totals come from the ORIGINAL authored terms in one correctly
+        # rounded sum; adding rounded subtotals can cancel a small residual.
+        authored = tuple(charge.charge_c for charge in problem.charges)
+        q = fsum(authored)
+        if isinstance(shell.constraint, FixedNetCharge):
+            q_shell = shell.constraint.charge_c
+            q_outer = fsum((*authored, q_shell))
+        else:
+            q_shell = -q
+            q_outer = 0.0
         potential = q_outer/(4*pi*problem.permittivity_f_per_m*shell.outer_radius_m)
         result = ConductorResult(shell.name, potential, q_shell, -q, q_outer)
         return MultiImageShellSolution(shell, sources, problem.permittivity_f_per_m, (result,))
