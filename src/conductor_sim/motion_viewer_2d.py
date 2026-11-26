@@ -184,11 +184,30 @@ def sample_motion_2d(spec: Motion2DSpec, backend, *, result=None, plane=None,
                     raise UnsupportedProblem('field-frame charge identity does not match motion')
                 moving = next(reading for reading in readings.charges
                               if reading.source == problem.charges[spec.charge_index])
-                actual = moving.total_force_n
-                if (any(not isclose(a, b, rel_tol=2e-10, abs_tol=1e-28)
-                        for a,b in zip(actual, expected.force_n)) or
-                        not isclose(readings.energy.total_j, expected.interaction_energy_j,
-                                    rel_tol=2e-10, abs_tol=1e-26)):
+                elec_actual = moving.total_force_n
+                if spec.gravity is None:
+                    actual_force = elec_actual
+                    actual_u = readings.energy.total_j
+                else:
+                    grav_force = spec.gravity.force_at(expected.position_m, mass_kg=spec.mass_kg)
+                    u_grav = spec.gravity.potential_energy_at(expected.position_m, mass_kg=spec.mass_kg)
+                    actual_force = tuple(fsum((a, b)) for a, b in zip(elec_actual, grav_force))
+                    actual_u = fsum((readings.energy.total_j, u_grav))
+                    if (
+                        expected.electric_force_n is None
+                        or expected.electric_interaction_energy_j is None
+                        or any(not isclose(a, b, rel_tol=2e-10, abs_tol=1e-28)
+                               for a, b in zip(elec_actual, expected.electric_force_n))
+                        or not isclose(readings.energy.total_j, expected.electric_interaction_energy_j,
+                                       rel_tol=2e-10, abs_tol=1e-26)
+                    ):
+                        raise UnsupportedProblem('field-frame electrostatic contribution disagrees with trajectory')
+                f_scale = max(_norm(actual_force), _norm(elec_actual))
+                u_scale = max(abs(actual_u), abs(readings.energy.total_j))
+                if (any(not isclose(a, b, rel_tol=2e-10, abs_tol=max(1e-28, 1e-12 * f_scale))
+                        for a, b in zip(actual_force, expected.force_n)) or
+                        not isclose(actual_u, expected.interaction_energy_j,
+                                    rel_tol=2e-10, abs_tol=max(1e-26, 1e-12 * u_scale))):
                     raise UnsupportedProblem('field-frame electrostatic force/energy disagrees with integrated trajectory')
             except BaseException as error:
                 close = getattr(solution, 'close', None)

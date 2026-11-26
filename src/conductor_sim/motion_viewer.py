@@ -8,7 +8,7 @@ static-position-sweep masquerading as time, or FEMM force fallback is allowed.
 from __future__ import annotations
 
 from dataclasses import replace
-from math import hypot, isclose, isfinite
+from math import fsum, hypot, isclose, isfinite
 
 from ._resources import cleanup_resources
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge
@@ -133,10 +133,31 @@ def sample_motion_1d(spec: Motion1DSpec, backend, *, result=None, plane=None,
                     raise UnsupportedProblem('motion frame must have exactly one active source')
                 selected = data.charges[0]
                 row = expected_by_position[tuple(problem.charges[0].position_m)]
-                force = sum(selected.total_force_n[i] * spec.axis[i] for i in range(3))
-                if (not isclose(force, row.force_n, rel_tol=2e-10, abs_tol=1e-28) or
-                        not isclose(data.energy.total_j, row.interaction_energy_j,
-                                    rel_tol=2e-10, abs_tol=1e-26)):
+                elec_force = sum(selected.total_force_n[i] * spec.axis[i] for i in range(3))
+                if spec.gravity is None:
+                    expected_force = elec_force
+                    expected_u = data.energy.total_j
+                else:
+                    grav_force = sum(
+                        spec.gravity.force_at(row.position_m, mass_kg=spec.mass_kg)[i] * spec.axis[i]
+                        for i in range(3)
+                    )
+                    u_grav = spec.gravity.potential_energy_at(row.position_m, mass_kg=spec.mass_kg)
+                    expected_force = fsum((elec_force, grav_force))
+                    expected_u = fsum((data.energy.total_j, u_grav))
+                    if (
+                        row.electric_force_n is None
+                        or row.electric_interaction_energy_j is None
+                        or not isclose(elec_force, row.electric_force_n, rel_tol=2e-10, abs_tol=1e-28)
+                        or not isclose(data.energy.total_j, row.electric_interaction_energy_j,
+                                       rel_tol=2e-10, abs_tol=1e-26)
+                    ):
+                        raise UnsupportedProblem('frame electrostatic contribution disagrees with integrated trajectory')
+                force_scale = max(abs(expected_force), abs(elec_force))
+                energy_scale = max(abs(expected_u), abs(data.energy.total_j))
+                if (not isclose(expected_force, row.force_n, rel_tol=2e-10, abs_tol=max(1e-28, 1e-12 * force_scale)) or
+                        not isclose(expected_u, row.interaction_energy_j,
+                                    rel_tol=2e-10, abs_tol=max(1e-26, 1e-12 * energy_scale))):
                     raise UnsupportedProblem('frame field solution disagrees with integrated trajectory')
             except BaseException as exc:
                 close = getattr(solution, 'close', None)

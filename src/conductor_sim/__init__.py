@@ -275,6 +275,8 @@ from .stack_switching import (
     quasistatic_stack_transition, switch_conductor_stack,
 )
 
+from .conductor_gravity import ConductingGravityEquilibrium, find_1d_equilibria
+
 __all__ += [
     "DielectricInterfaceCharge", "DielectricLayer", "DielectricLayerField",
     "ConductorGroup", "Floating", "PlanarVoltageReference", "ConcentricConductor", "StackPointCharge",
@@ -282,4 +284,5 @@ __all__ += [
     "PlanarPlateResult", "PlanarStackProblem", "PlanarStackSolution", "solve_planar_stack",
     "QuasistaticTransitionResult", "StackSwitchResult", "TerminalTransfer",
     "quasistatic_stack_transition", "switch_conductor_stack",
+    "ConductingGravityEquilibrium", "find_1d_equilibria",
 ]

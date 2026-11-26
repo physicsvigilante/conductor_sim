@@ -17,6 +17,7 @@ from ._directions import unit_direction
 from ._resources import cleanup_resources
 from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
+from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .observables import force_energy
 from .solver import UnsupportedProblem
@@ -64,10 +65,13 @@ class Motion1DSpec:
     relative_tolerance: float = 2e-7
     surface_guard_m: float | None = None
     max_internal_steps: int = 100000
+    gravity: UniformGravity | None = None
 
     def __post_init__(self):
         if not isinstance(self.problem, ElectrostaticProblem):
             raise TypeError('problem must be ElectrostaticProblem')
+        if self.gravity is not None and type(self.gravity) is not UniformGravity:
+            raise TypeError('gravity must be UniformGravity or None')
         if isinstance(self.charge_index, bool) or not isinstance(self.charge_index, int):
             raise TypeError('charge_index must be an integer')
         if not 0 <= self.charge_index < len(self.problem.charges):
@@ -97,6 +101,9 @@ class Motion1DSpec:
             raise ValueError('surface_guard_m must be finite and positive')
         v=_position(self.axis,'motion axis')
         object.__setattr__(self, 'axis', unit_direction(v, 'motion axis must be nonzero'))
+        if self.gravity is not None:
+            self.gravity.force_at(self.selected_charge.position_m, mass_kg=self.mass_kg)
+            self.gravity.potential_energy_at(self.selected_charge.position_m, mass_kg=self.mass_kg)
         _geometry(self)  # Physically prove invariance and a nonempty vacuum interval.
 
     @property
@@ -116,6 +123,10 @@ class MotionSample:
     interaction_energy_j: float
     total_energy_j: float
     energy_drift_j: float
+    electric_force_n: float | None = None
+    gravitational_force_n: float | None = None
+    electric_interaction_energy_j: float | None = None
+    gravitational_potential_energy_j: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +149,15 @@ class Motion1DResult:
 
     def as_dict(self):
         """Finite, directly serializable SI trajectory data; not an HTML animation."""
-        return dict(schema='conductor_sim.motion_1d.v1',
+        sample_rows = []
+        for sample in self.samples:
+            row = asdict(sample)
+            if self.spec.gravity is None:
+                for key in ('electric_force_n', 'gravitational_force_n',
+                            'electric_interaction_energy_j', 'gravitational_potential_energy_j'):
+                    row.pop(key, None)
+            sample_rows.append(row)
+        data = dict(schema='conductor_sim.motion_1d.v1',
                     mode='elapsed-time classical dynamics',
                     units={'time':'s','displacement':'m','velocity':'m/s',
                            'acceleration':'m/s^2','force':'N','energy':'J'},
@@ -150,8 +169,11 @@ class Motion1DResult:
                     method=self.method,
                     guard_m=_geometry(self.spec).guard,
                     max_abs_energy_drift_j=self.max_abs_energy_drift_j,
-                    samples=[asdict(x) for x in self.samples],
+                    samples=sample_rows,
                     events=[asdict(x) for x in self.events])
+        if self.spec.gravity is not None:
+            data['gravity'] = self.spec.gravity.as_dict()
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +245,14 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         raise UnsupportedProblem('M16a supports normal plane motion or radial single-sphere/cavity motion only')
     if upper<=lower:
         raise UnsupportedProblem('no connected vacuum interval along authored axis')
+    if spec.gravity is not None:
+        g_vec = spec.gravity.acceleration_m_s2
+        g_mag = _norm(g_vec)
+        if g_mag > 0:
+            g_along = _dot(g_vec, axis)
+            g_trans = _norm(_minus(g_vec, tuple(g_along * u for u in axis)))
+            if g_trans > 1e-10 * g_mag:
+                raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)
     if not (lower+guard < 0. < upper-guard):
@@ -241,6 +271,11 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         raise TypeError('spec must be Motion1DSpec')
     domain=_geometry(spec)
     original=spec.selected_charge
+    gravity = spec.gravity
+    grav_force_along = (
+        _dot(gravity.force_at(original.position_m, mass_kg=spec.mass_kg), spec.axis)
+        if gravity is not None else 0.
+    )
 
     def observe(s):
         if not domain.safe(s):
@@ -263,9 +298,13 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
             transverse=_norm(_minus(force,tuple(along*u for u in spec.axis)))
             if transverse>max(1e-20,5e-9*_norm(force)):
                 raise UnsupportedProblem('transverse electrostatic force breaks one-dimensional motion')
-            if not isfinite(along) or not isfinite(observations.energy.total_j):
+            total_along = fsum((along, grav_force_along)) if gravity is not None else along
+            if not isfinite(along) or not isfinite(total_along) or not isfinite(observations.energy.total_j):
                 raise MotionIntegrationError('nonfinite electrostatic force or energy')
-            result=(along,observations.energy)
+            u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg) if gravity is not None else 0.
+            if not isfinite(u_grav) or not isfinite(fsum((observations.energy.total_j, u_grav))):
+                raise MotionIntegrationError('nonfinite gravitational potential energy')
+            result=(total_along, along, observations.energy, u_grav)
         except BaseException as exc:
             close=getattr(solution,'close',None)
             if callable(close): cleanup_resources((('motion solution',close),),primary=exc)
@@ -284,7 +323,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         return rk4_step((s, v), h, lambda state: (state[1], a(state[0])))
 
     s,v,t=0.,float(spec.initial_velocity_m_s),0.
-    _,reference_energy=observe(s)
+    _, _, reference_energy, _ = observe(s)
     ref=reference_energy
     energy0=.5*spec.mass_kg*v*v
     samples=[]
@@ -292,16 +331,36 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     max_drift=0.
     def record(t,s,v):
         nonlocal max_drift
-        force,energy=observe(s)
+        force, elec_force, energy, u_grav = observe(s)
         kinetic=.5*spec.mass_kg*v*v
-        drift=fsum((kinetic-energy0,
-                     energy.direct_j-ref.direct_j,
-                     energy.induced_j-ref.induced_j,
-                     energy.background_j-ref.background_j))
+        if gravity is None:
+            interaction_j = energy.total_j
+            total_j = kinetic + interaction_j
+            drift=fsum((kinetic-energy0,
+                         energy.direct_j-ref.direct_j,
+                         energy.induced_j-ref.induced_j,
+                         energy.background_j-ref.background_j))
+            sample = MotionSample(t,s,_add(original.position_m,spec.axis,s),v,
+                                  force/spec.mass_kg,force,kinetic,
+                                  interaction_j,total_j,drift)
+        else:
+            interaction_j = fsum((energy.total_j, u_grav))
+            total_j = fsum((kinetic, energy.total_j, u_grav))
+            # Exact gauge-invariant gravitational delta: -m (g . axis) * s avoids r_ref cancellation.
+            delta_u_grav = -grav_force_along * s
+            drift=fsum((kinetic-energy0,
+                         energy.direct_j-ref.direct_j,
+                         energy.induced_j-ref.induced_j,
+                         energy.background_j-ref.background_j,
+                         delta_u_grav))
+            sample = MotionSample(t,s,_add(original.position_m,spec.axis,s),v,
+                                  force/spec.mass_kg,force,kinetic,
+                                  interaction_j,total_j,drift,
+                                  elec_force, grav_force_along, energy.total_j, u_grav)
+        if not isfinite(total_j) or not isfinite(drift):
+            raise MotionIntegrationError('nonfinite motion energy')
         max_drift=max(max_drift,abs(drift))
-        samples.append(MotionSample(t,s,_add(original.position_m,spec.axis,s),v,
-                                    force/spec.mass_kg,force,kinetic,
-                                    energy.total_j,kinetic+energy.total_j,drift))
+        samples.append(sample)
     record(t,s,v)
     termination='duration'
     # Preserve output timestamps regardless of adaptive internal step sizes.
@@ -366,7 +425,8 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                 turn_s=rk4(s,v,tau)[0]
                 events.append(MotionEvent('turning-point',t+tau,turn_s,
                              _add(original.position_m,spec.axis,turn_s),
-                             'Velocity reverses under the electrostatic force'))
+                             'Velocity reverses under the combined electrostatic and gravitational force'
+                             if gravity is not None else 'Velocity reverses under the electrostatic force'))
             t+=dt;s,v=fine
             h=min(spec.sample_interval_s,max(dt*.2,dt*min(2.5,(.9/max(error,1e-10))**.2)))
         if termination=='surface-guard':
@@ -374,7 +434,12 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
             break
         t=target
         record(t,s,v)
-    return Motion1DResult(spec,tuple(samples),tuple(events),termination,max_drift)
+    if gravity is None:
+        return Motion1DResult(spec, tuple(samples), tuple(events), termination, max_drift)
+    return Motion1DResult(
+        spec, tuple(samples), tuple(events), termination, max_drift,
+        'Adaptive RK4 step doubling; existing analytical force_energy composed with UniformGravity at each RHS evaluation',
+    )
 
 
 class _SurfaceGuard(Exception):

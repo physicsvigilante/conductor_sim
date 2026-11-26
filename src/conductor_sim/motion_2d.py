@@ -15,6 +15,7 @@ from ._directions import unit_direction
 from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
 from ._resources import cleanup_resources
+from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
 from .observables import force_energy
@@ -94,10 +95,13 @@ class Motion2DSpec:
     surface_guard_m: float | None = None
     max_internal_steps: int = 100000
     charge_guard_m: float | None = None
+    gravity: UniformGravity | None = None
 
     def __post_init__(self):
         if not isinstance(self.problem, ElectrostaticProblem):
             raise TypeError('problem must be ElectrostaticProblem')
+        if self.gravity is not None and type(self.gravity) is not UniformGravity:
+            raise TypeError('gravity must be UniformGravity or None')
         if isinstance(self.charge_index, bool) or not isinstance(self.charge_index, int):
             raise TypeError('charge_index must be an integer')
         if not 0 <= self.charge_index < len(self.problem.charges):
@@ -135,6 +139,9 @@ class Motion2DSpec:
         if _norm(velocity) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
             raise UnsupportedProblem('M17a is nonrelativistic; initial speed must be below 0.1c')
         object.__setattr__(self, 'initial_velocity_m_s', velocity)
+        if self.gravity is not None:
+            self.gravity.force_at(self.selected_charge.position_m, mass_kg=self.mass_kg)
+            self.gravity.potential_energy_at(self.selected_charge.position_m, mass_kg=self.mass_kg)
         _geometry(self)
 
     @property
@@ -166,6 +173,10 @@ class Motion2DSample:
     interaction_energy_j: float
     total_energy_j: float
     energy_drift_j: float
+    electric_force_n: Vector3 | None = None
+    gravitational_force_n: Vector3 | None = None
+    electric_interaction_energy_j: float | None = None
+    gravitational_potential_energy_j: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +199,14 @@ class Motion2DResult:
     method: str = 'Adaptive RK4 step doubling; full-vector existing analytical force_energy at each RHS evaluation'
 
     def as_dict(self):
+        sample_rows = []
+        for sample in self.samples:
+            row = asdict(sample)
+            if self.spec.gravity is None:
+                for key in ('electric_force_n', 'gravitational_force_n',
+                            'electric_interaction_energy_j', 'gravitational_potential_energy_j'):
+                    row.pop(key, None)
+            sample_rows.append(row)
         data = dict(schema='conductor_sim.motion_2d.v1',
                     mode='elapsed-time planar classical vector dynamics',
                     units={'time':'s', 'position':'m', 'velocity':'m/s',
@@ -202,8 +221,10 @@ class Motion2DResult:
                     method=self.method,
                     guard_m=_geometry(self.spec).guard,
                     max_abs_energy_drift_j=self.max_abs_energy_drift_j,
-                    samples=[asdict(s) for s in self.samples],
+                    samples=sample_rows,
                     events=[asdict(e) for e in self.events])
+        if self.spec.gravity is not None:
+            data['gravity'] = self.spec.gravity.as_dict()
         if self.spec.stationary_charges:
             geometry = _geometry(self.spec)
             data.update(moving_charge_index=self.spec.charge_index,
@@ -281,6 +302,7 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     initial = spec.selected_charge.position_m
     velocity = spec.initial_velocity_m_s
     stationary = spec.stationary_charges
+    gravity_anchors = (spec.gravity.acceleration_m_s2,) if spec.gravity is not None else ()
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
@@ -291,7 +313,7 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         scale = min(c.signed_distance_m(initial) for c in conductors)
         origin = initial
         normal = _certified_normal(conductors[0].normal, velocity,
-                                   tuple(_sub(q.position_m, initial) for q in stationary))
+                                   (*(_sub(q.position_m, initial) for q in stationary), *gravity_anchors))
         kind = 'planes'
     elif len(conductors) == 1 and isinstance(conductors[0], SolidSphere):
         center = conductors[0].center_m
@@ -299,7 +321,7 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         if _norm(delta) <= conductors[0].radius_m:
             raise UnsupportedProblem('moving charge must begin outside solid sphere')
         normal = _certified_normal(delta, velocity,
-                    tuple(_sub(q.position_m, center) for q in stationary))
+                    (*(_sub(q.position_m, center) for q in stationary), *gravity_anchors))
         origin, scale = center, conductors[0].radius_m
         kind = 'exterior-sphere'
     elif all(isinstance(c, SphericalShell) for c in conductors):
@@ -314,9 +336,11 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         primary = r if _norm(r) else velocity
         if not _norm(primary):
             primary = next((_sub(q.position_m, center) for q in stationary
-                            if _norm(_sub(q.position_m, center))), (1., 0., 0.))
+                            if _norm(_sub(q.position_m, center))), None)
+        if primary is None or not _norm(primary):
+            primary = next((g for g in gravity_anchors if _norm(g)), (1., 0., 0.))
         normal = _certified_normal(primary, velocity,
-                    tuple(_sub(q.position_m, center) for q in stationary))
+                    (*(_sub(q.position_m, center) for q in stationary), *gravity_anchors))
         origin, scale = center, shells[0].inner_radius_m
         conductors, kind = shells, 'cavity'
     else:
@@ -331,6 +355,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise ValueError('initial point is within the surface-approach guard')
     if abs(_dot(_sub(initial, origin), normal)) > 1e-9*scale or abs(_dot(velocity, normal)) > max(1e-12, 1e-9*_norm(velocity)):
         raise UnsupportedProblem('an invariant planar motion cannot be established')
+    if spec.gravity is not None:
+        g_vec = spec.gravity.acceleration_m_s2
+        if abs(_dot(g_vec, normal)) > max(1e-12, 1e-9 * _norm(g_vec)):
+            raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
         raise ValueError('moving charge starts within the stationary point-charge guard')
     for source in stationary:
@@ -388,14 +416,18 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
                 close()
         return result
 
-    samples, events, termination, drift = _integrate_vector_motion(spec, geometry, observe)
-    return Motion2DResult(spec, samples, events, termination,
-                          geometry.origin, geometry.normal, drift)
+    samples, events, termination, drift = _integrate_vector_motion(spec, geometry, observe, gravity=spec.gravity)
+    if spec.gravity is None:
+        return Motion2DResult(spec, samples, events, termination, geometry.origin, geometry.normal, drift)
+    return Motion2DResult(
+        spec, samples, events, termination, geometry.origin, geometry.normal, drift,
+        'Adaptive RK4 step doubling; full-vector existing analytical force_energy composed with UniformGravity at each RHS evaluation',
+    )
 
 
 def _integrate_vector_motion(spec, geometry, observe, *,
                              surface_description='Stopped before the ideal conductor; not an exact collision',
-                             step_observer=None, max_step_s=None, dynamics=None):
+                             step_observer=None, max_step_s=None, dynamics=None, gravity=None):
     """Shared adaptive controller for conductor and prescribed-field motion.
 
     The caller supplies observations and a domain; no force law lives here.
@@ -408,9 +440,14 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         from .driven_motion import _DrivenDynamics
         if type(dynamics) is not _DrivenDynamics or dynamics.spec is not spec:
             raise TypeError('require the bound built-in driven dynamics adapter')
+    grav_force = gravity.force_at(p0, mass_kg=spec.mass_kg) if gravity is not None else None
 
     def acceleration(position):
         force, _ = observe(position)
+        if grav_force is not None:
+            force = tuple(fsum((a, b)) for a, b in zip(force, grav_force))
+            if not all(isfinite(x) for x in force):
+                raise MotionIntegrationError('nonfinite composed force')
         return tuple(x/spec.mass_kg for x in force)
 
     origin = (0., 0., 0.)
@@ -448,18 +485,42 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             records.append(sample)
             return
         position, velocity = values[:3], values[3:]
-        force, energy = observe(position)
+        elec_force, energy = observe(position)
         kinetic = .5*spec.mass_kg*_norm(velocity)**2
-        drift = fsum((kinetic-energy0,
-                      energy.direct_j-reference_energy.direct_j,
-                      energy.induced_j-reference_energy.induced_j,
-                      energy.background_j-reference_energy.background_j))
-        if not all(isfinite(x) for x in (*position, *velocity, kinetic, drift)):
-            raise MotionIntegrationError('motion data became nonfinite')
+        if gravity is None:
+            force = elec_force
+            interaction_j = energy.total_j
+            total_j = kinetic + interaction_j
+            drift = fsum((kinetic-energy0,
+                          energy.direct_j-reference_energy.direct_j,
+                          energy.induced_j-reference_energy.induced_j,
+                          energy.background_j-reference_energy.background_j))
+            if not all(isfinite(x) for x in (*position, *velocity, kinetic, drift)):
+                raise MotionIntegrationError('motion data became nonfinite')
+            sample = Motion2DSample(t, displacement, position, velocity,
+                                    tuple(x/spec.mass_kg for x in force), force,
+                                    kinetic, interaction_j, total_j, drift)
+        else:
+            assert grav_force is not None
+            force = tuple(fsum((a, b)) for a, b in zip(elec_force, grav_force))
+            u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
+            interaction_j = fsum((energy.total_j, u_grav))
+            total_j = fsum((kinetic, energy.total_j, u_grav))
+            # Exact gauge-invariant gravitational delta: -m (g . displacement) avoids r_ref cancellation.
+            delta_u_grav = -_dot(grav_force, displacement)
+            drift = fsum((kinetic-energy0,
+                          energy.direct_j-reference_energy.direct_j,
+                          energy.induced_j-reference_energy.induced_j,
+                          energy.background_j-reference_energy.background_j,
+                          delta_u_grav))
+            if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
+                raise MotionIntegrationError('motion data became nonfinite')
+            sample = Motion2DSample(t, displacement, position, velocity,
+                                    tuple(x/spec.mass_kg for x in force), force,
+                                    kinetic, interaction_j, total_j, drift,
+                                    elec_force, grav_force, energy.total_j, u_grav)
         max_drift = max(max_drift, abs(drift))
-        records.append(Motion2DSample(t, displacement, position, velocity,
-                                      tuple(x/spec.mass_kg for x in force), force,
-                                      kinetic, energy.total_j, kinetic+energy.total_j, drift))
+        records.append(sample)
 
     record(0., y)
     t = 0.
