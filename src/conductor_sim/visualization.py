@@ -7,7 +7,7 @@ are masked. Field lines stop at physical faces, source masks and domain bounds.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from math import acos, cos, fsum, hypot, isfinite, pi, sin, sqrt
+from math import acos, cos, fsum, hypot, isfinite, pi, sin, sqrt, ulp
 from pathlib import Path
 from typing import Callable, Iterable
 import json
@@ -411,6 +411,18 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                 values=[]
                 for d in distances:
                     point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
+                    h_off = conductor.signed_distance_m(point)
+                    if h_off != 0.0:
+                        point = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
+                        h_rem = conductor.signed_distance_m(point)
+                        if abs(h_rem) > 1e-13:
+                            k = min(
+                                (i for i in range(3) if conductor.normal[i] != 0.0),
+                                key=lambda i: ulp(abs(point[i])) * abs(conductor.normal[i]),
+                            )
+                            adj = list(point)
+                            adj[k] -= h_rem / conductor.normal[k]
+                            point = tuple(adj)
                     values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,

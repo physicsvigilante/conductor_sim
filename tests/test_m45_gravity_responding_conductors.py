@@ -2042,3 +2042,51 @@ def test_m45_sol_v27_translated_plane_energy_and_tangential_anchor_invariance():
             s_pl.surface_charge_density_at("outer", half_pos)
         with pytest.raises(ValueError, match="conducting plane"):
             s_pl.surface_charge_density_at("outer", charge_pos)
+
+
+def test_m45_sol_v28_exact_signed_distance_anchor_invariance_and_resolvable_off_plane():
+    """Regression suite for both Sol v28 findings."""
+    from conductor_sim.motion_2d import integrate_motion_2d
+    from conductor_sim.observables import force_energy
+
+    # 1. Exact tangential-anchor invariance of signed_distance_m, force_energy, gravity-2D, and sigma
+    p_orig = ConductingPlane((0.0, 0.0, 0.0), (1.0, 2.0, 2.0), Grounded())
+    p_shift = ConductingPlane((0.0, 1e7, -1e7), (1.0, 2.0, 2.0), Grounded())
+    q_val = 1e-18
+    q_pos = (3e-10, 2.0 ** -33, 0.0)
+    h_orig = p_orig.signed_distance_m(q_pos)
+    h_shift = p_shift.signed_distance_m(q_pos)
+    assert h_shift == h_orig
+    expected_u = -q_val * q_val / (16.0 * pi * EPSILON_0 * h_orig)
+
+    sol_shift = GroundedPlaneBackend().solve(ElectrostaticProblem((PointCharge(q_val, q_pos),), (p_shift,)))
+    fe_shift = force_energy(sol_shift)
+    assert isclose(sol_shift.interaction_energy_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(fe_shift.energy.induced_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+
+    spec_shift = Motion2DSpec(
+        ElectrostaticProblem((PointCharge(q_val, q_pos),), (p_shift,)),
+        0, 1.0, (0.0, 0.0, 0.0), 1e-3, 5e-4,
+        gravity=UniformGravity((0.0, 0.0, 0.0)),
+    )
+    res_shift = integrate_motion_2d(spec_shift, GroundedPlaneBackend())
+    assert isclose(res_shift.samples[0].electric_interaction_energy_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+
+    # Exact surface point (-2^-32, 2^-33, 0) accepted; off-plane (0, 2^-33, 0) rejected on shifted anchor
+    sol_orig = GroundedPlaneBackend().solve(ElectrostaticProblem((PointCharge(q_val, q_pos),), (p_orig,)))
+    surf_pt = (-(2.0 ** -32), 2.0 ** -33, 0.0)
+    assert isclose(
+        sol_shift.surface_charge_density_at("outer", surf_pt),
+        sol_orig.surface_charge_density_at("outer", surf_pt),
+        rel_tol=1e-12, abs_tol=0.0,
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_shift.surface_charge_density_at("outer", (0.0, 2.0 ** -33, 0.0))
+
+    # 2. Resolvably off-plane query (5e-11, 1e6, 2e6) on anchor (0, 1e6, 2e6) is rejected
+    p_trans = ConductingPlane((0.0, 1e6, 2e6), (1.0, 2.0, 2.0), Grounded())
+    sol_trans = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-6, (1.0, 1000002.0, 2000002.0)),), (p_trans,))
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_trans.surface_charge_density_at("outer", (5e-11, 1e6, 2e6))

@@ -125,8 +125,8 @@ class GroundedPlaneSolution:
         point = _position(point_m, "surface point")
         normal = self.plane.normal
         if sum(n != 0.0 for n in normal) >= 2:
-            point_scale = max((abs(point[i] * normal[i]) for i in range(3) if normal[i] != 0.0), default=0.0)
-            tol = max(1e-12, 16.0 * ulp(point_scale))
+            min_step = min(ulp(abs(point[i])) * abs(normal[i]) for i in range(3) if normal[i] != 0.0)
+            tol = max(1e-12, 2.0 * min_step)
         else:
             tol = 1e-12
         if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=tol):

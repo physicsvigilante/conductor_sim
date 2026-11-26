@@ -1,7 +1,8 @@
 """Immutable, solver-independent electrostatic problem definitions (SI units)."""
 from __future__ import annotations
 from dataclasses import dataclass
-from math import isfinite
+from fractions import Fraction
+from math import fsum, isfinite
 from numbers import Integral
 from typing import TypeAlias
 
@@ -140,7 +141,19 @@ class ConductingPlane:
     def signed_distance_m(self, point_m: Vector3) -> float:
         """Positive in vacuum; zero at metal surface; negative inside metal."""
         point = _position(point_m, "point")
-        return sum((point[i] - self.point_m[i]) * self.normal[i] for i in range(3))
+        terms = tuple((point[i] - self.point_m[i]) * self.normal[i] for i in range(3))
+        raw = fsum(terms)
+        bound = max((max(abs(point[i]), abs(self.point_m[i])) * abs(self.normal[i]) for i in range(3)), default=0.0)
+        if isfinite(raw) and (bound == 0.0 or abs(raw) >= 0.01 * bound):
+            return raw
+        exact = sum(
+            (Fraction(point[i]) - Fraction(self.point_m[i])) * Fraction(self.normal[i])
+            for i in range(3)
+        )
+        try:
+            return float(exact)
+        except OverflowError:
+            return float('inf') if exact > 0 else float('-inf')
 
 Conductor: TypeAlias = SphericalShell | SolidSphere | ConductingPlane
 
