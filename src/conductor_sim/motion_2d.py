@@ -528,13 +528,13 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             disp_norm = _norm(displacement)
             peak_disp = max(peak_disp, disp_norm)
             world_disp = _sub(position, p0)
-            if _norm(_sub(world_disp, displacement)) > max(1e-24, 1e-6 * peak_disp, 256.0 * ulp(peak_disp)):
+            if _norm(_sub(world_disp, displacement)) > max(1e-6 * peak_disp, 256.0 * ulp(peak_disp)):
                 raise MotionIntegrationError('world position roundoff lost displacement resolution')
             delta_u_grav = origin_gravity.potential_energy_at(displacement, mass_kg=spec.mass_kg)
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             saved_du_grav = u_grav - ref_u_grav
             peak_grav_exchange = max(peak_grav_exchange, abs(delta_u_grav), abs(world_du_grav))
-            du_tol = max(1e-24, 1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
+            du_tol = max(1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
             if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             if abs(saved_du_grav - delta_u_grav) > du_tol:
@@ -545,7 +545,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                           energy.background_j-reference_energy.background_j,
                           world_du_grav))
             total_scale = max(peak_grav_exchange, abs(kinetic - energy0), abs(energy.total_j), abs(reference_energy.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-24, 1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
+            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
                 raise MotionIntegrationError('motion data became nonfinite')

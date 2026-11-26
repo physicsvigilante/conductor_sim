@@ -367,13 +367,13 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
             # masking precision loss with constant launch kinetic energy).
             peak_disp = max(peak_disp, abs(s))
             world_s = _dot(_minus(position, original.position_m), spec.axis)
-            if abs(world_s - s) > max(1e-24, 1e-6 * peak_disp, 256.0 * ulp(peak_disp)):
+            if abs(world_s - s) > max(1e-6 * peak_disp, 256.0 * ulp(peak_disp)):
                 raise MotionIntegrationError('world position roundoff lost displacement resolution')
             delta_u_grav = -grav_force_along * s
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             saved_du_grav = u_grav - ref_u_grav
             peak_grav_exchange = max(peak_grav_exchange, abs(delta_u_grav), abs(world_du_grav))
-            du_tol = max(1e-24, 1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
+            du_tol = max(1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
             if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             if abs(saved_du_grav - delta_u_grav) > du_tol:
@@ -384,7 +384,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                          energy.background_j-ref.background_j,
                          world_du_grav))
             total_scale = max(peak_grav_exchange, abs(kinetic - energy0), abs(energy.total_j), abs(ref.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-24, 1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
+            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,

@@ -82,7 +82,15 @@ def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: f
     return min(((abs(flo), lo), (abs(fmid), mid), (abs(fhi), hi)), key=lambda item: item[0])[1]
 
 
-def _locate_extremum(eval_net, a: float, b: float, *, maximize: bool, scale: float) -> tuple[float, float]:
+def _locate_extremum(
+    eval_net,
+    a: float,
+    b: float,
+    *,
+    maximize: bool,
+    scale: float,
+    prefer_left: bool = True,
+) -> tuple[float, float]:
     """Golden-section search for a local maximum or minimum of F(s) on [a, b]."""
     lo, hi = a, b
     flo = eval_net(lo)
@@ -103,7 +111,9 @@ def _locate_extremum(eval_net, a: float, b: float, *, maximize: bool, scale: flo
             # Flat tail on the left (e.g. wide scan toward -infinity): shrink toward right.
             better_c = False
         else:
-            better_c = True
+            # All four probes tied (e.g. conductor-side endpoint coincides with
+            # asymptotic constant force): shrink toward the physical conductor side.
+            better_c = prefer_left
         if better_c:
             hi, fhi, d, fd = d, fd, c, fc
             c = hi - _INV_PHI * (hi - lo)
@@ -265,7 +275,15 @@ def find_1d_equilibria(
         maximize: bool,
         allow_tangent: bool = True,
     ) -> None:
-        s_ext, f_ext = _locate_extremum(net_force, left_s, right_s, maximize=maximize, scale=local_root_scale)
+        if isfinite(domain.lower) and not isfinite(domain.upper):
+            prefer_left = True
+        elif isfinite(domain.upper) and not isfinite(domain.lower):
+            prefer_left = False
+        else:
+            prefer_left = (left_s - domain.lower) <= (domain.upper - right_s)
+        s_ext, f_ext = _locate_extremum(
+            net_force, left_s, right_s, maximize=maximize, scale=local_root_scale, prefer_left=prefer_left,
+        )
         crossed = (f_ext > 0.0) if maximize else (f_ext < 0.0)
         is_strict_interior = (
             (f_ext > left_v and f_ext > right_v) if maximize

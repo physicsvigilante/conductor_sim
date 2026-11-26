@@ -918,3 +918,70 @@ def test_m45_sol_v7_reversed_scan_fast_launch_static_gauge_drift_and_2d_drift():
     b_2d_0["motion_2d"]["max_abs_energy_drift_j"] = 1e100
     with pytest.raises(ValueError, match="initial energy_drift_j"):
         render_html(b_2d_0, title="Forged 2D row 0 drift")
+
+
+def test_m45_sol_v8_tied_reversed_scan_sub_1e24_loss_and_remote_gauge_energy_forgeries():
+    """Regression suite for all 3 Sol v8 findings."""
+    from conductor_sim.motion_1d import MotionIntegrationError
+
+    # 1. Reversed scan (-z) with all-tied endpoint/interior forces shrinks toward conductor & finds both roots
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.125, constraint=FixedNetCharge(7.0))
+    prob_tie = ElectrostaticProblem(
+        (PointCharge(18.0, (0.0, 0.0, 0.5)),),
+        (sphere,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_tie = UniformGravity((0.0, 0.0, -100.0))
+    spec_fwd = Motion1DSpec(prob_tie, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05, gravity=g_tie)
+    spec_rev = Motion1DSpec(prob_tie, 0, 1.0, (0.0, 0.0, -1.0), 0.0, 0.1, 0.05, gravity=g_tie)
+    for n_scan in (9, 129):
+        eq_f = find_1d_equilibria(spec_fwd, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-0.25, 1e18), scan_samples=n_scan)
+        eq_r = find_1d_equilibria(spec_rev, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-1e18, 0.25), scan_samples=n_scan)
+        assert len(eq_f) == 2 and len(eq_r) == 2
+        zf = sorted(e.position_m[2] for e in eq_f)
+        zr = sorted(e.position_m[2] for e in eq_r)
+        assert isclose(zf[0], 0.253263038348, rel_tol=1e-7) and isclose(zr[0], 0.253263038348, rel_tol=1e-7)
+        assert isclose(zf[1], 1.118382756045, rel_tol=1e-7) and isclose(zr[1], 1.118382756045, rel_tol=1e-7)
+
+    # 2. Sub-1e-24 J gravitational exchange loss (2e-26 J at z_ref=5e15 m) is refused in BOTH 1D & 2D
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_tiny_e = ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.25)),), (plane0,))
+    g_far_ref = UniformGravity((0.0, 0.0, 2.0), reference_position_m=(0.0, 0.0, 5e15))
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_1d(
+            Motion1DSpec(prob_tiny_e, 0, 1e-18, (0.0, 0.0, 1.0), 0.0, 1e-4, 1e-4, gravity=g_far_ref),
+            GroundedPlaneBackend(),
+        )
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_2d(
+            Motion2DSpec(prob_tiny_e, 0, 1e-18, (0.0, 0.0, 0.0), 1e-4, 1e-4, gravity=g_far_ref),
+            GroundedPlaneBackend(),
+        )
+
+    # 3. Both 1D and 2D viewers reject +1e8 J forgery to total_energy_j, interaction_energy_j, or U_g at z_ref=1e18 m
+    prob_eq_g = ElectrostaticProblem(
+        (PointCharge(2.0, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_eq_1e18 = UniformGravity((0.0, 0.0, 0.25), reference_position_m=(0.0, 0.0, 1e18))
+    b1 = sample_motion_1d(
+        Motion1DSpec(prob_eq_g, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025, gravity=g_eq_1e18),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2 = sample_motion_2d(
+        Motion2DSpec(prob_eq_g, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.025, gravity=g_eq_1e18),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    assert "<canvas" in render_html(b1, title="Valid 1D static equilibrium 1e18")
+    assert "<canvas" in render_html(b2, title="Valid 2D static equilibrium 1e18")
+    import copy
+    for field in ("total_energy_j", "interaction_energy_j", "gravitational_potential_energy_j"):
+        m1 = copy.deepcopy(b1)
+        m1["motion_1d"]["samples"][1][field] += 1e8
+        with pytest.raises(ValueError):
+            render_html(m1, title=f"Forged 1D {field}")
+        m2 = copy.deepcopy(b2)
+        m2["motion_2d"]["samples"][1][field] += 1e8
+        with pytest.raises(ValueError):
+            render_html(m2, title=f"Forged 2D {field}")
