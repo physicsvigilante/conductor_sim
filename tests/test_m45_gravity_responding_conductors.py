@@ -32,6 +32,7 @@ from conductor_sim import (
     sample_motion_2d,
 )
 from conductor_sim._motion_validation import validate_planar_motion
+from conductor_sim.viewer import render_html
 
 
 def test_overhead_grounded_plane_exact_unstable_equilibrium_and_divergence():
@@ -371,21 +372,45 @@ def test_sol_m45_review_regressions():
     with pytest.raises(UnsupportedProblem, match="invariant plane"):
         Motion2DSpec(prob_e, 0, 1e-3, (1.0, 0.0, 0.0), 0.1, 0.01, gravity=UniformGravity((0.0, 5e-13, 0.0)))
 
-    # 5. Returning 1D trajectory checks every ordered frame (no duplicate-position overwrite) & checks gravity terms
+    # 5. Returning 1D trajectory checks ALL rows (including graph-only rows) & checks backend frames
     spec_ret = Motion1DSpec(
         ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.0)),), (plane,)),
-        0, 1.0, (0.0, 0.0, 1.0), -1.0, 1.0, 0.25,
+        0, 1.0, (0.0, 0.0, 1.0), -1.0, 1.0, 0.05,
         gravity=UniformGravity((0.0, 0.0, 2.0)),
     )
     res_ret = integrate_motion_1d(spec_ret, GroundedPlaneBackend())
+    assert len(res_ret.samples) == 21
     from dataclasses import replace as dc_replace
+    # Forged selected frame row with inconsistent sum -> caught by 1D gravity ledger validator
     forged_samples = (dc_replace(res_ret.samples[0], electric_force_n=99.0), *res_ret.samples[1:])
-    forged_res = dc_replace(res_ret, samples=forged_samples)
+    with pytest.raises(ValueError, match="total force"):
+        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=dc_replace(res_ret, samples=forged_samples), visual_frames=5, resolution=9)
+    # Forged selected frame row with self-consistent sum -> caught by _CheckedBackend against real solver
+    s0 = res_ret.samples[0]
+    forged_consistent = (
+        dc_replace(s0, electric_force_n=99.0, force_n=99.0 + s0.gravitational_force_n,
+                   acceleration_m_s2=(99.0 + s0.gravitational_force_n) / spec_ret.mass_kg),
+        *res_ret.samples[1:],
+    )
     with pytest.raises(UnsupportedProblem, match="disagrees"):
-        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=forged_res, visual_frames=5, resolution=9)
-    forged_g_samples = (dc_replace(res_ret.samples[0], gravitational_force_n=99.0), *res_ret.samples[1:])
-    with pytest.raises(UnsupportedProblem, match="disagrees"):
-        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=dc_replace(res_ret, samples=forged_g_samples), visual_frames=5, resolution=9)
+        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=dc_replace(res_ret, samples=forged_consistent), visual_frames=5, resolution=9)
+    # Forged graph-only row (index 1, skipped when visual_frames=5) -> caught by sample_motion_1d
+    forged_graph = list(res_ret.samples)
+    forged_graph[1] = dc_replace(forged_graph[1], gravitational_potential_energy_j=1234.0)
+    with pytest.raises(ValueError, match="gravitational energy"):
+        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=dc_replace(res_ret, samples=tuple(forged_graph)), visual_frames=5, resolution=9)
+    # Post-sampling forged 1D row -> caught by render_html
+    valid_bundle_1d = sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=res_ret, visual_frames=5, resolution=9)
+    assert "<canvas" in render_html(valid_bundle_1d, title="Valid 1D gravity")
+    forged_bundle_1d = sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=res_ret, visual_frames=5, resolution=9)
+    forged_bundle_1d["motion_1d"]["samples"][1]["electric_force_n"] = 42.0
+    with pytest.raises(ValueError, match="total force"):
+        render_html(forged_bundle_1d, title="Forged 1D gravity")
+    # Orphan gravity fields without gravity metadata -> caught by render_html
+    orphan_bundle_1d = sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=res_ret, visual_frames=5, resolution=9)
+    del orphan_bundle_1d["motion_1d"]["gravity"]
+    with pytest.raises(ValueError, match="gravity metadata"):
+        render_html(orphan_bundle_1d, title="Orphan 1D gravity")
 
     # 2D validator rejects gravity contribution keys without gravity metadata and huge forged electric_force_n
     d_no_g = res_e.as_dict()
@@ -424,6 +449,115 @@ def test_sol_m45_review_regressions():
     find_1d_equilibria(spec_micro, _CountingBackend(), displacement_bounds_m=(-1e-6, 1e-6), scan_samples=25)
     assert counts["open"] > 0 and counts["open"] == counts["close"]
 
-    # 7. UniformGravity.potential_energy_at avoids intermediate underflow/overflow
+    # 7. UniformGravity.potential_energy_at avoids intermediate underflow AND OverflowError
     g_ext = UniformGravity((1e-200, 0.0, 0.0), reference_position_m=(0.0, 0.0, 0.0))
     assert isclose(g_ext.potential_energy_at((1e-200, 0.0, 0.0), mass_kg=1e200), -1e-200, rel_tol=1e-14)
+    g_ovf = UniformGravity((1.0, 1.0, 0.0), reference_position_m=(0.0, 0.0, 0.0))
+    assert isclose(g_ovf.potential_energy_at((1e308, 1e308, 0.0), mass_kg=1e-308), -2.0, rel_tol=1e-14)
+
+
+def test_m45_sol_v2_boundary_cell_false_root_tangent_and_subnormal():
+    """Regression suite for Sol v2 findings: boundary-cell close roots, no false roots near
+    singular surface, scan-invariant tangent stability, and subnormal out-of-plane gravity."""
+    # 1. Exact first-cell close roots on [0.17164, 0.18] m outside an isolated charged sphere
+    R = 0.10
+    Q_net = 5.0e-7
+    q = 2.0e-7
+    g_mag = 9.81
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=R, constraint=FixedNetCharge(Q_net))
+    backend = ExternalIsolatedSphereBackend()
+
+    # Exact radial electric force for isolated sphere with net charge Q_net and external q at r:
+    # q_img = -q * R / r at b = R^2 / r; q_center = Q_net - q_img = Q_net + q * R / r
+    def f_elec(r: float) -> float:
+        q_img = -q * R / r
+        b = R * R / r
+        q_c = Q_net - q_img
+        return (q / (4.0 * pi * EPSILON_0)) * (q_c / (r * r) + q_img / ((r - b) ** 2))
+
+    # Locate the exact peak of f_elec(r) on (0.12, 0.30)
+    lo, hi = 0.12, 0.30
+    inv_phi = (sqrt(5.0) - 1.0) / 2.0
+    for _ in range(100):
+        c = hi - inv_phi * (hi - lo)
+        d = lo + inv_phi * (hi - lo)
+        if f_elec(c) >= f_elec(d):
+            hi = d
+        else:
+            lo = c
+    r_peak = 0.5 * (lo + hi)
+    f_peak = f_elec(r_peak)
+
+    # (a) Sol's exact first-cell close roots on [0.17164, 0.18] m (both fall in [grid[0], grid[1]])
+    spec_sol_cell = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.3)),), (sphere,)),
+        0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393506555945)),
+    )
+    eq_boundary = find_1d_equilibria(
+        spec_sol_cell, backend, displacement_bounds_m=(0.17164 - 0.3, 0.18 - 0.3), scan_samples=129,
+    )
+    assert len(eq_boundary) == 2
+    assert isclose(eq_boundary[0].position_m[2], 0.1716488813521, rel_tol=1e-7)
+    assert isclose(eq_boundary[1].position_m[2], 0.1716611949418, rel_tol=1e-7)
+    assert eq_boundary[0].stability == "unstable"
+    assert eq_boundary[1].stability == "stable"
+    # Also verify right-boundary cell [grid[-2], grid[-1]] catches both roots
+    eq_right_boundary = find_1d_equilibria(
+        spec_sol_cell, backend, displacement_bounds_m=(0.16 - 0.3, 0.17167 - 0.3), scan_samples=129,
+    )
+    assert len(eq_right_boundary) == 2
+    assert eq_right_boundary[0].stability == "unstable"
+    assert eq_right_boundary[1].stability == "stable"
+
+    # (b) No false equilibrium when max net force is strictly negative (-1.0e-7 N) even near singular r=0.1000002
+    m_none = (f_peak + 1.0e-7) / g_mag
+    spec_none = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25)),), (sphere,)),
+        0, m_none, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
+        surface_guard_m=1e-7,
+        gravity=UniformGravity((0.0, 0.0, -g_mag)),
+    )
+    eq_none = find_1d_equilibria(
+        spec_none, backend,
+        displacement_bounds_m=(0.1000002 - 0.25, 0.7 - 0.25),
+        scan_samples=9,
+    )
+    assert eq_none == ()
+
+    # (c) Exact off-grid quadratic tangent (F_peak == mg) is ALWAYS indeterminate across scan_samples
+    m_tan = f_peak / g_mag
+    spec_tan = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25)),), (sphere,)),
+        0, m_tan, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -g_mag)),
+    )
+    for n_scan in (17, 33, 65, 129, 257):
+        eq_tan = find_1d_equilibria(
+            spec_tan, backend,
+            displacement_bounds_m=(0.13 - 0.25, 0.35 - 0.25),
+            scan_samples=n_scan,
+        )
+        assert len(eq_tan) == 1
+        assert eq_tan[0].stability == "indeterminate"
+        assert eq_tan[0].small_oscillation_angular_frequency_rad_s is None
+
+    # 2. Subnormal out-of-plane gravity (5e-324, 0, 0) cannot bypass 2D plane checks!
+    plane_xy = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    v_tilted = (0.916515138991168, -0.4, 0.0)  # plane normal = (0.4, 0.916515..., 0)
+    prob_sub = ElectrostaticProblem((PointCharge(1e-9, (0.0, 0.0, 0.5)),), (plane_xy,))
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob_sub, 0, 1.0, v_tilted, 0.05, 0.01,
+            gravity=UniformGravity((5e-324, 0.0, 0.0)),
+        )
+    # Also verify validate_planar_motion rejects subnormal out-of-plane gravity in saved dicts
+    spec_ok_2d = Motion2DSpec(
+        prob_sub, 0, 1.0, v_tilted, 0.02, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -1.0)),
+    )
+    res_ok_2d = integrate_motion_2d(spec_ok_2d, GroundedPlaneBackend())
+    d_sub = res_ok_2d.as_dict()
+    d_sub["gravity"]["acceleration_m_s2"] = [5e-324, 0.0, 0.0]
+    with pytest.raises(ValueError, match="outside the proven physical plane"):
+        validate_planar_motion(d_sub)

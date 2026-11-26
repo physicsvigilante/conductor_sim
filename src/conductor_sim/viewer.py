@@ -50,6 +50,8 @@ def render_html(bundle, *, title='Conductor simulation'):
                     len(frame.get('charges',())) != 1 or
                     list(frame['charges'][0]['position_m']) != list(row['position_m'])):
                 raise ValueError('every displayed field must match its actual trajectory position')
+        from ._motion_validation import validate_motion_1d_gravity
+        validate_motion_1d_gravity(motion)
     planar_motion = display.get('motion_2d')
     if planar_motion is not None:
         if (sweep is not None or motion is not None or

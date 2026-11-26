@@ -72,9 +72,11 @@ def validate_planar_motion(motion, *, frames=None):
         from .conservative_forces import restore_gravity
         gravity_obj = restore_gravity(motion['gravity'])
         g_vec = gravity_obj.acceleration_m_s2
-        g_mag = hypot(*g_vec)
-        if g_mag > 0. and abs(_dot(g_vec, normal)) > 1e-9 * g_mag:
-            raise ValueError('saved uniform gravity lies outside the proven physical plane')
+        g_scale = max(abs(x) for x in g_vec)
+        if g_scale > 0.:
+            g_scaled = tuple(x / g_scale for x in g_vec)
+            if abs(_dot(g_scaled, normal)) > 1e-9 * hypot(*g_scaled):
+                raise ValueError('saved uniform gravity lies outside the proven physical plane')
     # Optional M18 source inventory is shared by numerical and viewer data.
     # Original one-source M17 exports remain valid without these fields.
     stationary = motion.get('stationary_charges')
@@ -282,3 +284,94 @@ def planar_path_breaks(motion, frame):
     points = [(*plane.project(row['position_m'])[:2],0.) for row in motion['samples']]
     return [i for i,(a,b) in enumerate(zip(points,points[1:]),1)
             if any(boundary.first_hit(a,b) is not None for boundary in boundaries)]
+
+
+def validate_motion_1d_gravity(motion):
+    """Validate optional M45 1D gravity metadata and separated sample ledgers.
+
+    Checks every row in ``motion['samples']`` (both field-frame rows and
+    graph-only rows) without altering legacy non-gravity M16 exports.
+    """
+    rows = motion.get('samples')
+    if not isinstance(rows, list) or len(rows) < 2:
+        raise ValueError('1D motion requires at least two finite samples')
+    gravity_keys = (
+        'electric_force_n',
+        'gravitational_force_n',
+        'electric_interaction_energy_j',
+        'gravitational_potential_energy_j',
+    )
+    if 'gravity' not in motion:
+        for row in rows:
+            if not isinstance(row, dict) or any(k in row for k in gravity_keys):
+                raise ValueError('gravity contribution fields require gravity metadata')
+        return
+    from .conservative_forces import restore_gravity
+    gravity_obj = restore_gravity(motion['gravity'])
+    mass = motion.get('mass_kg')
+    if not _number(mass) or mass <= 0:
+        raise ValueError('gravity-coupled 1D motion requires positive finite mass_kg')
+    axis = motion.get('axis')
+    if not _vector(axis) or not isclose(hypot(*axis), 1., rel_tol=1e-10, abs_tol=1e-12):
+        raise ValueError('gravity-coupled 1D motion requires a unit axis vector')
+    p0 = motion.get('initial_position_m')
+    if not _vector(p0):
+        raise ValueError('gravity-coupled 1D motion requires a finite initial_position_m')
+    g_vec = gravity_obj.acceleration_m_s2
+    g_scale = max(abs(x) for x in g_vec)
+    if g_scale > 0.:
+        g_scaled = tuple(x / g_scale for x in g_vec)
+        g_along = _dot(g_scaled, axis)
+        g_trans = hypot(*(g_scaled[i] - g_along * axis[i] for i in range(3)))
+        if g_trans > 1e-10 * hypot(*g_scaled):
+            raise ValueError('saved 1D uniform gravity is not collinear with the motion axis')
+    for row in rows:
+        if not isinstance(row, dict) or not _vector(row.get('position_m')):
+            raise ValueError('gravity-coupled 1D motion samples require finite position_m')
+    scale = max(1e-12, *(hypot(*_sub(r['position_m'], p0)) for r in rows))
+    for row in rows:
+        position = row['position_m']
+        if not all(_number(row.get(k)) for k in (
+                'displacement_m', 'velocity_m_s', 'acceleration_m_s2', 'force_n',
+                'kinetic_energy_j', 'interaction_energy_j', 'total_energy_j')):
+            raise ValueError('gravity-coupled 1D motion samples require finite kinematic and energy fields')
+        exp_pos = tuple(p0[i] + row['displacement_m'] * axis[i] for i in range(3))
+        if not _position_close(position, exp_pos, scale):
+            raise ValueError('saved 1D sample position disagrees with axis displacement')
+        e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
+        e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')
+        if not all(_number(v) for v in (e_force, g_force, e_u, g_u)):
+            raise ValueError('gravity-coupled 1D motion samples require separated force and energy contributions')
+        exp_gf = _dot(gravity_obj.force_at(position, mass_kg=mass), axis)
+        exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
+        if not isclose(g_force, exp_gf, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gf)))):
+            raise ValueError('saved 1D gravitational force disagrees with UniformGravity')
+        f_scale = max(abs(e_force), abs(g_force))
+        if not isclose(row['force_n'], fsum((e_force, g_force)),
+                       rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(f_scale))):
+            raise ValueError('saved 1D total force disagrees with electric + gravitational sum')
+        exp_acc = row['force_n'] / mass
+        acc_scale = f_scale / mass
+        if (not isfinite(exp_acc) or not isfinite(acc_scale) or
+                not isclose(row['acceleration_m_s2'], exp_acc,
+                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(acc_scale)))):
+            raise ValueError('saved 1D acceleration disagrees with force and mass')
+        if not isclose(g_u, exp_gu, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gu)))):
+            raise ValueError('saved 1D gravitational energy disagrees with UniformGravity')
+        u_scale = max(abs(e_u), abs(g_u))
+        if not isclose(row['interaction_energy_j'], fsum((e_u, g_u)),
+                       rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(u_scale))):
+            raise ValueError('saved 1D interaction energy disagrees with electric + gravitational sum')
+        from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
+        v_s = row['velocity_m_s']
+        if abs(v_s) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
+            raise ValueError('saved 1D classical motion speed must be below 0.1c')
+        kinetic = .5 * mass * (v_s * v_s)
+        if (not isfinite(kinetic) or row['kinetic_energy_j'] < 0 or
+                not isclose(row['kinetic_energy_j'], kinetic,
+                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(kinetic))))):
+            raise ValueError('saved 1D kinetic energy disagrees with velocity and mass')
+        e_scale = max(abs(kinetic), abs(e_u), abs(g_u))
+        if not isclose(row['total_energy_j'], fsum((kinetic, e_u, g_u)),
+                       rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
+            raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')

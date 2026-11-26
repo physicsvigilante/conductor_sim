@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import replace
 from math import fsum, hypot, isclose, isfinite
 
+from ._motion_validation import validate_motion_1d_gravity
 from ._resources import cleanup_resources
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge
 from .motion_1d import Motion1DResult, Motion1DSpec, integrate_motion_1d
@@ -109,6 +110,13 @@ def sample_motion_1d(spec: Motion1DSpec, backend, *, result=None, plane=None,
         result = integrate_motion_1d(spec, backend)
     if not isinstance(result, Motion1DResult) or result.spec != spec:
         raise ValueError('supplied trajectory must be an M16a result for this exact specification')
+    if spec.gravity is None:
+        for row in result.samples:
+            if any(getattr(row, k) is not None for k in (
+                    'electric_force_n', 'gravitational_force_n',
+                    'electric_interaction_energy_j', 'gravitational_potential_energy_j')):
+                raise ValueError('gravity contribution fields require gravity metadata')
+    validate_motion_1d_gravity(result.as_dict())
     indices = _choose_indices(result, visual_frames)
     if plane is None:
         plane = motion_slice(spec, result, resolution=resolution)

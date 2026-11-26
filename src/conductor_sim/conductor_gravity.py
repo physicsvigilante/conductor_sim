@@ -208,6 +208,30 @@ def find_1d_equilibria(
         if all(abs(r - existing) > dedup_tol for existing in candidate_roots):
             candidate_roots.append(r)
 
+    def inspect_extremum(left_s: float, left_v: float, right_s: float, right_v: float, *, maximize: bool) -> None:
+        s_ext, f_ext = _locate_extremum(net_force, left_s, right_s, maximize=maximize, scale=span_scale)
+        crossed = (f_ext > 0.0) if maximize else (f_ext < 0.0)
+        is_strict_interior = (
+            (f_ext > left_v and f_ext > right_v) if maximize
+            else (f_ext < left_v and f_ext < right_v)
+        )
+        if not crossed and not is_strict_interior and f_ext != 0.0:
+            return
+        _, elec_e, _, _, _ = observe(s_ext)
+        # Use only the local force cancellation scale at s_ext; distant
+        # singular-boundary grid samples must never inflate the zero band.
+        f_scale = max(abs(elec_e), abs(grav_along))
+        zero_band = 64.0 * ulp(f_scale) if f_scale > 0.0 else 0.0
+        if f_ext == 0.0 or abs(f_ext) <= zero_band:
+            # Treat extremum values inside the floating-point cancellation band
+            # (whether +/- a few ULPs) as a single tangent equilibrium rather
+            # than splitting roundoff noise into two spurious close roots.
+            if crossed or is_strict_interior or f_ext == 0.0:
+                add_root(s_ext)
+        elif crossed:
+            add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, span_scale))
+            add_root(_refine_bracket(net_force, s_ext, f_ext, right_s, right_v, span_scale))
+
     for idx, (s, val) in enumerate(zip(grid, values)):
         if val == 0.0:
             add_root(s)
@@ -215,34 +239,31 @@ def find_1d_equilibria(
             s_next, v_next = grid[idx + 1], values[idx + 1]
             if (val < 0.0 < v_next) or (v_next < 0.0 < val):
                 add_root(_refine_bracket(net_force, s, val, s_next, v_next, span_scale))
-        # Inspect interior local extrema approaching zero from one side to catch
-        # close root pairs inside a single grid cell or tangent roots (F=0, F'=0).
-        if 0 < idx < len(grid) - 1:
+        # Inspect interior AND boundary local extrema approaching zero from one
+        # side to catch close root pairs inside any cell (including boundary
+        # cells) as well as tangent roots (F=0, F'=0).
+        if idx == 0:
+            v_right = values[1]
+            if val < 0.0 and v_right <= val:
+                inspect_extremum(grid[0], val, grid[1], v_right, maximize=True)
+            elif val > 0.0 and v_right >= val:
+                inspect_extremum(grid[0], val, grid[1], v_right, maximize=False)
+        elif idx == len(grid) - 1:
+            v_left = values[-2]
+            if val < 0.0 and v_left <= val:
+                inspect_extremum(grid[-2], v_left, grid[-1], val, maximize=True)
+            elif val > 0.0 and v_left >= val:
+                inspect_extremum(grid[-2], v_left, grid[-1], val, maximize=False)
+        else:
             v_prev, v_next = values[idx - 1], values[idx + 1]
             if val < 0.0 and v_prev <= val and v_next <= val:
-                s_ext, f_ext = _locate_extremum(net_force, grid[idx - 1], grid[idx + 1], maximize=True, scale=span_scale)
-                if f_ext > 0.0:
-                    add_root(_refine_bracket(net_force, grid[idx - 1], v_prev, s_ext, f_ext, span_scale))
-                    add_root(_refine_bracket(net_force, s_ext, f_ext, grid[idx + 1], v_next, span_scale))
-                else:
-                    _, elec_e, _, _, _ = observe(s_ext)
-                    f_scale = max(abs(elec_e), abs(grav_along), abs(v_prev), abs(v_next))
-                    if f_ext == 0.0 or (f_scale > 0.0 and abs(f_ext) <= 64.0 * ulp(f_scale)):
-                        add_root(s_ext)
+                inspect_extremum(grid[idx - 1], v_prev, grid[idx + 1], v_next, maximize=True)
             elif val > 0.0 and v_prev >= val and v_next >= val:
-                s_ext, f_ext = _locate_extremum(net_force, grid[idx - 1], grid[idx + 1], maximize=False, scale=span_scale)
-                if f_ext < 0.0:
-                    add_root(_refine_bracket(net_force, grid[idx - 1], v_prev, s_ext, f_ext, span_scale))
-                    add_root(_refine_bracket(net_force, s_ext, f_ext, grid[idx + 1], v_next, span_scale))
-                else:
-                    _, elec_e, _, _, _ = observe(s_ext)
-                    f_scale = max(abs(elec_e), abs(grav_along), abs(v_prev), abs(v_next))
-                    if f_ext == 0.0 or (f_scale > 0.0 and abs(f_ext) <= 64.0 * ulp(f_scale)):
-                        add_root(s_ext)
+                inspect_extremum(grid[idx - 1], v_prev, grid[idx + 1], v_next, maximize=False)
 
     candidate_roots.sort()
     equilibria: list[ConductingGravityEquilibrium] = []
-    for s_eq in candidate_roots:
+    for root_idx, s_eq in enumerate(candidate_roots):
         pos, elec_along, net, u_elec, u_grav = observe(s_eq)
         clearance = domain.clearance(s_eq)
         dist_lo = s_eq - domain.lower
@@ -250,7 +271,15 @@ def find_1d_equilibria(
         finite_dists = [d for d in (dist_lo, dist_hi) if isfinite(d)]
         local_scale = min(finite_dists) if finite_dists else max(domain.scale, abs(s_eq), s_hi - s_lo)
         step = min(1e-5 * local_scale, 0.25 * clearance)
-        if step <= 0.0 or not (domain.safe(s_eq - step) and domain.safe(s_eq + step)):
+        neighbor_dists = []
+        if root_idx > 0:
+            neighbor_dists.append(s_eq - candidate_roots[root_idx - 1])
+        if root_idx + 1 < len(candidate_roots):
+            neighbor_dists.append(candidate_roots[root_idx + 1] - s_eq)
+        if neighbor_dists:
+            step = min(step, 0.25 * min(neighbor_dists))
+        min_step = 128.0 * ulp(max(abs(s_eq), local_scale))
+        if step <= min_step or not (domain.safe(s_eq - step) and domain.safe(s_eq + step)):
             stiffness = 0.0
             stability: Literal["stable", "unstable", "indeterminate"] = "indeterminate"
             omega = None
@@ -264,11 +293,16 @@ def find_1d_equilibria(
             if not isfinite(stiffness) or abs(stiffness) <= stiffness_floor:
                 stability = "indeterminate"
                 omega = None
-            elif stiffness > 0.0:
+            elif f_minus > 0.0 and f_plus < 0.0 and stiffness > 0.0:
                 stability = "stable"
                 omega = _scaled_sqrt_ratio(stiffness, spec.mass_kg)
-            else:
+            elif f_minus < 0.0 and f_plus > 0.0 and stiffness < 0.0:
                 stability = "unstable"
+                omega = None
+            else:
+                # Same-sign or zero perturbations (e.g. quadratic tangent F'=0)
+                # do not certify linear stability.
+                stability = "indeterminate"
                 omega = None
         equilibria.append(ConductingGravityEquilibrium(
             position_m=pos,

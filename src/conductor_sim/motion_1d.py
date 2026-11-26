@@ -247,11 +247,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         raise UnsupportedProblem('no connected vacuum interval along authored axis')
     if spec.gravity is not None:
         g_vec = spec.gravity.acceleration_m_s2
-        g_mag = _norm(g_vec)
-        if g_mag > 0:
-            g_along = _dot(g_vec, axis)
-            g_trans = _norm(_minus(g_vec, tuple(g_along * u for u in axis)))
-            if g_trans > 1e-10 * g_mag:
+        g_scale = max(abs(c) for c in g_vec)
+        if g_scale > 0.:
+            g_scaled = tuple(c / g_scale for c in g_vec)
+            g_along = _dot(g_scaled, axis)
+            g_trans = _norm(_minus(g_scaled, tuple(g_along * u for u in axis)))
+            if g_trans > 1e-10 * _norm(g_scaled):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)

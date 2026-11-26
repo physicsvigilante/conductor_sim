@@ -302,7 +302,13 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     initial = spec.selected_charge.position_m
     velocity = spec.initial_velocity_m_s
     stationary = spec.stationary_charges
-    gravity_anchors = (spec.gravity.acceleration_m_s2,) if spec.gravity is not None else ()
+    g_scaled = None
+    if spec.gravity is not None:
+        g_vec = spec.gravity.acceleration_m_s2
+        g_scale = max(abs(x) for x in g_vec)
+        if g_scale > 0.:
+            g_scaled = tuple(x / g_scale for x in g_vec)
+    gravity_anchors = (g_scaled,) if g_scaled is not None else ()
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
@@ -355,11 +361,8 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise ValueError('initial point is within the surface-approach guard')
     if abs(_dot(_sub(initial, origin), normal)) > 1e-9*scale or abs(_dot(velocity, normal)) > max(1e-12, 1e-9*_norm(velocity)):
         raise UnsupportedProblem('an invariant planar motion cannot be established')
-    if spec.gravity is not None:
-        g_vec = spec.gravity.acceleration_m_s2
-        g_mag = _norm(g_vec)
-        if g_mag > 0. and abs(_dot(g_vec, normal)) > 1e-9 * g_mag:
-            raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
+    if g_scaled is not None and abs(_dot(g_scaled, normal)) > 1e-9 * _norm(g_scaled):
+        raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
         raise ValueError('moving charge starts within the stationary point-charge guard')
     for source in stationary:

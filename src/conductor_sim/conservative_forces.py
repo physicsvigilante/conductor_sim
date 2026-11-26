@@ -47,8 +47,22 @@ class UniformGravity:
     def potential_energy_at(self, position_m, *, mass_kg):
         p = _vector(position_m, 'gravity observation position')
         _number(mass_kg, 'mass_kg', positive=True)
-        raw = -mass_kg * _dot(self.acceleration_m_s2, _sub(p, self.reference_position_m))
-        if isfinite(raw) and raw != 0.:
+        raw = float('inf')
+        safe_fast = False
+        try:
+            disp = _sub(p, self.reference_position_m)
+            prods = tuple(a * d for a, d in zip(self.acceleration_m_s2, disp))
+            dot_val = fsum(prods)
+            raw = -mass_kg * dot_val
+            if isfinite(raw) and raw != 0.:
+                safe_fast = (
+                    abs(dot_val) >= 1e-300
+                    and not any(a != 0. and d != 0. and abs(pr) < 1e-300
+                                for a, d, pr in zip(self.acceleration_m_s2, disp, prods))
+                )
+        except OverflowError:
+            safe_fast = False
+        if safe_fast:
             return raw
         exact = -Fraction(float(mass_kg)) * sum(
             (Fraction(a) * (Fraction(pi) - Fraction(ri))
