@@ -7,7 +7,7 @@ are masked. Field lines stop at physical faces, source masks and domain bounds.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from math import acos, cos, fsum, hypot, isfinite, pi, sin, sqrt, ulp
+from math import acos, cos, fsum, hypot, inf, isfinite, nextafter, pi, sin, sqrt, ulp
 from pathlib import Path
 from typing import Callable, Iterable
 import json
@@ -413,25 +413,43 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                     point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
                     h_off = conductor.signed_distance_m(point)
                     if h_off != 0.0:
-                        point = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
-                        h_rem = conductor.signed_distance_m(point)
-                        if abs(h_rem) > 1e-13:
-                            snap_limit = 1e-6 * max(span, 1e-12)
-                            local_axes = [
-                                i for i in range(3)
-                                if conductor.normal[i] != 0.0
-                                and abs(h_rem) <= snap_limit * abs(conductor.normal[i])
-                            ]
-                            if local_axes:
-                                k = min(
-                                    local_axes,
-                                    key=lambda i: ulp(abs(point[i])) * abs(conductor.normal[i]),
-                                )
-                                adj = list(point)
-                                adj[k] -= h_rem / conductor.normal[k]
-                                candidate = tuple(adj)
-                                if abs(conductor.signed_distance_m(candidate)) < abs(h_rem):
-                                    point = candidate
+                        cand_n = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
+                        if abs(conductor.signed_distance_m(cand_n)) < abs(h_off):
+                            point = cand_n
+                        d_min = min(
+                            (hypot(*(point[i] - q.position_m[i] for i in range(3))) for q in context.problem.charges),
+                            default=span,
+                        )
+                        snap_limit = 1e-6 * max(d_min, 1e-12)
+                        for _ in range(3):
+                            h_rem = conductor.signed_distance_m(point)
+                            if abs(h_rem) <= 1e-13:
+                                break
+                            best_pt = point
+                            best_h = abs(h_rem)
+                            for i in range(3):
+                                ni = conductor.normal[i]
+                                if ni == 0.0:
+                                    continue
+                                cands = []
+                                if abs(h_rem) <= snap_limit * abs(ni):
+                                    cands.append(point[i] - h_rem / ni)
+                                nbr_val = nextafter(point[i], -inf if h_rem * ni > 0.0 else inf)
+                                if abs(nbr_val - point[i]) <= snap_limit:
+                                    cands.append(nbr_val)
+                                for val in cands:
+                                    if abs(val - point[i]) > snap_limit:
+                                        continue
+                                    adj = list(point)
+                                    adj[i] = val
+                                    cand = tuple(adj)
+                                    h_cand = abs(conductor.signed_distance_m(cand))
+                                    if h_cand < best_h:
+                                        best_h = h_cand
+                                        best_pt = cand
+                            if best_pt is point:
+                                break
+                            point = best_pt
                     values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,

@@ -2170,3 +2170,31 @@ def test_m45_sol_v30_shallow_tilt_profile_and_resolvable_small_normal_axis():
     )
     with pytest.raises(ValueError, match="conducting plane"):
         sol_05.surface_charge_density_at("outer", (1e-9, 1e6, 2e6))
+
+
+def test_m45_sol_v31_narrow_slice_sweep_and_adjacent_float_off_plane():
+    """Regression suite for both Sol v31 findings."""
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Narrow XY slice [-1e-4, 1e-4] on plane (1e6, 0, 0) with normal (1, 0.2, 0) returns all 91 samples
+    p_narrow = ConductingPlane((1e6, 0.0, 0.0), (1.0, 0.2, 0.0), Grounded())
+    q_narrow = (1e6 + 1.0, 0.2, 0.0)
+    prob_narrow = ElectrostaticProblem((PointCharge(1e-6, q_narrow),), (p_narrow,))
+    sp_narrow = SliceSpec(
+        origin_m=(1e6, 0.0, 0.0), u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-1e-4, 1e-4), y_range_m=(-1e-4, 1e-4), resolution=9,
+    )
+    bundle_n = sample_sweep([("narrow", prob_narrow)], GroundedPlaneBackend(), plane=sp_narrow, resolution=9)
+    prof_n = bundle_n["frames"][0]["profiles"][0]
+    assert len(prof_n["sigma_c_per_m2"]) == 91
+    h_n = p_narrow.signed_distance_m(q_narrow)
+    expected_center = -1e-6 * h_n / (2.0 * pi * h_n ** 3)
+    assert isclose(prof_n["sigma_c_per_m2"][45], expected_center, rel_tol=1e-6, abs_tol=0.0)
+
+    # 2. Adjacent-float off-plane query (1000000.0000000001, 1e6, 0) on (1e6, 1e6, 0) normal (1, 1, 0) is rejected
+    p_diag = ConductingPlane((1e6, 1e6, 0.0), (1.0, 1.0, 0.0), Grounded())
+    sol_diag = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-6, (1e6 + 1.0, 1e6 + 1.0, 0.0)),), (p_diag,))
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_diag.surface_charge_density_at("outer", (1000000.0000000001, 1e6, 0.0))

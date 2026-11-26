@@ -7,7 +7,7 @@ axisymmetric FEMM solve, point sources need not share a common axis.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import fsum, hypot, isclose, isfinite, pi, ulp
+from math import fsum, hypot, inf, isclose, isfinite, nextafter, pi, ulp
 
 from .model import ConductingPlane, ElectrostaticProblem, Grounded, PointCharge, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
@@ -123,25 +123,40 @@ class GroundedPlaneSolution:
         if surface != 'outer':
             raise ValueError("the ideal plane has one exposed conducting surface")
         point = _position(point_m, "surface point")
-        h_point = abs(self.plane.signed_distance_m(point))
+        h_signed = self.plane.signed_distance_m(point)
+        h_point = abs(h_signed)
         dists = [hypot(*_minus(point, q.position_m)) for q in self.sources]
         d_min = min(dists)
         if d_min == 0.0:
             raise ValueError("surface-density point must lie on conducting plane")
         if h_point > 1e-12:
             normal = self.plane.normal
-            # On an oblique plane, accept a residual > 1e-12 ONLY when no IEEE-754
-            # point exists closer to the plane within the local 1e-6 * d_min neighborhood.
+            # On an oblique plane, accept a residual > 1e-12 ONLY when no adjacent
+            # or directly snapped IEEE-754 coordinate within 1e-6 * d_min is strictly
+            # closer to the plane than ``point``.
             local_limit = 1e-6 * d_min
-            unresolvable = (
-                sum(n != 0.0 for n in normal) >= 2
-                and h_point <= local_limit
-                and all(
-                    h_point <= 2.0 * ulp(abs(point[i])) * abs(normal[i])
-                    or h_point > local_limit * abs(normal[i])
-                    for i in range(3) if normal[i] != 0.0
-                )
-            )
+            unresolvable = sum(n != 0.0 for n in normal) >= 2 and h_point <= local_limit
+            if unresolvable:
+                for i in range(3):
+                    ni = normal[i]
+                    if ni == 0.0:
+                        continue
+                    cands = []
+                    if h_point <= local_limit * abs(ni):
+                        cands.append(point[i] - h_signed / ni)
+                    nbr_val = nextafter(point[i], -inf if h_signed * ni > 0.0 else inf)
+                    if abs(nbr_val - point[i]) <= local_limit:
+                        cands.append(nbr_val)
+                    for val in cands:
+                        if abs(val - point[i]) > local_limit:
+                            continue
+                        adj = list(point)
+                        adj[i] = val
+                        if abs(self.plane.signed_distance_m(tuple(adj))) < h_point:
+                            unresolvable = False
+                            break
+                    if not unresolvable:
+                        break
             if not unresolvable:
                 raise ValueError("surface-density point must lie on conducting plane")
         return -fsum(
