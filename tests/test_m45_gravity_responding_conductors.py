@@ -1886,3 +1886,63 @@ def test_m45_sol_v23_forged_acceleration_velocity_check_and_reverse_boundary_par
     )
     b_rev = sample_motion_2d(spec_rev, MultiImageShellBackend(), visual_frames=2, resolution=9)
     assert "<canvas" in render_html(b_rev, title="Reverse boundary parity")
+
+
+def test_m45_sol_v24_coordinate_plane_zero_floor_and_causal_tilted_turning_point():
+    """Regression suite for Sol v24: coordinate-plane velocity has zero floor; tilted turning point stays valid."""
+    import copy
+
+    shell = SphericalShell(inner_radius_m=2.0, outer_radius_m=3.0, constraint=Grounded(), center_m=(0.0, 0.0, 0.0))
+
+    # 1. High-speed XY-plane turning-point bypass: moving 7.28e-9 m/s from Y into Z must be rejected
+    plane = ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    prob_xy = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (plane,))
+    spec_xy = Motion2DSpec(
+        prob_xy, 0, 1e-20, (0.0, 1e6, 0.0), 1.0, 0.5,
+        gravity=UniformGravity((0.0, -1e6, 0.0)),
+    )
+    b_xy = sample_motion_2d(spec_xy, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_xy, title="High-speed XY turning point")
+
+    tampered_xy = copy.deepcopy(b_xy)
+    r_mid = tampered_xy["motion_2d"]["samples"][1]
+    r_mid["velocity_m_s"] = [0.0, 0.0, 7.28e-9]
+    k_mid = 0.5 * 1e-20 * (7.28e-9 ** 2)
+    r_mid["kinetic_energy_j"] = k_mid
+    e0 = tampered_xy["motion_2d"]["samples"][0]["total_energy_j"]
+    r_mid["electric_interaction_energy_j"] = e0 - k_mid - r_mid["gravitational_potential_energy_j"]
+    r_mid["interaction_energy_j"] = r_mid["electric_interaction_energy_j"] + r_mid["gravitational_potential_energy_j"]
+    r_mid["total_energy_j"] = e0
+    r_mid["energy_drift_j"] = 0.0
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered_xy, title="High-speed XY z-velocity bypass")
+
+    # 2. v23 fixture: inflating another graph-only row's in-plane speed + energy ledger cannot hide z-velocity
+    prob_tp = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (shell,))
+    spec_tp = Motion2DSpec(
+        prob_tp, 0, 1e-20, (0.0, 1e-8, 0.0), 1.0, 0.25,
+        gravity=UniformGravity((0.0, -1e-8, 0.0)),
+    )
+    b_tp = sample_motion_2d(spec_tp, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    tampered_v23 = copy.deepcopy(b_tp)
+    vx, vy, _ = tampered_v23["motion_2d"]["samples"][1]["velocity_m_s"]
+    tampered_v23["motion_2d"]["samples"][1]["velocity_m_s"] = [vx, 0.0, vy]
+    r2 = tampered_v23["motion_2d"]["samples"][2]
+    r2["velocity_m_s"] = [0.0, 1e6, 0.0]
+    k2 = 0.5 * 1e-20 * (1e6 ** 2)
+    r2["kinetic_energy_j"] = k2
+    e0_tp = tampered_v23["motion_2d"]["samples"][0]["total_energy_j"]
+    r2["electric_interaction_energy_j"] = e0_tp - k2 - r2["gravitational_potential_energy_j"]
+    r2["interaction_energy_j"] = r2["electric_interaction_energy_j"] + r2["gravitational_potential_energy_j"]
+    r2["total_energy_j"] = e0_tp
+    r2["energy_drift_j"] = 0.0
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered_v23, title="Inflated in-plane speed bypass")
+
+    # 3. Genuine high-speed tilted-plane turning point still samples and renders cleanly
+    spec_tilt = Motion2DSpec(
+        prob_xy, 0, 1e-20, (0.0, 1e6, 3e6), 1.0, 0.5,
+        gravity=UniformGravity((0.0, -1e6, -3e6)),
+    )
+    b_tilt = sample_motion_2d(spec_tilt, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_tilt, title="High-speed tilted turning point")

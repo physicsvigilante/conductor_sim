@@ -150,7 +150,8 @@ def validate_planar_motion(motion, *, frames=None):
                 transverse = _dot(_sub(point,origin),normal)
                 if abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
                     raise ValueError('fixed charge lies outside the proven physical plane')
-    v_cancel_scale = max((hypot(*r['velocity_m_s']) for r in rows), default=0.0) if gravity_obj is not None else 0.0
+    tilted_plane = sum(x != 0.0 for x in normal) >= 2
+    v_n_prefix = 0.0
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
         if stationary is not None and any(
@@ -178,7 +179,9 @@ def validate_planar_motion(motion, *, frames=None):
                 hypot(*e_force),
                 hypot(*g_force),
             )
-            v_tol_row = 5e-9 * hypot(*velocity) + (512.0 * ulp(v_cancel_scale) if v_cancel_scale > 0.0 else 0.0)
+            if tilted_plane:
+                v_n_prefix = max(v_n_prefix, max(abs(velocity[i] * normal[i]) for i in range(3)))
+            v_tol_row = 5e-9 * hypot(*velocity) + (32.0 * ulp(v_n_prefix) if v_n_prefix > 0.0 else 0.0)
             if (abs(_dot(velocity, normal)) > v_tol_row
                     or abs(_dot(force, normal)) > 5e-9 * f_scale_row
                     or abs(_dot(e_force, normal)) > 5e-9 * hypot(*e_force)):
