@@ -211,6 +211,7 @@ def validate_planar_motion(motion, *, frames=None):
         local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
         r0 = rows[0]
         seen_positions = {}
+        seen_pos_ke = {}
         for row in rows:
             pos_key = tuple(row['position_m'])
             ef_key = tuple(row['electric_force_n'])
@@ -228,6 +229,12 @@ def validate_planar_motion(motion, *, frames=None):
                     row['electric_interaction_energy_j'], ef_key,
                     row['kinetic_energy_j'], row['energy_drift_j'],
                 )
+            pos_ke_key = (pos_key, row['kinetic_energy_j'])
+            if pos_ke_key in seen_pos_ke:
+                if row['energy_drift_j'] != seen_pos_ke[pos_ke_key]:
+                    raise ValueError('saved planar energy_drift_j changed at identical position and kinetic energy')
+            else:
+                seen_pos_ke[pos_ke_key] = row['energy_drift_j']
             same_pos = pos_key == tuple(r0['position_m'])
             dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
             deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
@@ -453,6 +460,7 @@ def validate_motion_1d_gravity(motion):
     local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
     r0 = rows[0]
     seen_positions = {}
+    seen_pos_ke = {}
     for row in rows:
         pos_key = tuple(row['position_m'])
         if pos_key in seen_positions:
@@ -469,6 +477,12 @@ def validate_motion_1d_gravity(motion):
                 row['electric_interaction_energy_j'], row['electric_force_n'],
                 row['kinetic_energy_j'], row['energy_drift_j'],
             )
+        pos_ke_key = (pos_key, row['kinetic_energy_j'])
+        if pos_ke_key in seen_pos_ke:
+            if row['energy_drift_j'] != seen_pos_ke[pos_ke_key]:
+                raise ValueError('saved 1D energy_drift_j changed at identical position and kinetic energy')
+        else:
+            seen_pos_ke[pos_ke_key] = row['energy_drift_j']
         same_pos = pos_key == tuple(r0['position_m'])
         dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
         deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))

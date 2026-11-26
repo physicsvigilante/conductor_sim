@@ -1373,3 +1373,77 @@ def test_m45_sol_v12_collinear_1d_eq_velocity_exact_cross_1ulp_gforce_and_repeat
         b_m[key]["max_abs_energy_drift_j"] = max(abs(r["energy_drift_j"]) for r in b_m[key]["samples"])
         with pytest.raises(ValueError, match="repeated particle position"):
             render_html(b_m, title=f"Forged repeated noninitial pos {key}")
+
+
+def test_m45_sol_v13_collinear_245_coplanar_2d_exact_normal_and_same_pos_ke_drift():
+    """Regression suite for all 3 Sol v13 findings."""
+    import copy
+    from math import nextafter
+
+    # 1. Exact collinear (2, 4, 5) plane/axis/gravity finds equilibrium regardless of duration_s (0.006 vs 0.007)
+    plane_245 = ConductingPlane((0.0, 0.0, 0.0), (2.0, 4.0, 5.0), Grounded())
+    n_245 = plane_245.normal
+    prob_245 = ElectrostaticProblem(
+        (PointCharge(float(2**22), tuple(2.0 * c for c in n_245)),),
+        (plane_245,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_245 = UniformGravity(tuple(float(2**40) * c for c in n_245))
+    for dur in (0.006, 0.007, 1.0):
+        spec_245 = Motion1DSpec(prob_245, 0, 1.0, (2.0, 4.0, 5.0), 0.0, dur, dur / 2.0, gravity=g_245)
+        eq_245 = find_1d_equilibria(
+            spec_245, GroundedPlaneBackend(), displacement_bounds_m=(-0.001, 0.001), scan_samples=17,
+        )
+        assert len(eq_245) == 1
+        assert abs(eq_245[0].displacement_m) < 1e-12
+        assert eq_245[0].stability == "unstable"
+
+    # 2. Exactly coplanar 2D gravity proportional to launch velocity (4, 3, 1) passes with exact rational normal
+    plane_123 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 2.0, 3.0), Grounded())
+    prob_co = ElectrostaticProblem((PointCharge(1e-12, (0.001, 0.001, 0.001)),), (plane_123,))
+    g_co = UniformGravity(tuple(float(2**20) * c for c in (4.0, 3.0, 1.0)))
+    spec_co = Motion2DSpec(prob_co, 0, 1.0, (4.0, 3.0, 1.0), 1.0, 0.25, gravity=g_co)
+    assert spec_co.gravity == g_co
+
+    # 3. Both 1D and 2D viewers reject different drift values at identical (position, kinetic_energy)
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    q_h = float(2**47)
+    m_h = float(2**90)
+    prob_h = ElectrostaticProblem(
+        (PointCharge(q_h, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_h = UniformGravity((0.0, 0.0, 1.0), reference_position_m=(0.0, 0.0, 2.0))
+    b1_h = sample_motion_1d(
+        Motion1DSpec(prob_h, 0, m_h, (0.0, 0.0, 1.0), 0.01, 0.1, 0.025, gravity=g_h),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2_h = sample_motion_2d(
+        Motion2DSpec(prob_h, 0, m_h, (0.0, 0.0, 0.01), 0.1, 0.025, gravity=g_h),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    for b_h, key, is_2d in ((copy.deepcopy(b1_h), "motion_1d", False), (copy.deepcopy(b2_h), "motion_2d", True)):
+        for dst_idx in (2, 3):
+            t_dst = b_h[key]["samples"][dst_idx]["time_s"]
+            dup = copy.deepcopy(b_h[key]["samples"][1])
+            dup["time_s"] = t_dst
+            if is_2d:
+                vz = dup["velocity_m_s"][2]
+                for _ in range(4):
+                    vz = nextafter(vz, float("inf"))
+                dup["velocity_m_s"] = [0.0, 0.0, vz]
+                dup["kinetic_energy_j"] = 0.5 * m_h * (vz * vz)
+            else:
+                v_s = dup["velocity_m_s"]
+                for _ in range(4):
+                    v_s = nextafter(v_s, float("inf"))
+                dup["velocity_m_s"] = v_s
+                dup["kinetic_energy_j"] = 0.5 * m_h * (v_s * v_s)
+            dup["total_energy_j"] = dup["kinetic_energy_j"] + dup["interaction_energy_j"]
+            if dst_idx == 3:
+                dup["energy_drift_j"] += float(2**26)
+            b_h[key]["samples"][dst_idx] = dup
+        b_h[key]["max_abs_energy_drift_j"] = max(abs(r["energy_drift_j"]) for r in b_h[key]["samples"])
+        with pytest.raises(ValueError, match="identical position and kinetic energy"):
+            render_html(b_h, title=f"Forged same pos+KE drift {key}")

@@ -326,10 +326,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                 net_norm = _norm(net_vec)
                 transverse_net = _norm(_minus(net_vec, tuple(net_along_vec * u for u in spec.axis)))
                 f_vec_scale = max(_norm(force), _norm(grav_vec))
-                net_ulp = 256.0 * ulp(f_vec_scale)
-                if (transverse_net > max(5e-9 * net_norm, net_ulp) or
-                        (transverse_net > 64.0 * ulp(net_norm) and
-                         0.5 * (transverse_net / spec.mass_kg) * (spec.duration_s * spec.duration_s) > 1e-9 * domain.scale)):
+                if transverse_net > max(5e-9 * net_norm, 256.0 * ulp(f_vec_scale)):
                     raise UnsupportedProblem('transverse net force breaks one-dimensional motion')
             if not isfinite(along) or not isfinite(total_along) or not isfinite(observations.energy.total_j):
                 raise MotionIntegrationError('nonfinite electrostatic force or energy')
