@@ -607,6 +607,27 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
     )
 
 
+def _rk4_delta(state, dt, rhs):
+    """Pure RK4 increment vector without adding to ``state`` (preserves low bits for compensated sums)."""
+    k1 = rhs(state)
+    k2 = rhs(tuple(a + 0.5 * dt * b for a, b in zip(state, k1)))
+    k3 = rhs(tuple(a + 0.5 * dt * b for a, b in zip(state, k2)))
+    k4 = rhs(tuple(a + dt * b for a, b in zip(state, k3)))
+    return tuple(dt * (a + 2.0 * b + 2.0 * c + d) / 6.0 for a, b, c, d in zip(k1, k2, k3, k4))
+
+
+def _neumaier_add(acc, comp, delta):
+    """Neumaier compensated vector addition preserving ~106-bit state precision across many steps."""
+    new_acc = []
+    new_comp = []
+    for a, c, d in zip(acc, comp, delta):
+        s = a + d
+        c = c + ((a - s) + d if abs(a) >= abs(d) else (d - s) + a)
+        new_acc.append(s)
+        new_comp.append(c)
+    return tuple(new_acc), tuple(new_comp)
+
+
 def _integrate_vector_motion(spec, geometry, observe, *,
                              surface_description='Stopped before the ideal conductor; not an exact collision',
                              step_observer=None, max_step_s=None, dynamics=None, gravity=None):
@@ -650,6 +671,9 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     y = (*p0, *spec.initial_velocity_m_s)
     if dynamics is not None:
         y = (*y, 0., 0., 0., 0.)  # fixed/applied/gravity work, dissipation
+    use_comp = gravity is not None and dynamics is None
+    y_acc = y
+    y_comp = (0.0,) * len(y)
     reference_force, reference_energy = observe(p0)
     _ = reference_force
     local_gravity = (
@@ -744,6 +768,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
 
     record(0., y)
     t = 0.
+    t_acc = 0.
+    t_comp = 0.
     h = spec.sample_interval_s/4
     steps_done = 0
     termination: Literal['duration', 'surface-guard', 'charge-guard'] = 'duration'
@@ -810,13 +836,32 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                     next_origin[i] = p0[i]
                     coordinates[i] = position[i] - p0[i]
             if tuple(next_origin) != origin:
-                y = (*coordinates, *y[3:])
+                if use_comp:
+                    rebase_delta = tuple(
+                        -(next_origin[i] - origin[i]) if i < 3 else 0.0
+                        for i in range(len(y))
+                    )
+                    y_acc, y_comp = _neumaier_add(y_acc, y_comp, rebase_delta)
+                    y = tuple(a + c for a, c in zip(y_acc, y_comp))
+                else:
+                    y = (*coordinates, *y[3:])
                 origin = tuple(next_origin)
                 launch = _sub(p0, origin)
             try:
-                large = rk4_step(y, dt, rhs)
-                half = rk4_step(y, .5*dt, rhs)
-                fine = rk4_step(half, .5*dt, rhs)
+                if use_comp:
+                    d_large = _rk4_delta(y, dt, rhs)
+                    large_acc, large_comp = _neumaier_add(y_acc, y_comp, d_large)
+                    large = tuple(a + c for a, c in zip(large_acc, large_comp))
+                    d_half1 = _rk4_delta(y, .5*dt, rhs)
+                    half_acc, half_comp = _neumaier_add(y_acc, y_comp, d_half1)
+                    half = tuple(a + c for a, c in zip(half_acc, half_comp))
+                    d_half2 = _rk4_delta(half, .5*dt, rhs)
+                    fine_acc, fine_comp = _neumaier_add(half_acc, half_comp, d_half2)
+                    fine = tuple(a + c for a, c in zip(fine_acc, fine_comp))
+                else:
+                    large = rk4_step(y, dt, rhs)
+                    half = rk4_step(y, .5*dt, rhs)
+                    fine = rk4_step(half, .5*dt, rhs)
             except (_SurfaceGuard, _ChargeGuard):
                 h = .5*dt
                 continue
@@ -853,9 +898,19 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                     continue
                 if decision is not None:
                     t, y, termination = decision
+                    y_acc, y_comp = y, (0.0,) * len(y)
+                    t_acc, t_comp = t, 0.0
                     break
-            t += dt
-            y = fine
+            if use_comp:
+                t_sum = t_acc + dt
+                t_comp += (t_acc - t_sum) + dt if abs(t_acc) >= abs(dt) else (dt - t_sum) + t_acc
+                t_acc = t_sum
+                t = t_acc + t_comp
+                y_acc, y_comp = fine_acc, fine_comp
+                y = fine
+            else:
+                t += dt
+                y = fine
             h = min(spec.sample_interval_s,
                     max(.2*dt, dt*min(2.5,(.9/max(error,1e-10))**.2)))
         if termination != 'duration':
@@ -863,6 +918,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 record(t, y)
             break
         t = target
+        t_acc, t_comp = target, 0.0
         if dynamics is not None:
             dynamics.at_boundary(t, _world_state(origin, y))
         record(t, y)

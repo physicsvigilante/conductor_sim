@@ -1946,3 +1946,18 @@ def test_m45_sol_v24_coordinate_plane_zero_floor_and_causal_tilted_turning_point
     )
     b_tilt = sample_motion_2d(spec_tilt, GroundedPlaneBackend(), visual_frames=2, resolution=9)
     assert "<canvas" in render_html(b_tilt, title="High-speed tilted turning point")
+
+
+def test_m45_sol_v25_multi_step_tilted_plane_turning_point_compensated_rk4():
+    """Regression suite for Sol v25: 100-step and 1000-step tilted-plane turning points stay within ULP bound."""
+    plane = ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    prob = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (plane,))
+
+    for dt in (0.01, 0.001):
+        spec = Motion2DSpec(
+            prob, 0, 1e-20, (0.0, 500.0, 117.0), 1.0, dt,
+            gravity=UniformGravity((0.0, -500.0, -117.0)),
+        )
+        bundle = sample_motion_2d(spec, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+        assert bundle["motion_2d"]["termination"] == "duration"
+        assert "<canvas" in render_html(bundle, title=f"Sol v25 tilted turning point dt={dt}")
