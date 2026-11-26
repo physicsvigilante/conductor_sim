@@ -215,7 +215,8 @@ def find_1d_equilibria(
             )
             transverse_net = _norm(_minus(net_vec, tuple(net * u for u in spec.axis)))
             f_vec_scale = max(_norm(elec_vec), _norm(grav_vec))
-            if transverse_net > max(5e-9 * _norm(net_vec), 256.0 * ulp(f_vec_scale)):
+            if (transverse_net > max(5e-9 * _norm(net_vec), 256.0 * ulp(f_vec_scale)) or
+                    0.5 * (transverse_net / spec.mass_kg) * (spec.duration_s * spec.duration_s) > 1e-9 * domain.scale):
                 raise UnsupportedProblem("transverse net force breaks 1D equilibrium")
             u_elec = obs.energy.total_j
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg) if gravity is not None else 0.0

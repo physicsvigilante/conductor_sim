@@ -209,7 +209,10 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
                 raise UnsupportedProblem('1D plane motion must follow the physical plane normal')
             if spec.gravity is not None:
                 sin_err = _norm(_minus(axis, tuple(cos * u for u in c.normal)))
-                if sin_err > 64.0 * ulp(1.0) or any(c.normal[i] == 0.0 and axis[i] != 0.0 for i in range(3)):
+                g_scale_plane = max(abs(val) for val in spec.gravity.acceleration_m_s2)
+                if (sin_err > 16.0 * ulp(1.0)
+                        or any(c.normal[i] == 0.0 and axis[i] != 0.0 for i in range(3))
+                        or 0.5 * (g_scale_plane * sin_err) * (spec.duration_s * spec.duration_s) > 1e-9 * max(c.signed_distance_m(x), 1e-30)):
                     raise UnsupportedProblem('1D plane motion with gravity must align strictly with the plane normal')
             height=c.signed_distance_m(x)
             if height<=0:
@@ -323,8 +326,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                 f_vec_scale = max(_norm(force), _norm(grav_vec))
                 net_ulp = 256.0 * ulp(f_vec_scale)
                 if (transverse_net > max(5e-9 * _norm(net_vec), net_ulp) or
-                        (transverse_net > net_ulp and
-                         0.5 * (transverse_net / spec.mass_kg) * (spec.duration_s * spec.duration_s) > 1e-9 * domain.scale)):
+                        0.5 * (transverse_net / spec.mass_kg) * (spec.duration_s * spec.duration_s) > 1e-9 * domain.scale):
                     raise UnsupportedProblem('transverse net force breaks one-dimensional motion')
             if not isfinite(along) or not isfinite(total_along) or not isfinite(observations.energy.total_j):
                 raise MotionIntegrationError('nonfinite electrostatic force or energy')

@@ -191,18 +191,19 @@ def validate_planar_motion(motion, *, frames=None):
             if any(not isclose(a, b, rel_tol=0.0, abs_tol=8 * ulp(abs(b)))
                    for a, b in zip(g_force, exp_gf)):
                 raise ValueError('saved gravitational force disagrees with UniformGravity')
-            if any(not isclose(a, _safe_fsum((b, c)), rel_tol=0.0, abs_tol=8 * ulp(max(abs(b), abs(c))))
-                   for a, b, c in zip(force, e_force, g_force)):
-                raise ValueError('saved total force disagrees with electric + gravitational sum')
+            for a, b, c in zip(force, e_force, g_force):
+                exp_f = _safe_fsum((b, c))
+                if not isfinite(exp_f) or not isclose(a, exp_f, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_f))):
+                    raise ValueError('saved total force disagrees with electric + gravitational sum')
             if not isclose(g_u, exp_gu, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gu))):
                 raise ValueError('saved gravitational energy disagrees with UniformGravity')
-            u_scale = max(abs(e_u), abs(g_u))
-            if not isclose(row['interaction_energy_j'], _safe_fsum((e_u, g_u)),
-                           rel_tol=0.0, abs_tol=8 * ulp(u_scale)):
+            exp_u = _safe_fsum((e_u, g_u))
+            if not isfinite(exp_u) or not isclose(row['interaction_energy_j'], exp_u,
+                                                  rel_tol=0.0, abs_tol=8 * ulp(abs(exp_u))):
                 raise ValueError('saved interaction energy disagrees with electric + gravitational sum')
-            e_scale = max(abs(row['kinetic_energy_j']), abs(e_u), abs(g_u))
-            if not isclose(row['total_energy_j'], _safe_fsum((row['kinetic_energy_j'], e_u, g_u)),
-                           rel_tol=0.0, abs_tol=8 * ulp(e_scale)):
+            exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, g_u))
+            if not isfinite(exp_e) or not isclose(row['total_energy_j'], exp_e,
+                                                  rel_tol=0.0, abs_tol=8 * ulp(abs(exp_e))):
                 raise ValueError('motion total energy disagrees with K+U_elec+U_grav')
     if gravity_obj is not None:
         if rows[0]['energy_drift_j'] != 0.0:
@@ -211,13 +212,18 @@ def validate_planar_motion(motion, *, frames=None):
         local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
         r0 = rows[0]
         for row in rows:
+            same_pos = list(row['position_m']) == list(r0['position_m'])
+            if same_pos and (
+                row['electric_interaction_energy_j'] != r0['electric_interaction_energy_j']
+                or list(row['electric_force_n']) != list(r0['electric_force_n'])
+            ):
+                raise ValueError('saved electrostatic force/energy changed at an unchanged particle position')
             dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
             deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
             dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
             exp_drift = _safe_fsum((dk, deu, dgu))
-            same_pos = list(row['position_m']) == list(r0['position_m'])
             k_err = 0.0 if row['kinetic_energy_j'] == r0['kinetic_energy_j'] else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j'])))
-            eu_err = 0.0 if (same_pos and row['electric_interaction_energy_j'] == r0['electric_interaction_energy_j']) else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
+            eu_err = 0.0 if same_pos else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
             gu_err = 0.0 if dgu == 0.0 else 32 * ulp(abs(dgu))
             if not isfinite(exp_drift) or not isclose(
                     row['energy_drift_j'], exp_drift,
@@ -403,21 +409,19 @@ def validate_motion_1d_gravity(motion):
         exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
         if not isfinite(exp_gf) or not isclose(g_force, exp_gf, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gf))):
             raise ValueError('saved 1D gravitational force disagrees with UniformGravity')
-        f_scale = max(abs(e_force), abs(g_force))
-        if not isclose(row['force_n'], _safe_fsum((e_force, g_force)),
-                       rel_tol=0.0, abs_tol=8 * ulp(f_scale)):
+        exp_f = _safe_fsum((e_force, g_force))
+        if not isfinite(exp_f) or not isclose(row['force_n'], exp_f, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_f))):
             raise ValueError('saved 1D total force disagrees with electric + gravitational sum')
         exp_acc = row['force_n'] / mass
-        acc_scale = f_scale / mass
-        if (not isfinite(exp_acc) or not isfinite(acc_scale) or
+        if (not isfinite(exp_acc) or
                 not isclose(row['acceleration_m_s2'], exp_acc,
-                            rel_tol=2e-9, abs_tol=128 * ulp(acc_scale))):
+                            rel_tol=0.0, abs_tol=8 * ulp(abs(exp_acc)))):
             raise ValueError('saved 1D acceleration disagrees with force and mass')
         if not isclose(g_u, exp_gu, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gu))):
             raise ValueError('saved 1D gravitational energy disagrees with UniformGravity')
-        u_scale = max(abs(e_u), abs(g_u))
-        if not isclose(row['interaction_energy_j'], _safe_fsum((e_u, g_u)),
-                       rel_tol=0.0, abs_tol=8 * ulp(u_scale)):
+        exp_u = _safe_fsum((e_u, g_u))
+        if not isfinite(exp_u) or not isclose(row['interaction_energy_j'], exp_u,
+                                              rel_tol=0.0, abs_tol=8 * ulp(abs(exp_u))):
             raise ValueError('saved 1D interaction energy disagrees with electric + gravitational sum')
         from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
         v_s = row['velocity_m_s']
@@ -428,9 +432,9 @@ def validate_motion_1d_gravity(motion):
                 not isclose(row['kinetic_energy_j'], kinetic,
                             rel_tol=2e-9, abs_tol=128 * ulp(abs(kinetic)))):
             raise ValueError('saved 1D kinetic energy disagrees with velocity and mass')
-        e_scale = max(abs(row['kinetic_energy_j']), abs(e_u), abs(g_u))
-        if not isclose(row['total_energy_j'], _safe_fsum((row['kinetic_energy_j'], e_u, g_u)),
-                       rel_tol=0.0, abs_tol=8 * ulp(e_scale)):
+        exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, g_u))
+        if not isfinite(exp_e) or not isclose(row['total_energy_j'], exp_e,
+                                              rel_tol=0.0, abs_tol=8 * ulp(abs(exp_e))):
             raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')
     if rows[0]['energy_drift_j'] != 0.0:
         raise ValueError('saved 1D initial energy_drift_j must be zero')
@@ -438,13 +442,18 @@ def validate_motion_1d_gravity(motion):
     local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
     r0 = rows[0]
     for row in rows:
+        same_pos = list(row['position_m']) == list(r0['position_m'])
+        if same_pos and (
+            row['electric_interaction_energy_j'] != r0['electric_interaction_energy_j']
+            or row['electric_force_n'] != r0['electric_force_n']
+        ):
+            raise ValueError('saved 1D electrostatic force/energy changed at an unchanged particle position')
         dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
         deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
         dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
         exp_drift = _safe_fsum((dk, deu, dgu))
-        same_pos = list(row['position_m']) == list(r0['position_m'])
         k_err = 0.0 if row['kinetic_energy_j'] == r0['kinetic_energy_j'] else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j'])))
-        eu_err = 0.0 if (same_pos and row['electric_interaction_energy_j'] == r0['electric_interaction_energy_j']) else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
+        eu_err = 0.0 if same_pos else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
         gu_err = 0.0 if dgu == 0.0 else 32 * ulp(abs(dgu))
         if not isfinite(exp_drift) or not isclose(
                 row['energy_drift_j'], exp_drift,

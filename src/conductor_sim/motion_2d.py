@@ -8,6 +8,7 @@ This is data/physics, not a browser or finite-particle collision model.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from fractions import Fraction
 from math import fsum, hypot, isfinite, ulp
 from typing import Literal
 
@@ -56,22 +57,47 @@ def _perpendicular(v):
     return _unit(_cross(v, axis))
 
 
+def _exact_cross(a, b):
+    """Exact rational cross product converted to scaled float64 direction, avoiding cancellation."""
+    fa = tuple(Fraction(x) for x in a)
+    fb = tuple(Fraction(x) for x in b)
+    fc = (
+        fa[1] * fb[2] - fa[2] * fb[1],
+        fa[2] * fb[0] - fa[0] * fb[2],
+        fa[0] * fb[1] - fa[1] * fb[0],
+    )
+    max_abs = max(abs(x) for x in fc)
+    if max_abs == 0:
+        return (0.0, 0.0, 0.0), 0.0
+    # Scale by max_abs in exact rationals so float conversion never overflows/underflows.
+    scaled = tuple(float(x / max_abs) for x in fc)
+    # Compute exact magnitude ratio |a x b| / (|a| * |b|) safely via float(max_abs) / scale.
+    a_max = max(abs(x) for x in fa)
+    b_max = max(abs(x) for x in fb)
+    norm_a = hypot(*(float(x / a_max) for x in fa)) if a_max else 0.0
+    norm_b = hypot(*(float(x / b_max) for x in fb)) if b_max else 0.0
+    denom = a_max * b_max
+    sin_ratio = (float(max_abs / denom) * hypot(*scaled) / (norm_a * norm_b)) if denom and norm_a and norm_b else 0.0
+    return scaled, sin_ratio
+
+
 def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravity_sin_tol=64.0 * ulp(1.0)):
     """Choose the invariant plane from launch and stationary-source geometry.
 
     A degenerate radial/normal launch does not determine an azimuth. The first
     noncollinear stationary source may select it; all other sources must then
     lie in the *same* reflection-symmetry plane or the model is refused.
+    Returns ``(normal, selected_by_gravity)``.
     """
     for candidate in (velocity, *anchors):
         cross = _cross(primary, candidate)
         if _norm(cross) > 1e-12*_norm(primary)*_norm(candidate):
-            return _unit(cross)
+            return _unit(cross), False
     if gravity_anchor is not None:
-        cross = _cross(primary, gravity_anchor)
-        if _norm(cross) > gravity_sin_tol * _norm(primary) * _norm(gravity_anchor):
-            return _unit(cross)
-    return _invariant_normal(primary, velocity)
+        scaled_cross, sin_ratio = _exact_cross(primary, gravity_anchor)
+        if sin_ratio > gravity_sin_tol and _norm(scaled_cross) > 0.0:
+            return _unit(scaled_cross), True
+    return _invariant_normal(primary, velocity), False
 
 
 def _invariant_normal(radial_or_normal, velocity):
@@ -306,13 +332,13 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     initial = spec.selected_charge.position_m
     velocity = spec.initial_velocity_m_s
     stationary = spec.stationary_charges
+    g_raw = spec.gravity.acceleration_m_s2 if spec.gravity is not None else None
     g_scaled = None
     g_scale = 0.0
-    if spec.gravity is not None:
-        g_vec = spec.gravity.acceleration_m_s2
-        g_scale = max(abs(x) for x in g_vec)
+    if g_raw is not None:
+        g_scale = max(abs(x) for x in g_raw)
         if g_scale > 0.:
-            g_scaled = tuple(x / g_scale for x in g_vec)
+            g_scaled = tuple(x / g_scale for x in g_raw)
     gravity_anchors = (g_scaled,) if g_scaled is not None else ()
 
     def _gravity_sin_tol(dom_scale: float) -> float:
@@ -324,6 +350,7 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
                 tol = min(tol, phys_tol)
         return tol
 
+    selected_by_gravity = False
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
@@ -333,10 +360,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             raise UnsupportedProblem('moving charge must begin on the vacuum side of each plane')
         scale = min(c.signed_distance_m(initial) for c in conductors)
         origin = initial
-        normal = _certified_normal(
+        normal, selected_by_gravity = _certified_normal(
             conductors[0].normal, velocity,
             tuple(_sub(q.position_m, initial) for q in stationary),
-            gravity_anchor=g_scaled,
+            gravity_anchor=g_raw if g_scale > 0. else None,
             gravity_sin_tol=_gravity_sin_tol(scale),
         )
         kind = 'planes'
@@ -346,10 +373,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         if _norm(delta) <= conductors[0].radius_m:
             raise UnsupportedProblem('moving charge must begin outside solid sphere')
         origin, scale = center, conductors[0].radius_m
-        normal = _certified_normal(
+        normal, selected_by_gravity = _certified_normal(
             delta, velocity,
             tuple(_sub(q.position_m, center) for q in stationary),
-            gravity_anchor=g_scaled,
+            gravity_anchor=g_raw if g_scale > 0. else None,
             gravity_sin_tol=_gravity_sin_tol(scale),
         )
         kind = 'exterior-sphere'
@@ -369,10 +396,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         if primary is None or not _norm(primary):
             primary = next((g for g in gravity_anchors if _norm(g)), (1., 0., 0.))
         origin, scale = center, shells[0].inner_radius_m
-        normal = _certified_normal(
+        normal, selected_by_gravity = _certified_normal(
             primary, velocity,
             tuple(_sub(q.position_m, center) for q in stationary),
-            gravity_anchor=g_scaled,
+            gravity_anchor=g_raw if g_scale > 0. else None,
             gravity_sin_tol=_gravity_sin_tol(scale),
         )
         conductors, kind = shells, 'cavity'
@@ -390,7 +417,9 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise UnsupportedProblem('an invariant planar motion cannot be established')
     if g_scaled is not None:
         g_normal_scaled = abs(_dot(g_scaled, normal))
-        if (g_normal_scaled > 64.0 * ulp(1.0) * _norm(g_scaled) or
+        if g_normal_scaled > 64.0 * ulp(1.0) * _norm(g_scaled):
+            raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
+        if (not selected_by_gravity and
                 0.5 * (g_scale * g_normal_scaled) * (spec.duration_s * spec.duration_s) > 1e-9 * scale):
             raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
