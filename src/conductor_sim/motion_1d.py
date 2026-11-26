@@ -249,10 +249,16 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         g_vec = spec.gravity.acceleration_m_s2
         g_scale = max(abs(c) for c in g_vec)
         if g_scale > 0.:
+            if any(axis[i] == 0.0 and g_vec[i] != 0.0 for i in range(3)):
+                raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
             g_scaled = tuple(c / g_scale for c in g_vec)
             g_along = _dot(g_scaled, axis)
             g_trans = _norm(_minus(g_scaled, tuple(g_along * u for u in axis)))
-            if g_trans > 1e-10 * _norm(g_scaled):
+            if g_trans > 64.0 * ulp(1.0) * _norm(g_scaled):
+                raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
+            # Reject even machine-epsilon axis misalignment when huge |g| would
+            # cause non-negligible transverse displacement over duration_s.
+            if 0.5 * (g_scale * g_trans) * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)
@@ -383,8 +389,14 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j,
                          world_du_grav))
-            total_scale = max(peak_grav_exchange, abs(kinetic - energy0), abs(energy.total_j), abs(ref.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
+            v0_scalar = float(spec.initial_velocity_m_s)
+            exact_dk = 0.5 * spec.mass_kg * (v - v0_scalar) * (v + v0_scalar)
+            saved_dk = kinetic - energy0
+            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - ref.total_j))
+            if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):
+                raise MotionIntegrationError('kinetic energy lacks binary64 precision to resolve trajectory energy exchange')
+            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - ref.total_j))
+            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,

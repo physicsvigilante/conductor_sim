@@ -985,3 +985,115 @@ def test_m45_sol_v8_tied_reversed_scan_sub_1e24_loss_and_remote_gauge_energy_for
         m2["motion_2d"]["samples"][1][field] += 1e8
         with pytest.raises(ValueError):
             render_html(m2, title=f"Forged 2D {field}")
+
+
+def test_m45_sol_v9_transverse_gravity_large_k0_tiny_energy_forgeries_and_distant_launch():
+    """Regression suite for all 4 Sol v9 findings."""
+    import copy
+    from conductor_sim.motion_1d import MotionIntegrationError
+
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+
+    # 1. Transverse gravity g=(64, 0, 2^40) on +z axis must be rejected (never drop 64 m/s^2!)
+    prob_tr = ElectrostaticProblem(
+        (PointCharge(float(2**22), (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    with pytest.raises(UnsupportedProblem, match="collinear"):
+        Motion1DSpec(
+            prob_tr, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.125, 0.025,
+            gravity=UniformGravity((64.0, 0.0, float(2**40)), reference_position_m=(0.0, 0.0, 2.0)),
+        )
+
+    # 2. Large launch kinetic energy (v0 = 1e7 m/s) cannot swallow gravitational exchange in 1D or 2D
+    prob_fast = ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.25)),), (plane0,))
+    with pytest.raises(MotionIntegrationError, match="kinetic energy|total energy"):
+        integrate_motion_1d(
+            Motion1DSpec(
+                prob_fast, 0, 1.0, (0.0, 0.0, 1.0), 1e7, 1e-4, 2.5e-5,
+                gravity=UniformGravity((0.0, 0.0, 1e-10), reference_position_m=(0.0, 0.0, 1.25)),
+            ),
+            GroundedPlaneBackend(),
+        )
+    with pytest.raises(MotionIntegrationError, match="kinetic energy|total energy"):
+        integrate_motion_2d(
+            Motion2DSpec(
+                prob_fast, 0, 1.0, (1e7, 0.0, 0.0), 1e-4, 2.5e-5,
+                gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=(0.0, 0.0, 1.25)),
+            ),
+            GroundedPlaneBackend(),
+        )
+
+    # 3. Sub-1e-30 J energy forgeries (+9e-31 J) and sub-1e-24 J drift forgeries (9e-25 J) are rejected in 1D & 2D
+    q_tiny = float(2**-50)
+    m_tiny = (q_tiny * q_tiny) / 4.0
+    prob_sub30 = ElectrostaticProblem(
+        (PointCharge(q_tiny, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_sub30 = UniformGravity((0.0, 0.0, 0.25), reference_position_m=(0.0, 0.0, 3.0))
+    b1 = sample_motion_1d(
+        Motion1DSpec(prob_sub30, 0, m_tiny, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025, gravity=g_sub30),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2 = sample_motion_2d(
+        Motion2DSpec(prob_sub30, 0, m_tiny, (0.0, 0.0, 0.0), 0.1, 0.025, gravity=g_sub30),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    assert "<canvas" in render_html(b1, title="Valid tiny 1D equilibrium")
+    assert "<canvas" in render_html(b2, title="Valid tiny 2D equilibrium")
+    for field in ("total_energy_j", "interaction_energy_j", "gravitational_potential_energy_j"):
+        m1 = copy.deepcopy(b1)
+        m1["motion_1d"]["samples"][1][field] += 9e-31
+        with pytest.raises(ValueError):
+            render_html(m1, title=f"Forged tiny 1D {field}")
+        m2 = copy.deepcopy(b2)
+        m2["motion_2d"]["samples"][1][field] += 9e-31
+        with pytest.raises(ValueError):
+            render_html(m2, title=f"Forged tiny 2D {field}")
+    d1 = copy.deepcopy(b1)
+    d1["motion_1d"]["samples"][1]["energy_drift_j"] = 9e-25
+    d1["motion_1d"]["max_abs_energy_drift_j"] = 9e-25
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(d1, title="Forged tiny 1D drift")
+    d2 = copy.deepcopy(b2)
+    d2["motion_2d"]["samples"][1]["energy_drift_j"] = 9e-25
+    d2["motion_2d"]["max_abs_energy_drift_j"] = 9e-25
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(d2, title="Forged tiny 2D drift")
+
+    # 4. Distant launch origin (z0 = 1e10 m) cannot resolve the root at z=0.25000003 m -> must refuse
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.125, constraint=FixedNetCharge(7.0))
+    prob_near = ElectrostaticProblem(
+        (PointCharge(18.0, (0.0, 0.0, 0.5)),),
+        (sphere,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    eq_near = find_1d_equilibria(
+        Motion1DSpec(
+            prob_near, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
+            surface_guard_m=0.1, gravity=UniformGravity((0.0, 0.0, -0.001)),
+        ),
+        ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(0.23 - 0.5, 500.0 - 0.5),
+        scan_samples=129,
+    )
+    assert len(eq_near) == 2
+    assert isclose(eq_near[0].position_m[2], 0.2500000306372732, rel_tol=1e-9)
+    prob_far_launch = ElectrostaticProblem(
+        (PointCharge(18.0, (0.0, 0.0, 1e10)),),
+        (sphere,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    with pytest.raises(UnsupportedProblem, match="force balance|precision"):
+        find_1d_equilibria(
+            Motion1DSpec(
+                prob_far_launch, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
+                surface_guard_m=0.1, gravity=UniformGravity((0.0, 0.0, -0.001)),
+            ),
+            ExternalIsolatedSphereBackend(),
+            displacement_bounds_m=(0.23 - 1e10, 500.0 - 1e10),
+            scan_samples=129,
+        )

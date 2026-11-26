@@ -361,8 +361,11 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise ValueError('initial point is within the surface-approach guard')
     if abs(_dot(_sub(initial, origin), normal)) > 1e-9*scale or abs(_dot(velocity, normal)) > max(1e-12, 1e-9*_norm(velocity)):
         raise UnsupportedProblem('an invariant planar motion cannot be established')
-    if g_scaled is not None and abs(_dot(g_scaled, normal)) > 1e-9 * _norm(g_scaled):
-        raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
+    if g_scaled is not None:
+        g_normal_scaled = abs(_dot(g_scaled, normal))
+        if (g_normal_scaled > 64.0 * ulp(1.0) * _norm(g_scaled) or
+                0.5 * (g_scale * g_normal_scaled) * (spec.duration_s * spec.duration_s) > 1e-9 * scale):
+            raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
         raise ValueError('moving charge starts within the stationary point-charge guard')
     for source in stationary:
@@ -544,8 +547,16 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                           energy.induced_j-reference_energy.induced_j,
                           energy.background_j-reference_energy.background_j,
                           world_du_grav))
-            total_scale = max(peak_grav_exchange, abs(kinetic - energy0), abs(energy.total_j), abs(reference_energy.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
+            v0_vec = spec.initial_velocity_m_s
+            dv_vec = _sub(velocity, v0_vec)
+            vsum_vec = tuple(velocity[i] + v0_vec[i] for i in range(3))
+            exact_dk = 0.5 * spec.mass_kg * _dot(dv_vec, vsum_vec)
+            saved_dk = kinetic - energy0
+            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - reference_energy.total_j))
+            if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):
+                raise MotionIntegrationError('kinetic energy lacks binary64 precision to resolve trajectory energy exchange')
+            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - reference_energy.total_j))
+            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
                 raise MotionIntegrationError('motion data became nonfinite')

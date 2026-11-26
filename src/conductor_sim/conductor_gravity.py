@@ -414,6 +414,11 @@ def find_1d_equilibria(
     equilibria: list[ConductingGravityEquilibrium] = []
     for root_idx, s_eq in enumerate(candidate_roots):
         pos, elec_along, net, u_elec, u_grav = observe(s_eq)
+        eq_f_scale = max(abs(elec_along), abs(grav_along))
+        if abs(net) > max(1e-6 * eq_f_scale, 256.0 * ulp(eq_f_scale)):
+            raise UnsupportedProblem(
+                "displacement coordinates cannot resolve equilibrium force balance to required precision"
+            )
         clearance = domain.clearance(s_eq)
         dist_lo = s_eq - domain.lower
         dist_hi = domain.upper - s_eq
