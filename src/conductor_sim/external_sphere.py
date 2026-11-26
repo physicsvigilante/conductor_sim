@@ -19,7 +19,18 @@ def _diff(a: Vector3, b: Vector3) -> Vector3:
 
 
 def _norm(v: Vector3) -> float:
-    return sqrt(sum(x*x for x in v))
+    # hypot is free of intermediate overflow/underflow at any admitted scale.
+    return hypot(*v)
+
+
+def _chord(u: Vector3, n: Vector3) -> float:
+    """|u-n| for unit vectors: 2*sin(theta/2), accurate even as theta -> 0."""
+    return hypot(*(u[i]-n[i] for i in range(3)))
+
+
+def _scaled(q: float, v: Vector3, r: float) -> Vector3:
+    """q*v/r**3 for |v| ~ r, evaluated without forming r**3."""
+    return tuple(q*(x/r)/r/r for x in v)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,12 +52,12 @@ class ExternalGroundedSphereSolution:
 
     @property
     def image_charge_c(self) -> float:
-        return -self.source.charge_c*self.sphere.radius_m/self.source_distance_m
+        return -self.source.charge_c*(self.sphere.radius_m/self.source_distance_m)
 
     @property
     def image_position_m(self) -> Vector3:
         a, d, n = self.sphere.radius_m, self.source_distance_m, self.symmetry_axis
-        return tuple(self.sphere.center_m[i] + a*a/d*n[i] for i in range(3))
+        return tuple(self.sphere.center_m[i] + a*(a/d)*n[i] for i in range(3))
 
     @property
     def _k(self) -> float:
@@ -76,8 +87,9 @@ class ExternalGroundedSphereSolution:
             raise SingularField('electric field is singular at the external charge')
         reflected = _diff(point, self.image_position_m)
         r_img = _norm(reflected)
-        return tuple(self._k*(self.source.charge_c*direct[i]/dist**3+
-                              self.image_charge_c*reflected[i]/r_img**3) for i in range(3))
+        source_term = _scaled(self.source.charge_c, direct, dist)
+        image_term = _scaled(self.image_charge_c, reflected, r_img)
+        return tuple(self._k*(source_term[i]+image_term[i]) for i in range(3))
 
     def surface_charge_density(self, surface: Literal['outer'], theta_rad: float) -> float:
         from math import isfinite
@@ -85,11 +97,18 @@ class ExternalGroundedSphereSolution:
             raise ValueError('solid sphere has only an outer conducting surface')
         if not isfinite(theta_rad) or not 0 <= theta_rad <= pi:
             raise ValueError('angle must lie in [0, pi]')
+        return self._density_from_chord(2*sin(theta_rad/2))
+
+    def _density_from_chord(self, chord: float) -> float:
+        """Grounded Kelvin density at the surface point with |u-n| = chord.
+
+        |a*u - d*n|**2 = (d-a)**2 + a*d*chord**2 avoids cancellation near
+        contact; the ratios avoid forming length**3 at extreme scales.
+        """
         a,d,q = self.sphere.radius_m, self.source_distance_m, self.source.charge_c
-        # Avoid a zero/negative squared distance through cancellation near contact.
         gap = d-a
-        length = hypot(gap, 2*sqrt(d)*sqrt(a)*sin(theta_rad/2))
-        return -q*gap*(d+a)/(4*pi*a*length**3)
+        length = hypot(gap, sqrt(d)*sqrt(a)*chord)
+        return -(q/(4*pi*a))*(gap/length)*((d+a)/length)/length
 
     def surface_charge_density_at(self, surface: Literal['outer'], point_m: Vector3) -> float:
         point = _position(point_m,'surface point')
@@ -97,17 +116,20 @@ class ExternalGroundedSphereSolution:
         radius = _norm(delta)
         if not isclose(radius,self.sphere.radius_m,rel_tol=1e-10,abs_tol=1e-13):
             raise ValueError('point must lie on sphere surface')
-        dot = sum(delta[i]*self.symmetry_axis[i] for i in range(3))/radius
-        from math import acos
-        return self.surface_charge_density(surface,acos(max(-1.,min(1.,dot))))
+        if surface != 'outer':
+            raise ValueError('solid sphere has only an outer conducting surface')
+        # Evaluate at the intended surface point: the radial projection of
+        # the admitted query, through the chord to the source direction.
+        unit = tuple(x/radius for x in delta)
+        return self._density_from_chord(_chord(unit, self.symmetry_axis))
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:
         """Exact physical force on source due to the grounded conductor, excluding self-field."""
         v = _diff(self.source.position_m,self.image_position_m)
         r = _norm(v)
-        multiplier = self._k*self.source.charge_c*self.image_charge_c/r**3
-        return tuple(multiplier*x for x in v)
+        multiplier = (self._k*self.source.charge_c/r)*(self.image_charge_c/r)
+        return tuple(multiplier*(x/r) for x in v)
 
     @property
     def force_on_charge_n(self) -> Vector3:
@@ -117,8 +139,8 @@ class ExternalGroundedSphereSolution:
     @property
     def interaction_energy_j(self) -> float:
         """Induced-charge interaction energy, with its physical factor 1/2."""
-        return self._k*self.source.charge_c*self.image_charge_c/(2*_norm(
-            _diff(self.source.position_m,self.image_position_m)))
+        return self._k*self.source.charge_c*(self.image_charge_c/(2*_norm(
+            _diff(self.source.position_m,self.image_position_m))))
 
 
 class ExternalGroundedSphereBackend:
@@ -140,6 +162,6 @@ class ExternalGroundedSphereBackend:
                 'interior, touching and multi-source problems are not supported')
         sphere,source=problem.conductors[0],problem.charges[0]
         d=_norm(_diff(source.position_m,sphere.center_m))
-        induced=-source.charge_c*sphere.radius_m/d
+        induced=-source.charge_c*(sphere.radius_m/d)
         observed=ConductorResult(sphere.name,0.0,induced,0.0,induced)
         return ExternalGroundedSphereSolution(sphere,source,problem.permittivity_f_per_m,(observed,))

@@ -7,7 +7,7 @@ not physical point-charge components supplied by the author.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import acos, cos, fsum, hypot, isclose, isfinite, pi, sin
+from math import acos, cos, fsum, hypot, isclose, isfinite, pi, sin, sqrt
 from typing import Literal
 
 from .model import (ElectrostaticProblem, FixedNetCharge, Grounded, PointCharge,
@@ -25,6 +25,11 @@ def norm(a: Vector3) -> float:
 
 def dot(a: Vector3, b: Vector3) -> float:
     return fsum(a[i]*b[i] for i in range(3))
+
+
+def _inverse_square(q: float, v: Vector3, r: float) -> Vector3:
+    """q*v/r**3 for |v| = r, evaluated without forming r**3 (scale-free)."""
+    return tuple(q*(x/r)/r/r for x in v)
 
 
 def active_external_sites(problem: ElectrostaticProblem) -> tuple[PointCharge, ...]:
@@ -57,8 +62,8 @@ def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: 
         return False
     try:
         sites = active_external_sites(problem)
-        images_total = fsum(-p.charge_c*sphere.radius_m /
-                            norm(difference(p.position_m, sphere.center_m))
+        images_total = fsum(-p.charge_c*(sphere.radius_m /
+                                         norm(difference(p.position_m, sphere.center_m)))
                             for p in sites)
         Q = (0.0 if isinstance(sphere.constraint, Grounded)
              else sphere.constraint.charge_c)
@@ -90,7 +95,7 @@ class ExternalMultiSphereSolution:
         for site in self.sites:
             delta = difference(site.position_m, center)
             d = norm(delta)
-            images.append(PointCharge(-site.charge_c*a/d,
+            images.append(PointCharge(-site.charge_c*(a/d),
                                       tuple(center[i] + (a/d)**2*delta[i] for i in range(3))))
         return tuple(images)
 
@@ -135,12 +140,12 @@ class ExternalMultiSphereSolution:
             distance = norm(displacement)
             if distance == 0:
                 raise SingularField('electric field is singular at an external point charge')
-            for i in range(3):
-                terms[i].append(q.charge_c*displacement[i]/distance**3)
+            for i, value in enumerate(_inverse_square(q.charge_c, displacement, distance)):
+                terms[i].append(value)
         central = self.central_image_charge_c
         if central:
-            for i in range(3):
-                terms[i].append(central*delta[i]/r**3)
+            for i, value in enumerate(_inverse_square(central, delta, r)):
+                terms[i].append(value)
         return tuple(self._k*fsum(term) for term in terms)
 
     def surface_charge_density_at(self, surface: Literal['outer'], point_m: Vector3) -> float:
@@ -149,16 +154,24 @@ class ExternalMultiSphereSolution:
         pt = _position(point_m, 'surface point')
         delta = difference(pt, self.sphere.center_m)
         a = self.sphere.radius_m
-        if not isclose(norm(delta), a, rel_tol=1e-10, abs_tol=1e-13):
+        radius = norm(delta)
+        if not isclose(radius, a, rel_tol=1e-10, abs_tol=1e-13):
             raise ValueError('sample must lie on the conducting sphere')
-        # Each grounded Kelvin pair contributes independently; the central
-        # compensation contributes spatially uniform sigma.
+        # Evaluate at the intended surface point (radial projection of the
+        # admitted query). Each grounded Kelvin pair contributes
+        # -q(d-a)(d+a)/(4 pi a L**3) with L = |a u - d n| written as
+        # hypot(d-a, sqrt(a d)|u-n|): no cancellation near contact and no
+        # L**3 overflow. The central compensation is spatially uniform.
+        unit = tuple(x/radius for x in delta)
         values = []
         for site in self.sites:
-            d = norm(difference(site.position_m, self.sphere.center_m))
-            distance = norm(difference(pt, site.position_m))
-            values.append(-site.charge_c*(d-a)*(d+a)/(4*pi*a*distance**3))
-        values.append(self.central_image_charge_c/(4*pi*a*a))
+            offset = difference(site.position_m, self.sphere.center_m)
+            d = norm(offset)
+            chord = norm(tuple(unit[i]-offset[i]/d for i in range(3)))
+            gap = d-a
+            length = hypot(gap, sqrt(a)*sqrt(d)*chord)
+            values.append(-(site.charge_c/(4*pi*a))*(gap/length)*((d+a)/length)/length)
+        values.append(self.central_image_charge_c/(4*pi*a)/a)
         return fsum(values)
 
     def surface_charge_density(self, surface: Literal['outer'], theta_rad: float) -> float:
@@ -198,14 +211,14 @@ class ExternalMultiSphereSolution:
         for image in self.image_sources:
             delta = difference(pt,image.position_m)
             r = norm(delta)
-            for k in range(3):
-                contributions[k].append(image.charge_c*delta[k]/r**3)
+            for k, value in enumerate(_inverse_square(image.charge_c, delta, r)):
+                contributions[k].append(value)
         central = self.central_image_charge_c
         if central:
             delta = difference(pt,self.sphere.center_m)
             r = norm(delta)
-            for k in range(3):
-                contributions[k].append(central*delta[k]/r**3)
+            for k, value in enumerate(_inverse_square(central, delta, r)):
+                contributions[k].append(value)
         return tuple(self._k*site.charge_c*fsum(parts) for parts in contributions)
 
     def force_on_charge_n(self, index: int) -> Vector3:
@@ -218,8 +231,8 @@ class ExternalMultiSphereSolution:
                 continue
             delta = difference(site.position_m,other.position_m)
             r = norm(delta)
-            for k in range(3):
-                terms[k].append(self._k*site.charge_c*other.charge_c*delta[k]/r**3)
+            for k, value in enumerate(_inverse_square(other.charge_c, delta, r)):
+                terms[k].append(self._k*site.charge_c*value)
         return tuple(fsum(part) for part in terms)
 
     @property
@@ -234,12 +247,12 @@ class ExternalMultiSphereSolution:
         pairs = []
         for i,source in enumerate(self.sites):
             for other in self.sites[i+1:]:
-                pairs.append(k*source.charge_c*other.charge_c/
-                             norm(difference(source.position_m,other.position_m)))
+                pairs.append(k*source.charge_c*(other.charge_c/
+                             norm(difference(source.position_m,other.position_m))))
         images = self.image_sources
         grounded_image = .5*k*fsum(
-            source.charge_c*image.charge_c/
-            norm(difference(source.position_m,image.position_m))
+            source.charge_c*(image.charge_c/
+                             norm(difference(source.position_m,image.position_m)))
             for source in self.sites for image in images
         )
         central_energy = 0.0
@@ -247,7 +260,8 @@ class ExternalMultiSphereSolution:
             Q = self.sphere.constraint.charge_c
             S = -fsum(image.charge_c for image in images)
             # Expanded difference of squares avoids cancelling two close large terms.
-            central_energy = k*(Q*S+S*S/2)/self.sphere.radius_m
+            a = self.sphere.radius_m
+            central_energy = k*(Q*(S/a)+S*(S/a)/2)
         return fsum((*pairs,grounded_image,central_energy))
 
 
@@ -261,8 +275,9 @@ class ExternalMultiSphereBackend:
             raise UnsupportedProblem('multiple external charges require one grounded or fixed-Q solid sphere, all sites strictly outside, and finite source strengths')
         sphere = problem.conductors[0]
         sites = active_external_sites(problem)
-        images_total = fsum(-site.charge_c*sphere.radius_m/
-                            norm(difference(site.position_m,sphere.center_m)) for site in sites)
+        images_total = fsum(-site.charge_c*(sphere.radius_m/
+                                            norm(difference(site.position_m,sphere.center_m)))
+                            for site in sites)
         Q = images_total if isinstance(sphere.constraint,Grounded) else sphere.constraint.charge_c
         central = 0.0 if isinstance(sphere.constraint,Grounded) else Q-images_total
         potential = central/(4*pi*problem.permittivity_f_per_m*sphere.radius_m)
