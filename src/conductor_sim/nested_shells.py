@@ -8,6 +8,7 @@ shield higher multipoles. Independently solves grounded/fixed-Q constraints.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from math import isclose, pi, sqrt, isfinite, fsum
 from typing import Literal
 
@@ -80,8 +81,10 @@ class NestedShellSolution:
         r=sqrt(sum(x*x for x in delta))
         shells=self.radial_shells
         if r < shells[0].inner_radius_m:
-            return (self.conductor_by_name(shells[0].name).potential_v+
-                    self.inner_reference.potential_at(point_m))
+            # One correctly rounded sum of the conductor potential and every
+            # cavity term (the reference itself is grounded).
+            return fsum((self.conductor_by_name(shells[0].name).potential_v,
+                         *self.inner_reference._cavity_potential_terms(point_m)))
         for i,s in enumerate(shells):
             if r <= s.outer_radius_m:
                 return self.conductor_by_name(s.name).potential_v
@@ -151,7 +154,8 @@ class NestedShellBackend:
             raise UnsupportedProblem("nested-shell reference requires concentric, nonintersecting shells and charges in the innermost cavity")
         shells=_sorted_shells(problem)
         n=len(shells)
-        q0=fsum(x.charge_c for x in problem.charges)
+        authored=tuple(x.charge_c for x in problem.charges)
+        q0=fsum(authored)
         net=[s.constraint.charge_c if isinstance(s.constraint,FixedNetCharge) else 0. for s in shells]
         grounded=[i for i,s in enumerate(shells) if isinstance(s.constraint,Grounded)]
         gaps=[1/shells[i].outer_radius_m - 1/shells[i+1].inner_radius_m
@@ -165,25 +169,43 @@ class NestedShellBackend:
             matrix=[[coefficient(i,j) for j in grounded] for i in grounded]
             rhs=[-offset(i)-sum(coefficient(i,j)*net[j] for j in range(n) if j not in grounded)
                  for i in grounded]
-            values=_solve_linear(matrix,rhs)
-            for j,value in zip(grounded,values):
-                net[j]=value
-        flux=[]
-        enclosed=q0
+            # The floating-point elimination keeps the existing conditioning
+            # refusal; the reported charges come from the exact system below.
+            _solve_linear(matrix,rhs)
+        # Charge bookkeeping in exact rationals of the authored data, rounded
+        # once per reported value. Subtracting separately rounded subtotals
+        # would cancel a small authored residual (M01 D1).
+        q_exact=sum((Fraction(q) for q in authored),Fraction(0))
+        inv_outer=1/Fraction(shells[-1].outer_radius_m)
+        gaps_exact=[1/Fraction(shells[i].outer_radius_m)-1/Fraction(shells[i+1].inner_radius_m)
+                    for i in range(n-1)]
+        net_exact=[Fraction(value) for value in net]
+        if grounded:
+            def exact_coefficient(i:int,j:int)->Fraction:
+                return inv_outer+sum((gaps_exact[k] for k in range(i,n-1) if j<=k),Fraction(0))
+            def exact_offset(i:int)->Fraction:
+                return q_exact*(inv_outer+sum(gaps_exact[i:],Fraction(0)))
+            exact_matrix=[[exact_coefficient(i,j) for j in grounded] for i in grounded]
+            exact_rhs=[-exact_offset(i)-sum((exact_coefficient(i,j)*net_exact[j]
+                                             for j in range(n) if j not in grounded),Fraction(0))
+                       for i in grounded]
+            for j,value in zip(grounded,_solve_linear(exact_matrix,exact_rhs,exact=True)):
+                net_exact[j]=value
+                net[j]=float(value)
+        flux_exact=[]
+        enclosed=q_exact
+        for value in net_exact:
+            enclosed+=value
+            flux_exact.append(enclosed)
         results={}
         for i,s in enumerate(shells):
-            inner=-enclosed
-            # Sum original terms, not a rounded running subtotal. This retains
-            # a small residual when large enclosing charges later cancel.
-            enclosed=fsum((q0, *net[:i+1]))
-            flux.append(enclosed)
-            outer=enclosed
-            results[s.name]=(inner,outer)
+            inner=-(q_exact if i == 0 else flux_exact[i-1])
+            results[s.name]=(float(inner),float(flux_exact[i]))
         voltages=[]
         for i,s in enumerate(shells):
-            reduced=flux[-1]/shells[-1].outer_radius_m + sum(
-                flux[j]*gaps[j] for j in range(i,n-1))
-            voltages.append(reduced/(4*pi*problem.permittivity_f_per_m))
+            reduced=flux_exact[-1]*inv_outer+sum((flux_exact[j]*gaps_exact[j]
+                                                  for j in range(i,n-1)),Fraction(0))
+            voltages.append(float(reduced)/(4*pi*problem.permittivity_f_per_m))
         # Analytical cavity reference is grounded at the first conductor;
         # add the independently solved inner-conductor voltage afterwards.
         reference=MultiImageShellBackend().solve(ElectrostaticProblem(
