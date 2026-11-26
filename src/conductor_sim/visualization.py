@@ -237,6 +237,8 @@ def trace_field_line(context: SamplingContext, plane: SliceSpec, seed: Vec2, *,
             vector = _position(context.solution.electric_field_at(world), 'solver field')
         except SingularField:
             return None, 'surface'
+        except OutsideDomain:
+            return None, 'outside-domain'
         size = hypot(*vector)
         if size <= field_floor:
             return None, 'zero-field'
@@ -346,13 +348,21 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
             if region in ('outside-domain','source-mask'):
                 vv.append(None); ee.append(None)
             else:
-                vv.append(_finite(context.solution.potential_at(point), 'potential'))
                 try:
-                    vector = _position(context.solution.electric_field_at(point), 'solver field')
-                    ee.append(vector)
-                except SingularField:
-                    ee.append(None)
-                    region = 'surface'
+                    potential = _finite(context.solution.potential_at(point), 'potential')
+                except OutsideDomain:
+                    vv.append(None); ee.append(None)
+                    region = 'outside-domain'
+                else:
+                    vv.append(potential)
+                    try:
+                        vector = _position(context.solution.electric_field_at(point), 'solver field')
+                        ee.append(vector)
+                    except SingularField:
+                        ee.append(None)
+                        region = 'surface'
+                    except OutsideDomain:
+                        ee.append(None)
             rr.append(region)
         grid['potential_v'].append(vv);grid['electric_field_v_per_m'].append(ee);grid['region'].append(rr)
     observed = sorted(abs(v) for row in grid['potential_v'] for v in row if v is not None)

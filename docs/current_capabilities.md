@@ -6,7 +6,7 @@ The [M41a trial](m41a.md) checked 14 original workbook and notes cases. Twelve h
 
 | Layer | Reusable entry points | Qualified scope and limits |
 | --- | --- | --- |
-| Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. |
+| Responding conductors | `ElectrostaticProblem`, analytical backends, optional FEMM 5, `force_energy` | Grounded/isolated spheres, cavities, shells, planes and other explicitly supported arrangements. Each backend validates the whole geometry and boundary conditions; no arbitrary-conductor solver. Admitted `ParallelPlateSolution` local `V`/`E`/`sigma` values are certified within 1 % and sign-correct (uncertified samples raise `OutsideDomain`; empty slabs and on-plate Dirichlet potentials are exact). |
 | Straight-guide energy barrier | `straight_path_energy_barrier` | Finds the maximum potential energy rise along a straight segment in combined affine fields and uniform volume-sphere interiors. [Workbook p3 Q35](straight_path_energy_barrier.md) |
 | Radial field graphs | `RadialFieldGraph` | Evaluate a signed outward field profile at Cartesian probes about a common centre. [Workbook p4 Q38](radial_field_graph.md) |
 | Point-charge assembly energy | `insert_point_charge`, `interaction_energy_j` | Total pair energy and signed work of bringing one charge from infinity. [Workbook p4 Q37 and Q44](point_charge_assembly.md) and [external-field energy, Q61](charge_energy_background.md) |

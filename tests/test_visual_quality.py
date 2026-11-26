@@ -117,7 +117,7 @@ def test_progressive_sequence_fills_both_halves_then_quarters_without_repeats():
 
 def test_prefix_balances_both_signed_sources_and_both_plates():
     p=slab((PointCharge(1e-9,(0,0,.065)),PointCharge(-.5e-9,(0,0,.14))),0.)
-    backend=ParallelPlateBackend(image_order=8)
+    backend=ParallelPlateBackend(image_order=96)
     plane=SliceSpec.meridian(p,extent_m=.29,resolution=21)
     context=context_for_solution(p,backend.solve(p))
     first=seed_pool(context,plane)
@@ -198,7 +198,7 @@ def test_display_metadata_does_not_change_solver_grid_values():
 
 def test_local_refinement_fills_coarse_mask_halo_with_real_solver_samples():
     p=slab((PointCharge(1e-9,(0.,0.,.065)),PointCharge(-.5e-9,(0.,0.,.14))),0.)
-    solution=ParallelPlateBackend(image_order=12).solve(p)
+    solution=ParallelPlateBackend(image_order=96).solve(p)
     spec=SliceSpec.meridian(p,extent_m=.29,resolution=61)
     context=context_for_solution(p,solution)
     frame=sample_frame(context,spec,seeds=[],line_steps=10)
