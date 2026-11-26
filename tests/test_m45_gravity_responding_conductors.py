@@ -1998,3 +1998,47 @@ def test_m45_sol_v26_translated_oblique_plane_and_shared_velocity_parity():
     )
     with pytest.raises(UnsupportedProblem, match="invariant plane"):
         integrate_motion_2d(spec_500ulp, GroundedPlaneBackend())
+
+
+def test_m45_sol_v27_translated_plane_energy_and_tangential_anchor_invariance():
+    """Regression suite for both Sol v27 findings."""
+    from conductor_sim.motion_2d import integrate_motion_2d
+    from conductor_sim.observables import force_energy
+
+    # 1. Translated oblique plane force_energy & 2D trajectory match analytic -k q^2 / (4 h)
+    plane_t = ConductingPlane((0.0, 1e6, 2e6), (1.0, 2.0, 2.0), Grounded())
+    q_val = 1e-18
+    pos = (1e-10, 1e6, 2e6)
+    prob_t = ElectrostaticProblem((PointCharge(q_val, pos),), (plane_t,))
+    sol_t = GroundedPlaneBackend().solve(prob_t)
+    h = plane_t.signed_distance_m(pos)
+    expected_u = -q_val * q_val / (16.0 * pi * EPSILON_0 * h)
+    fe_t = force_energy(sol_t)
+    assert isclose(sol_t.interaction_energy_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(fe_t.energy.induced_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+    spec_t = Motion2DSpec(prob_t, 0, 1.0, (0.0, 0.0, 0.0), 1e-6, 5e-7)
+    res_t = integrate_motion_2d(spec_t, GroundedPlaneBackend())
+    assert isclose(res_t.samples[0].interaction_energy_j, expected_u, rel_tol=1e-12, abs_tol=0.0)
+    # Gravity-coupled translated oblique plane at resolvable displacement also matches analytic U_elec
+    pos_g = (1.0, 1000002.0, 2000002.0)
+    prob_tg = ElectrostaticProblem((PointCharge(1e-6, pos_g),), (plane_t,))
+    h_g = plane_t.signed_distance_m(pos_g)
+    expected_ug = -(1e-6) ** 2 / (16.0 * pi * EPSILON_0 * h_g)
+    spec_tg = Motion2DSpec(
+        prob_tg, 0, 1e-4, (1.0, 2.0, 2.0), 0.1, 0.05,
+        gravity=UniformGravity((-1.0, -2.0, -2.0), reference_position_m=(0.0, 1e6, 2e6)),
+    )
+    res_tg = integrate_motion_2d(spec_tg, GroundedPlaneBackend())
+    assert isclose(res_tg.samples[0].electric_interaction_energy_j, expected_ug, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Tangential anchor shift does NOT loosen surface_charge_density_at for off-plane queries
+    for anchor, normal, charge_pos, half_pos in (
+        ((0.0, 1e6, 0.0), (1.0, 0.0, 0.0), (1e-9, 0.0, 0.0), (5e-10, 0.0, 0.0)),
+        ((0.0, 1e6, -1e6), (1.0, 2.0, 2.0), (1e-9 / 3.0, 2e-9 / 3.0, 2e-9 / 3.0), (5e-10 / 3.0, 1e-9 / 3.0, 1e-9 / 3.0)),
+    ):
+        pl = ConductingPlane(anchor, normal, Grounded())
+        s_pl = GroundedPlaneBackend().solve(ElectrostaticProblem((PointCharge(1e-9, charge_pos),), (pl,)))
+        with pytest.raises(ValueError, match="conducting plane"):
+            s_pl.surface_charge_density_at("outer", half_pos)
+        with pytest.raises(ValueError, match="conducting plane"):
+            s_pl.surface_charge_density_at("outer", charge_pos)

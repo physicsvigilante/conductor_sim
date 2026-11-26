@@ -123,12 +123,21 @@ class GroundedPlaneSolution:
         if surface != 'outer':
             raise ValueError("the ideal plane has one exposed conducting surface")
         point = _position(point_m, "surface point")
-        tol = max(1e-12, 16.0 * ulp(max(hypot(*point), hypot(*self.plane.point_m))))
+        normal = self.plane.normal
+        if sum(n != 0.0 for n in normal) >= 2:
+            point_scale = max((abs(point[i] * normal[i]) for i in range(3) if normal[i] != 0.0), default=0.0)
+            tol = max(1e-12, 16.0 * ulp(point_scale))
+        else:
+            tol = 1e-12
         if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=tol):
             raise ValueError("surface-density point must lie on conducting plane")
-        return -fsum(q.charge_c * self.plane.signed_distance_m(q.position_m) /
-                     (2*pi*hypot(*_minus(point, q.position_m))**3)
-                     for q in self.sources)
+        terms = []
+        for q in self.sources:
+            dist = hypot(*_minus(point, q.position_m))
+            if dist == 0.0:
+                raise ValueError("surface-density point must lie on conducting plane")
+            terms.append(q.charge_c * self.plane.signed_distance_m(q.position_m) / (2 * pi * dist**3))
+        return -fsum(terms)
 
     def surface_charge_density(self, surface: str, radial_distance_m: float) -> float:
         """One-source radial sigma about the point's projection on the plane.

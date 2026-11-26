@@ -179,13 +179,13 @@ def _direct(sources: tuple[PointCharge, ...], k: float):
 
 
 def _plane_observables(solution) -> ForceEnergyResult:
-    from .grounded_plane import _mirror, _minus
+    from .grounded_plane import _mirror_displacement
     sources, k = solution.sources, solution._k
     direct, pair_energy = _direct(sources, k)
     charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
                     for i, site in enumerate(sources))
-    induced = -.5*k*fsum(a.charge_c*b.charge_c/hypot(*_minus(
-        a.position_m, _mirror(b.position_m, solution.plane))) for a in sources for b in sources)
+    induced = -.5*k*fsum(a.charge_c*b.charge_c/hypot(*_mirror_displacement(
+        a.position_m, b.position_m, solution.plane)) for a in sources for b in sources)
     energy = EnergyBreakdown(pair_energy, induced, 0.,
         'Grounded plane: mechanical interaction energy; point self energies omitted; '
         'zero at separated charges infinitely far from the conductor.')
