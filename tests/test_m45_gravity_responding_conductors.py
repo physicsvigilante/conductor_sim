@@ -1483,3 +1483,32 @@ def test_m45_sol_v14_exact_rational_1d_collinear_2d_fallback_and_huge_out_of_pla
     g_huge_oop = UniformGravity((8e307, 8e307, 8e307), reference_position_m=(1.0, 0.0, 0.0))
     with pytest.raises(UnsupportedProblem, match="invariant plane"):
         Motion2DSpec(prob_ovf, 0, 1e-300, (1.0, 1.0, -2.0), 1e-3, 5e-4, gravity=g_huge_oop)
+
+
+def test_m45_sol_v15_near_normal_launch_plane_and_underflow_free_out_of_plane():
+    """Regression suite for both Sol v15 findings."""
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob = ElectrostaticProblem((PointCharge(1e-12, (0.0, 0.0, 1.0)),), (plane0,))
+
+    # 1a. Near-normal launch (0, 5e-11, 100) with g=(0, 0, -100) selects yz plane & passes sample_motion_2d
+    spec_yz = Motion2DSpec(
+        prob, 0, 1.0, (0.0, 5e-11, 100.0), 1.0, 0.5,
+        gravity=UniformGravity((0.0, 0.0, -100.0)),
+    )
+    b_yz = sample_motion_2d(spec_yz, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert abs(b_yz["motion_2d"]["plane_normal"][0]) > 1.0 - 1e-12
+    assert "<canvas" in render_html(b_yz, title="Near-normal yz plane")
+
+    # 1b. Near-normal launch (0, 5e-11, 100) with out-of-plane g=(1, 0, -100) is strictly 3D -> refused!
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob, 0, 1.0, (0.0, 5e-11, 100.0), 1.0, 0.5,
+            gravity=UniformGravity((1.0, 0.0, -100.0)),
+        )
+
+    # 2. Huge-parallel + tiny-transverse gravity (1e308, 1e-20, 0) over 1e6 s must NOT underflow 1e-20 m/s^2!
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob, 0, 1e-300, (1.0, 0.0, 0.0), 1e6, 5e5,
+            gravity=UniformGravity((1e308, 1e-20, 0.0), reference_position_m=(0.0, 0.0, 1.0)),
+        )

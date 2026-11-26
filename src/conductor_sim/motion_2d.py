@@ -60,7 +60,8 @@ def _perpendicular(v):
 def _exact_cross(a, b):
     """Exact rational cross product converted to scaled float64 direction, avoiding cancellation.
 
-    Returns ``(scaled_float_cross, sin_ratio, exact_rational_cross)``.
+    Returns ``(scaled_float_cross, sin_ratio, phys_perp_b, exact_rational_cross)``
+    where ``phys_perp_b = |a x b| / |a|`` avoids underflow when ``|b|`` is huge.
     """
     fa = tuple(Fraction(x) for x in a)
     fb = tuple(Fraction(x) for x in b)
@@ -71,17 +72,21 @@ def _exact_cross(a, b):
     )
     max_abs = max(abs(x) for x in fc)
     if max_abs == 0:
-        return (0.0, 0.0, 0.0), 0.0, fc
+        return (0.0, 0.0, 0.0), 0.0, 0.0, fc
     # Scale by max_abs in exact rationals so float conversion never overflows/underflows.
     scaled = tuple(float(x / max_abs) for x in fc)
-    # Compute exact magnitude ratio |a x b| / (|a| * |b|) safely via float(max_abs) / scale.
     a_max = max(abs(x) for x in fa)
     b_max = max(abs(x) for x in fb)
     norm_a = hypot(*(float(x / a_max) for x in fa)) if a_max else 0.0
     norm_b = hypot(*(float(x / b_max) for x in fb)) if b_max else 0.0
+    norm_s = hypot(*scaled)
     denom = a_max * b_max
-    sin_ratio = (float(max_abs / denom) * hypot(*scaled) / (norm_a * norm_b)) if denom and norm_a and norm_b else 0.0
-    return scaled, sin_ratio, fc
+    sin_ratio = (float(max_abs / denom) * norm_s / (norm_a * norm_b)) if denom and norm_a and norm_b else 0.0
+    try:
+        phys_perp_b = float((max_abs * Fraction(norm_s)) / (a_max * Fraction(norm_a))) if a_max and norm_a else 0.0
+    except OverflowError:
+        phys_perp_b = float('inf')
+    return scaled, sin_ratio, phys_perp_b, fc
 
 
 def _exact_out_of_plane(vec, exact_normal):
@@ -103,12 +108,26 @@ def _exact_out_of_plane(vec, exact_normal):
     norm_v_scaled = hypot(*(float(x / v_max) for x in fv))
     abs_dot = abs(dot_exact)
     sin_out = float(abs_dot / (n_max * v_max)) / (norm_n_scaled * norm_v_scaled)
-    v_mag = hypot(*vec)
-    phys_comp = sin_out * v_mag if isfinite(v_mag) else float('inf')
+    # Divide by norm_n_scaled inside Fraction before float conversion so neither
+    # huge-parallel-component underflow (1e308, 1e-20) nor near-max overflow occurs.
+    try:
+        phys_comp = float(abs_dot / (n_max * Fraction(norm_n_scaled)))
+    except OverflowError:
+        phys_comp = float('inf')
     return sin_out, phys_comp
 
 
-def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravity_sin_tol=64.0 * ulp(1.0)):
+def _certified_normal(
+    primary,
+    velocity,
+    anchors,
+    *,
+    gravity_anchor=None,
+    gravity_sin_tol=64.0 * ulp(1.0),
+    gravity_phys_tol=float('inf'),
+    velocity_sin_tol=1e-12,
+    velocity_phys_tol=float('inf'),
+):
     """Choose the invariant plane from launch and stationary-source geometry.
 
     A degenerate radial/normal launch does not determine an azimuth. The first
@@ -116,17 +135,20 @@ def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravit
     lie in the *same* reflection-symmetry plane or the model is refused.
     Returns ``(unit_normal, exact_rational_normal)``.
     """
-    for candidate in (velocity, *anchors):
-        scaled_cross, sin_ratio, fc = _exact_cross(primary, candidate)
+    scaled_cross, sin_ratio, v_perp, fc = _exact_cross(primary, velocity)
+    if _norm(scaled_cross) > 0.0 and (sin_ratio > velocity_sin_tol or v_perp > velocity_phys_tol):
+        return _unit(scaled_cross), fc
+    for candidate in anchors:
+        scaled_cross, sin_ratio, _, fc = _exact_cross(primary, candidate)
         if sin_ratio > 1e-12 and _norm(scaled_cross) > 0.0:
             return _unit(scaled_cross), fc
     if gravity_anchor is not None:
-        scaled_cross, sin_ratio, fc = _exact_cross(primary, gravity_anchor)
-        if sin_ratio > gravity_sin_tol and _norm(scaled_cross) > 0.0:
+        scaled_cross, sin_ratio, g_perp, fc = _exact_cross(primary, gravity_anchor)
+        if _norm(scaled_cross) > 0.0 and (sin_ratio > gravity_sin_tol or g_perp > gravity_phys_tol):
             return _unit(scaled_cross), fc
     base = primary if _norm(primary) else (velocity if _norm(velocity) else (1., 0., 0.))
     ref_axis = (1., 0., 0.) if abs(base[0]) < .8 * _norm(base) else (0., 1., 0.)
-    scaled_cross, _, fc = _exact_cross(base, ref_axis)
+    scaled_cross, _, _, fc = _exact_cross(base, ref_axis)
     return _unit(scaled_cross), fc
 
 
@@ -380,6 +402,27 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
                 tol = min(tol, phys_tol)
         return tol
 
+    def _velocity_sin_tol(dom_scale: float) -> float:
+        if spec.gravity is None:
+            return 1e-12
+        tol = 64.0 * ulp(1.0)
+        v_mag = _norm(velocity)
+        denom = v_mag * spec.duration_s
+        if denom > 0.0 and isfinite(denom):
+            phys_tol = (1e-9 * dom_scale) / denom
+            if isfinite(phys_tol) and phys_tol > 0.0:
+                tol = min(tol, phys_tol)
+        return tol
+
+    def _gravity_phys_tol(dom_scale: float) -> float:
+        t2 = spec.duration_s * spec.duration_s
+        return (2e-9 * dom_scale) / t2 if t2 > 0.0 and isfinite(t2) else float('inf')
+
+    def _velocity_phys_tol(dom_scale: float) -> float:
+        if spec.gravity is None:
+            return float('inf')
+        return (1e-9 * dom_scale) / spec.duration_s if spec.duration_s > 0.0 else float('inf')
+
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
@@ -393,7 +436,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             conductors[0].normal, velocity,
             tuple(_sub(q.position_m, initial) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
-            gravity_sin_tol=_gravity_sin_tol(scale),
+            gravity_sin_tol=64.0 * ulp(1.0),
+            gravity_phys_tol=_gravity_phys_tol(scale),
+            velocity_sin_tol=64.0 * ulp(1.0) if spec.gravity is not None else 1e-12,
+            velocity_phys_tol=_velocity_phys_tol(scale),
         )
         kind = 'planes'
     elif len(conductors) == 1 and isinstance(conductors[0], SolidSphere):
@@ -406,7 +452,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             delta, velocity,
             tuple(_sub(q.position_m, center) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
-            gravity_sin_tol=_gravity_sin_tol(scale),
+            gravity_sin_tol=64.0 * ulp(1.0),
+            gravity_phys_tol=_gravity_phys_tol(scale),
+            velocity_sin_tol=64.0 * ulp(1.0) if spec.gravity is not None else 1e-12,
+            velocity_phys_tol=_velocity_phys_tol(scale),
         )
         kind = 'exterior-sphere'
     elif all(isinstance(c, SphericalShell) for c in conductors):
@@ -429,7 +478,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             primary, velocity,
             tuple(_sub(q.position_m, center) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
-            gravity_sin_tol=_gravity_sin_tol(scale),
+            gravity_sin_tol=64.0 * ulp(1.0),
+            gravity_phys_tol=_gravity_phys_tol(scale),
+            velocity_sin_tol=64.0 * ulp(1.0) if spec.gravity is not None else 1e-12,
+            velocity_phys_tol=_velocity_phys_tol(scale),
         )
         conductors, kind = shells, 'cavity'
     else:
@@ -444,6 +496,10 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise ValueError('initial point is within the surface-approach guard')
     if abs(_dot(_sub(initial, origin), normal)) > 1e-9*scale or abs(_dot(velocity, normal)) > max(1e-12, 1e-9*_norm(velocity)):
         raise UnsupportedProblem('an invariant planar motion cannot be established')
+    if spec.gravity is not None and _norm(velocity) > 0.:
+        v_sin_out, v_out_phys = _exact_out_of_plane(velocity, exact_normal)
+        if v_sin_out > 64.0 * ulp(1.0) or v_out_phys * spec.duration_s > 1e-9 * scale:
+            raise UnsupportedProblem('an invariant planar motion cannot be established')
     if g_raw is not None and g_scale > 0.:
         sin_out, a_out_phys = _exact_out_of_plane(g_raw, exact_normal)
         if (sin_out > 64.0 * ulp(1.0) or

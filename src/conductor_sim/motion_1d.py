@@ -40,14 +40,14 @@ def _add(a, b, factor):
     return tuple(a[i]+factor*b[i] for i in range(3))
 
 
-def _exact_sin_angle(a, b) -> float:
-    """Exact rational |a x b| / (|a| * |b|) in [0, 1], eliminating float64 cancellation/overflow."""
+def _exact_transverse(a, b) -> tuple[float, float]:
+    """Exact rational (sin(angle), |a x b| / |b|) avoiding cancellation, overflow, and underflow."""
     fa = tuple(Fraction(x) for x in a)
     fb = tuple(Fraction(x) for x in b)
     a_max = max(abs(x) for x in fa)
     b_max = max(abs(x) for x in fb)
     if a_max == 0 or b_max == 0:
-        return 0.0
+        return 0.0, 0.0
     fc = (
         fa[1] * fb[2] - fa[2] * fb[1],
         fa[2] * fb[0] - fa[0] * fb[2],
@@ -55,11 +55,16 @@ def _exact_sin_angle(a, b) -> float:
     )
     c_max = max(abs(x) for x in fc)
     if c_max == 0:
-        return 0.0
+        return 0.0, 0.0
     norm_a = hypot(*(float(x / a_max) for x in fa))
     norm_b = hypot(*(float(x / b_max) for x in fb))
     norm_c = hypot(*(float(x / c_max) for x in fc))
-    return float(c_max / (a_max * b_max)) * norm_c / (norm_a * norm_b)
+    sin_angle = float(c_max / (a_max * b_max)) * norm_c / (norm_a * norm_b)
+    try:
+        phys_trans = float((c_max * Fraction(norm_c)) / (b_max * Fraction(norm_b)))
+    except OverflowError:
+        phys_trans = float('inf')
+    return sin_angle, phys_trans
 
 
 _NONRELATIVISTIC_SPEED_LIMIT_M_S = .1 * 299_792_458.0
@@ -231,7 +236,7 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
             if abs(abs(cos)-1)>1e-10:
                 raise UnsupportedProblem('1D plane motion must follow the physical plane normal')
             if spec.gravity is not None:
-                sin_err = _exact_sin_angle(axis, c.normal)
+                sin_err, _ = _exact_transverse(axis, c.normal)
                 g_mag_plane = _norm(spec.gravity.acceleration_m_s2)
                 if (sin_err > 16.0 * ulp(1.0)
                         or any(c.normal[i] == 0.0 and axis[i] != 0.0 for i in range(3))
@@ -281,12 +286,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         if g_mag > 0.:
             if any(axis[i] == 0.0 and g_vec[i] != 0.0 for i in range(3)):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
-            sin_trans = _exact_sin_angle(g_vec, axis)
+            sin_trans, a_trans_phys = _exact_transverse(g_vec, axis)
             if sin_trans > 64.0 * ulp(1.0):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
             # Reject even machine-epsilon misalignment when huge |g| would
             # cause non-negligible transverse displacement over duration_s.
-            if 0.5 * (g_mag * sin_trans) * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
+            if 0.5 * a_trans_phys * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)
