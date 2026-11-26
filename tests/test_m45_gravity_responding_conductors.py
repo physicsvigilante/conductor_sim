@@ -2133,3 +2133,40 @@ def test_m45_sol_v29_local_profile_snapping_and_signed_distance_extremes():
     # 2b. signed_distance_m preserves subnormal nonzero distances (no premature underflow to 0)
     p_sub = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), Grounded())
     assert p_sub.signed_distance_m((5e-324, 5e-324, 0.0)) == 5e-324
+
+
+def test_m45_sol_v30_shallow_tilt_profile_and_resolvable_small_normal_axis():
+    """Regression suite for both Sol v30 findings."""
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Shallowly tilted plane (1, 0.05, 0) at anchor (1e6, 0, 0): XY slice sweep matches analytical sigma
+    p_shallow = ConductingPlane((1e6, 0.0, 0.0), (1.0, 0.05, 0.0), Grounded())
+    q_shallow = (1e6 + 1.0, 0.05, 0.0)
+    prob_shallow = ElectrostaticProblem((PointCharge(1e-6, q_shallow),), (p_shallow,))
+    sp_xy = SliceSpec(
+        origin_m=(1e6 + 0.5, 0.0, 0.0), u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-1.5, 1.5), y_range_m=(-1.5, 1.5), resolution=9,
+    )
+    bundle_s = sample_sweep([("shallow", prob_shallow)], GroundedPlaneBackend(), plane=sp_xy, resolution=9)
+    prof_s = bundle_s["frames"][0]["profiles"][0]
+    assert len(prof_s["sigma_c_per_m2"]) == 91
+    h_s = p_shallow.signed_distance_m(q_shallow)
+    from conductor_sim.geometry import slice_geometry
+    geom_s = slice_geometry(p_shallow, sp_xy)
+    nx, ny = geom_s["normal_xy"]
+    nxy = sqrt(nx * nx + ny * ny)
+    tx, ty = (-ny / nxy, nx / nxy)
+    x0, y0 = geom_s["point_m"]
+    for d_coord, sigma_val in zip(prof_s["coordinate_m"], prof_s["sigma_c_per_m2"]):
+        pt_s = sp_xy.world((x0 + d_coord * tx, y0 + d_coord * ty))
+        dist_s = sqrt(sum((pt_s[i] - q_shallow[i]) ** 2 for i in range(3)))
+        expected_s = -1e-6 * h_s / (2.0 * pi * dist_s ** 3)
+        assert isclose(sigma_val, expected_s, rel_tol=1e-6, abs_tol=0.0)
+
+    # 2. Resolvably off-plane point (1e-9, 1e6, 2e6) on normal (0.05, 1, 1) at anchor (0, 1e6, 2e6) is rejected
+    p_05 = ConductingPlane((0.0, 1e6, 2e6), (0.05, 1.0, 1.0), Grounded())
+    sol_05 = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-6, (0.05, 1e6 + 1.0, 2e6 + 1.0)),), (p_05,))
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_05.surface_charge_density_at("outer", (1e-9, 1e6, 2e6))

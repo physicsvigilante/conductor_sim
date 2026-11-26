@@ -123,22 +123,31 @@ class GroundedPlaneSolution:
         if surface != 'outer':
             raise ValueError("the ideal plane has one exposed conducting surface")
         point = _position(point_m, "surface point")
-        normal = self.plane.normal
-        local_axes = [i for i in range(3) if abs(normal[i]) >= 0.1]
-        if len(local_axes) >= 2:
-            min_step = min(ulp(abs(point[i])) * abs(normal[i]) for i in local_axes)
-            tol = max(1e-12, 2.0 * min_step)
-        else:
-            tol = 1e-12
-        if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=tol):
+        h_point = abs(self.plane.signed_distance_m(point))
+        dists = [hypot(*_minus(point, q.position_m)) for q in self.sources]
+        d_min = min(dists)
+        if d_min == 0.0:
             raise ValueError("surface-density point must lie on conducting plane")
-        terms = []
-        for q in self.sources:
-            dist = hypot(*_minus(point, q.position_m))
-            if dist == 0.0:
+        if h_point > 1e-12:
+            normal = self.plane.normal
+            # On an oblique plane, accept a residual > 1e-12 ONLY when no IEEE-754
+            # point exists closer to the plane within the local 1e-6 * d_min neighborhood.
+            local_limit = 1e-6 * d_min
+            unresolvable = (
+                sum(n != 0.0 for n in normal) >= 2
+                and h_point <= local_limit
+                and all(
+                    h_point <= 2.0 * ulp(abs(point[i])) * abs(normal[i])
+                    or h_point > local_limit * abs(normal[i])
+                    for i in range(3) if normal[i] != 0.0
+                )
+            )
+            if not unresolvable:
                 raise ValueError("surface-density point must lie on conducting plane")
-            terms.append(q.charge_c * self.plane.signed_distance_m(q.position_m) / (2 * pi * dist**3))
-        return -fsum(terms)
+        return -fsum(
+            q.charge_c * self.plane.signed_distance_m(q.position_m) / (2 * pi * dist**3)
+            for q, dist in zip(self.sources, dists)
+        )
 
     def surface_charge_density(self, surface: str, radial_distance_m: float) -> float:
         """One-source radial sigma about the point's projection on the plane.

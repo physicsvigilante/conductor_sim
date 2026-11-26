@@ -416,7 +416,12 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                         point = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
                         h_rem = conductor.signed_distance_m(point)
                         if abs(h_rem) > 1e-13:
-                            local_axes = [i for i in range(3) if abs(conductor.normal[i]) >= 0.1]
+                            snap_limit = 1e-6 * max(span, 1e-12)
+                            local_axes = [
+                                i for i in range(3)
+                                if conductor.normal[i] != 0.0
+                                and abs(h_rem) <= snap_limit * abs(conductor.normal[i])
+                            ]
                             if local_axes:
                                 k = min(
                                     local_axes,
