@@ -28,9 +28,20 @@ def _chord(u: Vector3, n: Vector3) -> float:
     return hypot(*(u[i]-n[i] for i in range(3)))
 
 
-def _scaled(q: float, v: Vector3, r: float) -> Vector3:
-    """q*v/r**3 for |v| ~ r, evaluated without forming r**3."""
-    return tuple(q*(x/r)/r/r for x in v)
+def _field(k: float, q: float, v: Vector3, r: float) -> Vector3:
+    """k*q*v/r**3 for |v| = r, formed as (k*(q/r))/r times the unit vector.
+
+    Forming k*(q/r) first means neither k*q nor q/r**2 can overflow or
+    underflow while the field itself is a normal float.
+    """
+    scale = (k*(q/r))/r
+    return tuple(scale*(x/r) for x in v)
+
+
+def _pair_force(k: float, q: float, q_other: float, v: Vector3, r: float) -> Vector3:
+    """Coulomb force k*q*q_other*v/r**3 as (k*(q/r))*(q_other/r)*(v/r)."""
+    scale = (k*(q/r))*(q_other/r)
+    return tuple(scale*(x/r) for x in v)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +98,9 @@ class ExternalGroundedSphereSolution:
             raise SingularField('electric field is singular at the external charge')
         reflected = _diff(point, self.image_position_m)
         r_img = _norm(reflected)
-        source_term = _scaled(self.source.charge_c, direct, dist)
-        image_term = _scaled(self.image_charge_c, reflected, r_img)
-        return tuple(self._k*(source_term[i]+image_term[i]) for i in range(3))
+        source_term = _field(self._k, self.source.charge_c, direct, dist)
+        image_term = _field(self._k, self.image_charge_c, reflected, r_img)
+        return tuple(source_term[i]+image_term[i] for i in range(3))
 
     def surface_charge_density(self, surface: Literal['outer'], theta_rad: float) -> float:
         from math import isfinite
@@ -128,8 +139,7 @@ class ExternalGroundedSphereSolution:
         """Exact physical force on source due to the grounded conductor, excluding self-field."""
         v = _diff(self.source.position_m,self.image_position_m)
         r = _norm(v)
-        multiplier = (self._k*self.source.charge_c/r)*(self.image_charge_c/r)
-        return tuple(multiplier*(x/r) for x in v)
+        return _pair_force(self._k, self.source.charge_c, self.image_charge_c, v, r)
 
     @property
     def force_on_charge_n(self) -> Vector3:
@@ -139,8 +149,8 @@ class ExternalGroundedSphereSolution:
     @property
     def interaction_energy_j(self) -> float:
         """Induced-charge interaction energy, with its physical factor 1/2."""
-        return self._k*self.source.charge_c*(self.image_charge_c/(2*_norm(
-            _diff(self.source.position_m,self.image_position_m))))
+        r = _norm(_diff(self.source.position_m,self.image_position_m))
+        return (self._k*(self.source.charge_c/r))*self.image_charge_c/2
 
 
 class ExternalGroundedSphereBackend:

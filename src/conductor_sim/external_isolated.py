@@ -9,7 +9,8 @@ from __future__ import annotations
 from math import isfinite, pi
 
 from .external_sphere import (
-    ExternalGroundedSphereBackend, ExternalGroundedSphereSolution, _diff, _norm, _scaled,
+    ExternalGroundedSphereBackend, ExternalGroundedSphereSolution, _diff, _field, _norm,
+    _pair_force,
 )
 from .model import ElectrostaticProblem, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, UnsupportedProblem
@@ -36,15 +37,15 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
 
     @property
     def conductor_potential_v(self) -> float:
-        return self._k*self.central_image_charge_c/self.sphere.radius_m
+        return self._k*(self.central_image_charge_c/self.sphere.radius_m)
 
     def potential_at(self, point_m: Vector3) -> float:
         point = _position(point_m, 'sample point')
         r = _norm(_diff(point, self.sphere.center_m))
         base = super().potential_at(point)
-        return base + self._k*self.central_image_charge_c / (
+        return base + self._k*(self.central_image_charge_c / (
             self.sphere.radius_m if r <= self.sphere.radius_m else r
-        )
+        ))
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
         point = _position(point_m, 'sample point')
@@ -53,8 +54,8 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         r = _norm(delta)
         if r < self.sphere.radius_m:
             return base
-        central = _scaled(self.central_image_charge_c, delta, r)
-        return tuple(base[i] + self._k*central[i] for i in range(3))
+        central = _field(self._k, self.central_image_charge_c, delta, r)
+        return tuple(base[i] + central[i] for i in range(3))
 
     def surface_charge_density(self, surface: str, theta_rad: float) -> float:
         # super() validates face and angle before adding the constant term.
@@ -80,8 +81,8 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         grounded_force = super().induced_force_on_charge_n
         delta = _diff(self.source.position_m, self.sphere.center_m)
         d = self.source_distance_m
-        multiplier = (self._k*self.source.charge_c/d)*(self.central_image_charge_c/d)
-        return tuple(grounded_force[i]+multiplier*(delta[i]/d) for i in range(3))
+        central = _pair_force(self._k, self.source.charge_c, self.central_image_charge_c, delta, d)
+        return tuple(grounded_force[i]+central[i] for i in range(3))
 
     @property
     def interaction_energy_j(self) -> float:
@@ -95,8 +96,8 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         Q = self.conductor_results[0].net_charge_c
         a, d = self.sphere.radius_m, self.source_distance_m
         return (super().interaction_energy_j
-                + self._k*q*(Q/d)
-                + self._k*q*(q/d)*(a/d)/2)
+                + (self._k*(q/d))*Q
+                + (self._k*(q/d))*(q*(a/d))/2)
 
 
 class ExternalIsolatedSphereBackend:
@@ -128,7 +129,7 @@ class ExternalIsolatedSphereBackend:
         q_image = -source.charge_c*(sphere.radius_m/_norm(
             _diff(source.position_m, sphere.center_m)
         ))
-        potential = (Q-q_image)/(4*pi*problem.permittivity_f_per_m*sphere.radius_m)
+        potential = ((Q-q_image)/sphere.radius_m)/(4*pi*problem.permittivity_f_per_m)
         result = ConductorResult(sphere.name, potential, Q, 0.0, Q)
         return ExternalIsolatedSphereSolution(
             sphere, source, problem.permittivity_f_per_m, (result,)
