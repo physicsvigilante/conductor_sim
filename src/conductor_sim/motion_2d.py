@@ -482,13 +482,16 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         UniformGravity(gravity.acceleration_m_s2, reference_position_m=(0., 0., 0.))
         if gravity is not None else None
     )
+    ref_u_grav = gravity.potential_energy_at(p0, mass_kg=spec.mass_kg) if gravity is not None else 0.0
     energy0 = .5*spec.mass_kg*_norm(spec.initial_velocity_m_s)**2
+    total_j0 = fsum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
+    peak_energy_exchange = energy0
     records = []
     events = []
     max_drift = 0.
 
     def record(t, values):
-        nonlocal max_drift
+        nonlocal max_drift, peak_energy_exchange
         displacement = _sub(values[:3], launch)
         values = _world_state(origin, values)
         if dynamics is not None:
@@ -518,20 +521,33 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             interaction_j = fsum((energy.total_j, u_grav))
             total_j = fsum((kinetic, energy.total_j, u_grav))
-            # Compare exact displacement delta against saved world-position delta
-            # so coordinate roundoff cannot hide a total-energy jump inside drift.
+            # Compare exact displacement delta against both the saved world-position
+            # delta and the gauge-shifted U_g / total_energy_j delta so neither
+            # coordinate roundoff nor a remote energy gauge can hide an energy jump.
             delta_u_grav = origin_gravity.potential_energy_at(displacement, mass_kg=spec.mass_kg)
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
-            du_scale = max(abs(kinetic - energy0), abs(energy.total_j - reference_energy.total_j),
-                           abs(delta_u_grav), abs(world_du_grav))
-            pos_energy_roundoff = 16.0 * _norm(grav_force) * ulp(max(geometry.scale, _norm(displacement)))
-            if abs(world_du_grav - delta_u_grav) > max(1e-24, 1e-6 * du_scale, pos_energy_roundoff, 256.0 * ulp(du_scale)):
+            saved_du_grav = u_grav - ref_u_grav
+            peak_energy_exchange = max(
+                peak_energy_exchange,
+                kinetic,
+                abs(kinetic - energy0),
+                abs(energy.total_j - reference_energy.total_j),
+                abs(delta_u_grav),
+                abs(world_du_grav),
+            )
+            du_tol = max(1e-24, 1e-6 * peak_energy_exchange, 256.0 * ulp(peak_energy_exchange))
+            if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
+            if abs(saved_du_grav - delta_u_grav) > du_tol:
+                raise MotionIntegrationError('gravitational potential energy gauge lacks binary64 precision for trajectory energy changes')
             drift = fsum((kinetic-energy0,
                           energy.direct_j-reference_energy.direct_j,
                           energy.induced_j-reference_energy.induced_j,
                           energy.background_j-reference_energy.background_j,
                           world_du_grav))
+            total_scale = max(peak_energy_exchange, abs(energy.total_j), abs(reference_energy.total_j))
+            if abs((total_j - total_j0) - drift) > max(1e-24, 1e-6 * total_scale, 256.0 * ulp(total_scale)):
+                raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
                 raise MotionIntegrationError('motion data became nonfinite')
             sample = Motion2DSample(t, displacement, position, velocity,

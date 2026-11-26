@@ -56,11 +56,13 @@ def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: f
     """Robust regula-falsi / bisection hybrid preserving exact bracketing down to ULP scale."""
     lo, hi = a, b
     flo, fhi = fa, fb
-    for iteration in range(96):
+    converged = False
+    for iteration in range(2048):
         width = hi - lo
         if width <= 4.0 * ulp(max(abs(lo), abs(hi), scale)):
+            converged = True
             break
-        if iteration % 3 != 2 and fhi != flo:
+        if iteration % 2 == 0 and fhi != flo:
             mid = lo - flo * width / (fhi - flo)
             if not (lo + 0.05 * width < mid < hi - 0.05 * width):
                 mid = 0.5 * (lo + hi)
@@ -73,26 +75,41 @@ def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: f
             hi, fhi = mid, fmid
         else:
             lo, flo = mid, fmid
-    return 0.5 * (lo + hi)
+    if not converged and (hi - lo) > 16.0 * ulp(max(abs(lo), abs(hi), scale)):
+        raise UnsupportedProblem("1D equilibrium bracket failed to converge to binary64 precision")
+    mid = 0.5 * (lo + hi)
+    fmid = eval_net(mid)
+    return min(((abs(flo), lo), (abs(fmid), mid), (abs(fhi), hi)), key=lambda item: item[0])[1]
 
 
 def _locate_extremum(eval_net, a: float, b: float, *, maximize: bool, scale: float) -> tuple[float, float]:
     """Golden-section search for a local maximum or minimum of F(s) on [a, b]."""
     lo, hi = a, b
+    flo = eval_net(lo)
+    fhi = eval_net(hi)
     c = hi - _INV_PHI * (hi - lo)
     d = lo + _INV_PHI * (hi - lo)
     fc = eval_net(c)
     fd = eval_net(d)
-    for _ in range(96):
+    for _ in range(3000):
         if hi - lo <= 16.0 * ulp(max(abs(lo), abs(hi), scale)):
             break
-        better_c = (fc >= fd) if maximize else (fc <= fd)
+        if fc != fd:
+            better_c = (fc > fd) if maximize else (fc < fd)
+        elif flo != fc and fhi == fd:
+            # Flat tail on the right (e.g. wide scan toward +infinity): shrink toward left.
+            better_c = True
+        elif fhi != fd and flo == fc:
+            # Flat tail on the left (e.g. wide scan toward -infinity): shrink toward right.
+            better_c = False
+        else:
+            better_c = True
         if better_c:
-            hi, d, fd = d, c, fc
+            hi, fhi, d, fd = d, fd, c, fc
             c = hi - _INV_PHI * (hi - lo)
             fc = eval_net(c)
         else:
-            lo, c, fc = c, d, fd
+            lo, flo, c, fc = c, fc, d, fd
             d = lo + _INV_PHI * (hi - lo)
             fd = eval_net(d)
     s_best = c if ((fc >= fd) if maximize else (fc <= fd)) else d

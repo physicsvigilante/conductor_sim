@@ -253,9 +253,10 @@ def test_gauge_invariance_and_zero_gravity_backward_compatibility():
     plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
     prob = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.5)),), (plane,))
 
-    # Huge gravitational reference offset (1e12 m) must not degrade energy_drift_j!
+    # Large representable gravitational reference offset (1e6 m; |U_g| ~ 1e4 J vs ~5e-6 J fall)
+    # must not degrade energy_drift_j while preserving binary64 U_g precision!
     g_ref0 = UniformGravity((0.0, 0.0, -9.8), reference_position_m=(0.0, 0.0, 0.0))
-    g_ref_big = UniformGravity((0.0, 0.0, -9.8), reference_position_m=(0.0, 0.0, 1e12))
+    g_ref_big = UniformGravity((0.0, 0.0, -9.8), reference_position_m=(0.0, 0.0, 1e6))
     r0 = integrate_motion_1d(Motion1DSpec(prob, 0, 1e-3, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01, gravity=g_ref0), GroundedPlaneBackend())
     rb = integrate_motion_1d(Motion1DSpec(prob, 0, 1e-3, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01, gravity=g_ref_big), GroundedPlaneBackend())
     assert r0.max_abs_energy_drift_j < 1e-12
@@ -740,3 +741,91 @@ def test_m45_sol_v5_wide_scan_dedup_and_world_coordinate_precision():
     )
     with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
         integrate_motion_2d(spec_2d_far, GroundedPlaneBackend())
+
+
+def test_m45_sol_v6_huge_bracket_stalled_position_remote_gauge_and_drift_validation():
+    """Regression suite for all Sol v6 blocking and ledger findings."""
+    from conductor_sim.motion_1d import MotionIntegrationError
+
+    # 1a. Huge bracket (-0.5, 1e15) converges to exact z=2 m with ~0 residual (not 15.12 m!)
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    spec_big = Motion1DSpec(
+        ElectrostaticProblem(
+            (PointCharge(2.0, (0.0, 0.0, 1.0)),),
+            (plane0,),
+            permittivity_f_per_m=1.0 / (4.0 * pi),
+        ),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
+        gravity=UniformGravity((0.0, 0.0, 0.25)),
+    )
+    eq_big = find_1d_equilibria(
+        spec_big, GroundedPlaneBackend(), displacement_bounds_m=(-0.5, 1e15), scan_samples=129,
+    )
+    assert len(eq_big) == 1
+    assert isclose(eq_big[0].position_m[2], 2.0, rel_tol=1e-12)
+    assert abs(eq_big[0].net_force_n) < 1e-12
+
+    # 1b. Isolated-sphere pair STILL found when upper bound is widened all the way to 1e18 m
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.1, constraint=FixedNetCharge(5e-7))
+    spec_close = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.3)),), (sphere,)),
+        0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393506555945)),
+    )
+    eq_1e18 = find_1d_equilibria(
+        spec_close, ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-0.19, 1e18), scan_samples=129,
+    )
+    assert len(eq_1e18) == 2
+    assert isclose(eq_1e18[0].position_m[2], 0.1716488813521, rel_tol=1e-7)
+    assert isclose(eq_1e18[1].position_m[2], 0.1716611949418, rel_tol=1e-7)
+
+    # 2a. Grounded plane at z=0 with p0=(0,0,1e16+100) stalls world position -> refused in BOTH 1D & 2D
+    p_far = (0.0, 0.0, 1e16 + 100.0)
+    prob_stall = ElectrostaticProblem((PointCharge(1e-17, p_far),), (plane0,))
+    spec_1d_stall = Motion1DSpec(
+        prob_stall, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1.0, 0.5,
+        gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+    )
+    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+        integrate_motion_1d(spec_1d_stall, GroundedPlaneBackend())
+    spec_2d_stall = Motion2DSpec(
+        prob_stall, 0, 1.0, (0.0, 0.0, 0.0), 1.0, 0.5,
+        gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+    )
+    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+        integrate_motion_2d(spec_2d_stall, GroundedPlaneBackend())
+
+    # 2b. Remote energy gauge (z_ref=5e15 m) causing a 2 J ULP jump in saved total energy -> refused in 1D & 2D
+    prob_gauge = ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.25)),), (plane0,))
+    g_remote = UniformGravity((0.0, 0.0, 2.0), reference_position_m=(0.0, 0.0, 5e15))
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_1d(
+            Motion1DSpec(prob_gauge, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.5, 0.25, gravity=g_remote),
+            GroundedPlaneBackend(),
+        )
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_2d(
+            Motion2DSpec(prob_gauge, 0, 1.0, (0.0, 0.0, 0.0), 0.5, 0.25, gravity=g_remote),
+            GroundedPlaneBackend(),
+        )
+
+    # 2c. 1D viewer rejects forged graph-only energy_drift_j ("invalid" or 1e100)
+    spec_v = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.0)),), (plane0,)),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025,
+        gravity=UniformGravity((0.0, 0.0, 2.0)),
+    )
+    b_bad_str = sample_motion_1d(spec_v, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    b_bad_str["motion_1d"]["samples"][1]["energy_drift_j"] = "invalid"
+    with pytest.raises(ValueError, match="kinematic and energy fields"):
+        render_html(b_bad_str, title="Invalid string drift")
+    b_bad_num = sample_motion_1d(spec_v, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    b_bad_num["motion_1d"]["samples"][1]["energy_drift_j"] = 1e100
+    with pytest.raises(ValueError, match="energy_drift_j|maximum energy drift"):
+        render_html(b_bad_num, title="Forged huge drift")
+    b_bad_both = sample_motion_1d(spec_v, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    b_bad_both["motion_1d"]["samples"][1]["energy_drift_j"] = 1e100
+    b_bad_both["motion_1d"]["max_abs_energy_drift_j"] = 1e100
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(b_bad_both, title="Forged huge drift + max")

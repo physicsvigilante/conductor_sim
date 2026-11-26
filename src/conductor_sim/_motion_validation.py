@@ -349,7 +349,7 @@ def validate_motion_1d_gravity(motion):
         position = row['position_m']
         if not all(_number(row.get(k)) for k in (
                 'displacement_m', 'velocity_m_s', 'acceleration_m_s2', 'force_n',
-                'kinetic_energy_j', 'interaction_energy_j', 'total_energy_j')):
+                'kinetic_energy_j', 'interaction_energy_j', 'total_energy_j', 'energy_drift_j')):
             raise ValueError('gravity-coupled 1D motion samples require finite kinematic and energy fields')
         exp_pos = tuple(p0[i] + row['displacement_m'] * axis[i] for i in range(3))
         if (not all(isfinite(x) for x in exp_pos) or
@@ -395,3 +395,23 @@ def validate_motion_1d_gravity(motion):
         if not isclose(row['total_energy_j'], _safe_fsum((kinetic, e_u, g_u)),
                        rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
             raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')
+    if rows[0]['energy_drift_j'] != 0.0:
+        raise ValueError('saved 1D initial energy_drift_j must be zero')
+    r0 = rows[0]
+    for row in rows:
+        dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
+        deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
+        dgu = _safe_fsum((row['gravitational_potential_energy_j'], -r0['gravitational_potential_energy_j']))
+        exp_drift = _safe_fsum((dk, deu, dgu))
+        d_scale = max(
+            abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j']),
+            abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j']),
+            abs(row['gravitational_potential_energy_j']), abs(r0['gravitational_potential_energy_j']),
+        )
+        if not isfinite(exp_drift) or not isclose(
+                row['energy_drift_j'], exp_drift,
+                rel_tol=1e-6, abs_tol=max(1e-24, 256 * ulp(d_scale))):
+            raise ValueError('saved 1D energy_drift_j disagrees with energy ledger')
+    max_drift = motion.get('max_abs_energy_drift_j')
+    if not _number(max_drift) or not _close(max_drift, max(abs(r['energy_drift_j']) for r in rows)):
+        raise ValueError('saved 1D maximum energy drift disagrees with saved samples')
