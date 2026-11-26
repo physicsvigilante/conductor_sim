@@ -56,7 +56,7 @@ def _perpendicular(v):
     return _unit(_cross(v, axis))
 
 
-def _certified_normal(primary, velocity, anchors):
+def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravity_sin_tol=64.0 * ulp(1.0)):
     """Choose the invariant plane from launch and stationary-source geometry.
 
     A degenerate radial/normal launch does not determine an azimuth. The first
@@ -66,6 +66,10 @@ def _certified_normal(primary, velocity, anchors):
     for candidate in (velocity, *anchors):
         cross = _cross(primary, candidate)
         if _norm(cross) > 1e-12*_norm(primary)*_norm(candidate):
+            return _unit(cross)
+    if gravity_anchor is not None:
+        cross = _cross(primary, gravity_anchor)
+        if _norm(cross) > gravity_sin_tol * _norm(primary) * _norm(gravity_anchor):
             return _unit(cross)
     return _invariant_normal(primary, velocity)
 
@@ -303,12 +307,23 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     velocity = spec.initial_velocity_m_s
     stationary = spec.stationary_charges
     g_scaled = None
+    g_scale = 0.0
     if spec.gravity is not None:
         g_vec = spec.gravity.acceleration_m_s2
         g_scale = max(abs(x) for x in g_vec)
         if g_scale > 0.:
             g_scaled = tuple(x / g_scale for x in g_vec)
     gravity_anchors = (g_scaled,) if g_scaled is not None else ()
+
+    def _gravity_sin_tol(dom_scale: float) -> float:
+        tol = 64.0 * ulp(1.0)
+        denom = g_scale * (spec.duration_s * spec.duration_s)
+        if denom > 0.0 and isfinite(denom):
+            phys_tol = (2e-9 * dom_scale) / denom
+            if isfinite(phys_tol) and phys_tol > 0.0:
+                tol = min(tol, phys_tol)
+        return tol
+
     if all(isinstance(c, ConductingPlane) for c in conductors):
         if not 1 <= len(conductors) <= 2:
             raise UnsupportedProblem('M17a supports one plane or two facing parallel plates')
@@ -318,17 +333,25 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             raise UnsupportedProblem('moving charge must begin on the vacuum side of each plane')
         scale = min(c.signed_distance_m(initial) for c in conductors)
         origin = initial
-        normal = _certified_normal(conductors[0].normal, velocity,
-                                   (*(_sub(q.position_m, initial) for q in stationary), *gravity_anchors))
+        normal = _certified_normal(
+            conductors[0].normal, velocity,
+            tuple(_sub(q.position_m, initial) for q in stationary),
+            gravity_anchor=g_scaled,
+            gravity_sin_tol=_gravity_sin_tol(scale),
+        )
         kind = 'planes'
     elif len(conductors) == 1 and isinstance(conductors[0], SolidSphere):
         center = conductors[0].center_m
         delta = _sub(initial, center)
         if _norm(delta) <= conductors[0].radius_m:
             raise UnsupportedProblem('moving charge must begin outside solid sphere')
-        normal = _certified_normal(delta, velocity,
-                    (*(_sub(q.position_m, center) for q in stationary), *gravity_anchors))
         origin, scale = center, conductors[0].radius_m
+        normal = _certified_normal(
+            delta, velocity,
+            tuple(_sub(q.position_m, center) for q in stationary),
+            gravity_anchor=g_scaled,
+            gravity_sin_tol=_gravity_sin_tol(scale),
+        )
         kind = 'exterior-sphere'
     elif all(isinstance(c, SphericalShell) for c in conductors):
         shells = tuple(sorted(conductors, key=lambda c:c.inner_radius_m))
@@ -345,9 +368,13 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
                             if _norm(_sub(q.position_m, center))), None)
         if primary is None or not _norm(primary):
             primary = next((g for g in gravity_anchors if _norm(g)), (1., 0., 0.))
-        normal = _certified_normal(primary, velocity,
-                    (*(_sub(q.position_m, center) for q in stationary), *gravity_anchors))
         origin, scale = center, shells[0].inner_radius_m
+        normal = _certified_normal(
+            primary, velocity,
+            tuple(_sub(q.position_m, center) for q in stationary),
+            gravity_anchor=g_scaled,
+            gravity_sin_tol=_gravity_sin_tol(scale),
+        )
         conductors, kind = shells, 'cavity'
     else:
         raise UnsupportedProblem('M17a supports only plane(s), one exterior sphere or nested spherical cavities')

@@ -178,10 +178,11 @@ def find_1d_equilibria(
 
     original = spec.selected_charge
     gravity = spec.gravity
-    grav_along = (
-        _dot(gravity.force_at(original.position_m, mass_kg=spec.mass_kg), spec.axis)
-        if gravity is not None else 0.0
+    grav_vec = (
+        gravity.force_at(original.position_m, mass_kg=spec.mass_kg)
+        if gravity is not None else (0.0, 0.0, 0.0)
     )
+    grav_along = _dot(grav_vec, spec.axis) if gravity is not None else 0.0
 
     def observe(s: float):
         if not domain.safe(s):
@@ -208,13 +209,21 @@ def find_1d_equilibria(
             if transverse > max(1e-20, 5e-9 * _norm(elec_vec)):
                 raise UnsupportedProblem("transverse electrostatic force breaks 1D equilibrium")
             net = fsum((elec_along, grav_along)) if gravity is not None else elec_along
+            net_vec = (
+                tuple(fsum((e, g)) for e, g in zip(elec_vec, grav_vec))
+                if gravity is not None else elec_vec
+            )
+            transverse_net = _norm(_minus(net_vec, tuple(net * u for u in spec.axis)))
+            f_vec_scale = max(_norm(elec_vec), _norm(grav_vec))
+            if transverse_net > max(5e-9 * _norm(net_vec), 256.0 * ulp(f_vec_scale)):
+                raise UnsupportedProblem("transverse net force breaks 1D equilibrium")
             u_elec = obs.energy.total_j
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg) if gravity is not None else 0.0
             if not all(isfinite(v) for v in (elec_along, net, u_elec, u_grav, fsum((u_elec, u_grav)))):
                 raise UnsupportedProblem("nonfinite equilibrium force or energy")
             if (0.0 < abs(elec_along) < _MIN_NORMAL) or (0.0 < abs(grav_along) < _MIN_NORMAL):
                 raise UnsupportedProblem("equilibrium force underflows into subnormal binary64 precision")
-            result = (position, elec_along, net, u_elec, u_grav)
+            result = (position, elec_along, net, u_elec, u_grav, _norm(net_vec))
         except BaseException as exc:
             close = getattr(solution, "close", None)
             if callable(close):
@@ -246,7 +255,7 @@ def find_1d_equilibria(
     values: list[float] = []
     scales: list[float] = []
     for s in grid:
-        _, elec_s, net_s, _, _ = observe(s)
+        _, elec_s, net_s, _, _, _ = observe(s)
         values.append(net_s)
         scales.append(max(abs(elec_s), abs(grav_along)))
     # Treat grid values inside the local floating-point cancellation band as
@@ -291,7 +300,7 @@ def find_1d_equilibria(
         )
         if not crossed and not is_strict_interior and f_ext != 0.0:
             return
-        _, elec_e, _, _, _ = observe(s_ext)
+        _, elec_e, _, _, _, _ = observe(s_ext)
         # Use only the local force cancellation scale at s_ext; distant
         # singular-boundary grid samples must never inflate the zero band.
         band = zero_band(max(abs(elec_e), abs(grav_along)))
@@ -413,9 +422,9 @@ def find_1d_equilibria(
     candidate_roots.sort()
     equilibria: list[ConductingGravityEquilibrium] = []
     for root_idx, s_eq in enumerate(candidate_roots):
-        pos, elec_along, net, u_elec, u_grav = observe(s_eq)
+        pos, elec_along, net, u_elec, u_grav, net_mag = observe(s_eq)
         eq_f_scale = max(abs(elec_along), abs(grav_along))
-        if abs(net) > max(1e-6 * eq_f_scale, 256.0 * ulp(eq_f_scale)):
+        if max(abs(net), net_mag) > max(1e-6 * eq_f_scale, 256.0 * ulp(eq_f_scale)):
             raise UnsupportedProblem(
                 "displacement coordinates cannot resolve equilibrium force balance to required precision"
             )

@@ -155,14 +155,26 @@ def validate_planar_motion(motion, *, frames=None):
         if (abs(_dot(velocity,normal)) > max(1e-12,5e-9*hypot(*velocity)) or
                 abs(_dot(force,normal)) > max(1e-20,5e-9*hypot(*force))):
             raise ValueError('motion velocity/force disagrees with physical planar symmetry')
-        if any(not _close(a, f/mass) for a,f in zip(row['acceleration_m_s2'], force)):
-            raise ValueError('motion acceleration disagrees with force and mass')
+        if gravity_obj is None:
+            if any(not _close(a, f/mass) for a,f in zip(row['acceleration_m_s2'], force)):
+                raise ValueError('motion acceleration disagrees with force and mass')
+        else:
+            for a, f in zip(row['acceleration_m_s2'], force):
+                exp_a = f / mass
+                if not isfinite(exp_a) or not isclose(a, exp_a, rel_tol=2e-9, abs_tol=128 * ulp(abs(exp_a))):
+                    raise ValueError('motion acceleration disagrees with force and mass')
         from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
-        if hypot(*velocity) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
+        speed = hypot(*velocity)
+        if speed >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
             raise ValueError('saved classical motion speed must be below 0.1c')
-        kinetic = .5*mass*hypot(*velocity)**2
-        if row['kinetic_energy_j'] < 0 or not _close(row['kinetic_energy_j'], kinetic):
-            raise ValueError('motion kinetic energy disagrees with velocity and mass')
+        kinetic = .5*mass*(speed * speed)
+        if gravity_obj is None:
+            if row['kinetic_energy_j'] < 0 or not _close(row['kinetic_energy_j'], kinetic):
+                raise ValueError('motion kinetic energy disagrees with velocity and mass')
+        else:
+            if (not isfinite(kinetic) or row['kinetic_energy_j'] < 0 or
+                    not isclose(row['kinetic_energy_j'], kinetic, rel_tol=2e-9, abs_tol=128 * ulp(abs(kinetic)))):
+                raise ValueError('motion kinetic energy disagrees with velocity and mass')
         if gravity_obj is None:
             if any(k in row for k in ('electric_force_n', 'gravitational_force_n',
                                       'electric_interaction_energy_j', 'gravitational_potential_energy_j')):
@@ -203,14 +215,13 @@ def validate_planar_motion(motion, *, frames=None):
             deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
             dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
             exp_drift = _safe_fsum((dk, deu, dgu))
-            d_scale = max(
-                abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j']),
-                abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j']),
-                abs(dgu),
-            )
+            same_pos = list(row['position_m']) == list(r0['position_m'])
+            k_err = 0.0 if row['kinetic_energy_j'] == r0['kinetic_energy_j'] else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j'])))
+            eu_err = 0.0 if (same_pos and row['electric_interaction_energy_j'] == r0['electric_interaction_energy_j']) else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
+            gu_err = 0.0 if dgu == 0.0 else 32 * ulp(abs(dgu))
             if not isfinite(exp_drift) or not isclose(
                     row['energy_drift_j'], exp_drift,
-                    rel_tol=1e-6, abs_tol=256 * ulp(d_scale)):
+                    rel_tol=1e-6, abs_tol=k_err + eu_err + gu_err):
                 raise ValueError('saved planar energy_drift_j disagrees with energy ledger')
     max_drift = motion.get('max_abs_energy_drift_j')
     actual_max_drift = max(abs(r['energy_drift_j']) for r in rows)
@@ -431,14 +442,13 @@ def validate_motion_1d_gravity(motion):
         deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
         dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
         exp_drift = _safe_fsum((dk, deu, dgu))
-        d_scale = max(
-            abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j']),
-            abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j']),
-            abs(dgu),
-        )
+        same_pos = list(row['position_m']) == list(r0['position_m'])
+        k_err = 0.0 if row['kinetic_energy_j'] == r0['kinetic_energy_j'] else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j'])))
+        eu_err = 0.0 if (same_pos and row['electric_interaction_energy_j'] == r0['electric_interaction_energy_j']) else 32 * ulp(max(abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j'])))
+        gu_err = 0.0 if dgu == 0.0 else 32 * ulp(abs(dgu))
         if not isfinite(exp_drift) or not isclose(
                 row['energy_drift_j'], exp_drift,
-                rel_tol=1e-6, abs_tol=256 * ulp(d_scale)):
+                rel_tol=1e-6, abs_tol=k_err + eu_err + gu_err):
             raise ValueError('saved 1D energy_drift_j disagrees with energy ledger')
     max_drift = motion.get('max_abs_energy_drift_j')
     actual_max = max(abs(r['energy_drift_j']) for r in rows)

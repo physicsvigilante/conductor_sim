@@ -1097,3 +1097,93 @@ def test_m45_sol_v9_transverse_gravity_large_k0_tiny_energy_forgeries_and_distan
             displacement_bounds_m=(0.23 - 1e10, 500.0 - 1e10),
             scan_samples=129,
         )
+
+
+def test_m45_sol_v10_tilted_1d_axis_2d_azimuth_tiny_acc_ke_and_huge_rest_drift():
+    """Regression suite for all 4 Sol v10 findings."""
+    import copy
+
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+
+    # 1. Tilted 1D axis (2^-35, 0, 1) with g=(32, 0, 2^40) must be rejected (never lose 32 N transverse load!)
+    prob_tilt = ElectrostaticProblem(
+        (PointCharge(float(2**22), (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    with pytest.raises(UnsupportedProblem, match="plane normal|transverse"):
+        Motion1DSpec(
+            prob_tilt, 0, 1.0, (float(2**-35), 0.0, 1.0), 0.0, 0.125, 0.025,
+            gravity=UniformGravity((32.0, 0.0, float(2**40))),
+        )
+
+    # 2. 2D plane selection is azimuth-invariant for g=(0.125, 0, 2^40) vs g=(0, 0.125, 2^40)
+    res_xz = integrate_motion_2d(
+        Motion2DSpec(
+            prob_tilt, 0, 1.0, (0.0, 0.0, 0.0), 0.125, 0.025,
+            gravity=UniformGravity((0.125, 0.0, float(2**40)), reference_position_m=(0.0, 0.0, 2.0)),
+        ),
+        GroundedPlaneBackend(),
+    )
+    res_yz = integrate_motion_2d(
+        Motion2DSpec(
+            prob_tilt, 0, 1.0, (0.0, 0.0, 0.0), 0.125, 0.025,
+            gravity=UniformGravity((0.0, 0.125, float(2**40)), reference_position_m=(0.0, 0.0, 2.0)),
+        ),
+        GroundedPlaneBackend(),
+    )
+    expected_disp = 0.5 * 0.125 * (0.125 ** 2)
+    assert isclose(res_xz.samples[-1].position_m[0], expected_disp, rel_tol=1e-9)
+    assert isclose(res_yz.samples[-1].position_m[1], expected_disp, rel_tol=1e-9)
+
+    # 3. 2D viewer rejects sub-1e-30 acceleration and kinetic-energy forgeries when force/velocity are zero
+    q_tiny = float(2**-50)
+    m_tiny = (q_tiny * q_tiny) / 4.0
+    prob_sub30 = ElectrostaticProblem(
+        (PointCharge(q_tiny, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_sub30 = UniformGravity((0.0, 0.0, 0.25), reference_position_m=(0.0, 0.0, 3.0))
+    b2_tiny = sample_motion_2d(
+        Motion2DSpec(prob_sub30, 0, m_tiny, (0.0, 0.0, 0.0), 0.1, 0.025, gravity=g_sub30),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2_acc = copy.deepcopy(b2_tiny)
+    b2_acc["motion_2d"]["samples"][1]["acceleration_m_s2"] = [9e-31, 0.0, 0.0]
+    with pytest.raises(ValueError, match="acceleration"):
+        render_html(b2_acc, title="Forged tiny 2D acceleration")
+    b2_ke = copy.deepcopy(b2_tiny)
+    for row in b2_ke["motion_2d"]["samples"]:
+        row["kinetic_energy_j"] += 9e-31
+        row["total_energy_j"] += 9e-31
+    with pytest.raises(ValueError, match="kinetic energy"):
+        render_html(b2_ke, title="Forged tiny 2D kinetic energy")
+
+    # 4. Both 1D and 2D viewers reject fabricated 1 J drift at exact rest even with U_elec = -2^45 J
+    q_big = float(2**24)
+    m_big = (q_big * q_big) / 16.0
+    prob_rest_big = ElectrostaticProblem(
+        (PointCharge(q_big, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_rest_big = UniformGravity((0.0, 0.0, 1.0), reference_position_m=(0.0, 0.0, 2.0))
+    b1_rest = sample_motion_1d(
+        Motion1DSpec(prob_rest_big, 0, m_big, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025, gravity=g_rest_big),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2_rest = sample_motion_2d(
+        Motion2DSpec(prob_rest_big, 0, m_big, (0.0, 0.0, 0.0), 0.1, 0.025, gravity=g_rest_big),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    assert "<canvas" in render_html(b1_rest, title="Valid 1D huge rest")
+    assert "<canvas" in render_html(b2_rest, title="Valid 2D huge rest")
+    b1_rest["motion_1d"]["samples"][1]["energy_drift_j"] = 1.0
+    b1_rest["motion_1d"]["max_abs_energy_drift_j"] = 1.0
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(b1_rest, title="Forged 1D 1 J rest drift")
+    b2_rest["motion_2d"]["samples"][1]["energy_drift_j"] = 1.0
+    b2_rest["motion_2d"]["max_abs_energy_drift_j"] = 1.0
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(b2_rest, title="Forged 2D 1 J rest drift")
