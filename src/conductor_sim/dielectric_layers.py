@@ -63,17 +63,6 @@ class DielectricInterfaceCharge:
     total_bound_charge_c: float
 
 
-def _width_ulp(expected_width: Fraction, layers: tuple[DielectricLayer, ...]) -> Fraction:
-    """One ULP at the scale of the gap width, safe even when expected_width > DBL_MAX."""
-    try:
-        scale = max(float(expected_width), *(layer.thickness_m for layer in layers))
-        return Fraction(ulp(scale))
-    except OverflowError:
-        # start and end are finite floats, so (end - start) / 2 <= DBL_MAX always fits in binary64.
-        half_scale = max(float(expected_width / 2), *(layer.thickness_m for layer in layers))
-        return 2 * Fraction(ulp(half_scale))
-
-
 def _validated_gap_layers(
     gap_layers: tuple[tuple[DielectricLayer, ...], ...],
     spans: tuple[tuple[Fraction, Fraction], ...],
@@ -97,7 +86,7 @@ def _validated_gap_layers(
         else:
             # Accept authored decimal spellings summing to the gap width (e.g. 0.001 + 0.002 == 0.003)
             # or binary64 input rounding of the exact span, without ever inflating a thin layer.
-            w_ulp = _width_ulp(expected_width, layers)
+            min_layer_ulp = Fraction(ulp(min(layer.thickness_m for layer in layers)))
             widths_dec = tuple(Fraction(str(layer.thickness_m)) for layer in layers)
             span_dec = Fraction(str(float(end))) - Fraction(str(float(start)))
             idx_max = max(range(len(layers)), key=lambda j: layers[j].thickness_m)
@@ -110,10 +99,11 @@ def _validated_gap_layers(
                 widths = tuple(
                     w + residual if j == idx_max else w for j, w in enumerate(widths_dec)
                 )
-            elif abs(total_bin - expected_width) <= (len(layers) + 2) * min(
-                w_ulp, Fraction(ulp(layers[-1].thickness_m))
-            ):
-                widths = widths_bin[:-1] + (expected_width - sum(widths_bin[:-1], _ZERO),)
+            elif abs(total_bin - expected_width) <= 2 * min_layer_ulp:
+                residual = expected_width - total_bin
+                widths = tuple(
+                    w + residual if j == idx_max else w for j, w in enumerate(widths_bin)
+                )
             else:
                 raise UnsupportedProblem(
                     f"{label} gap {gap_index} layer thicknesses must sum exactly to the gap width"

@@ -639,3 +639,17 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
     inv_k0 = F(4 * pi) * F(EPSILON_0)
     e_v5_s = (F(10) - F(10, 11)) / (inv_k0 * F(10**18)) + (F(10, 11) - F(10000, 11001)) / inv_k0
     _approx(s_v5_s.capacitance_matrix_f[0][0], float(1 / e_v5_s), rel=1e-14)
+
+    # Sol v6 Finding: binary64 tolerance must be O(1) (never grow with layer count)
+    many_short = (L(nextafter(1.0, 0.0), 2.0),) * 4096 + (L(1.0, 2.0),)
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        PlanarStackProblem(
+            ("a", "b"), (1.0, 4098.0), 1.0, g,
+            d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+            gap_layers=(many_short,),
+        )
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        SphericalStackProblem(
+            (ConcentricConductor("a", 0.0, 1.0), ConcentricConductor("b", 4098.0, 4099.0)), g,
+            gap_layers=(many_short,),
+        )
