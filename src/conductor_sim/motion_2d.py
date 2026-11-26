@@ -533,7 +533,11 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         if domain.clearance(source.position_m) <= 0:
             raise UnsupportedProblem('fixed point charge must occupy the same valid vacuum region')
         src_sin_out, src_out_exact = _exact_out_of_plane(_exact_sub(source.position_m, origin), exact_normal)
-        if src_out_exact > Fraction(1, 10**12) * Fraction(scale) and src_sin_out > 1e-9:
+        if spec.gravity is not None:
+            rel_sin_out, _ = _exact_out_of_plane(_exact_sub(source.position_m, initial), exact_normal)
+            if src_sin_out > 64.0 * ulp(1.0) or rel_sin_out > 64.0 * ulp(1.0):
+                raise UnsupportedProblem('fixed point charges must share the physically invariant plane')
+        elif src_out_exact > Fraction(1, 10**12) * Fraction(scale) and src_sin_out > 1e-9:
             raise UnsupportedProblem('fixed point charges must share the physically invariant plane')
     return domain
 
@@ -570,7 +574,10 @@ def integrate_motion_2d(spec: Motion2DSpec, backend) -> Motion2DResult:
             force = moving.total_force_n
             if not all(isfinite(x) for x in force) or not isfinite(data.energy.total_j):
                 raise MotionIntegrationError('nonfinite force or interaction energy')
-            if abs(_dot(force, geometry.normal)) > max(1e-20, 5e-9*_norm(force)):
+            if spec.gravity is None:
+                if abs(_dot(force, geometry.normal)) > max(1e-20, 5e-9*_norm(force)):
+                    raise UnsupportedProblem('transverse force violates proven planar symmetry')
+            elif abs(_dot(force, geometry.normal)) > 5e-9 * _norm(force):
                 raise UnsupportedProblem('transverse force violates proven planar symmetry')
             result = force, data.energy
         except BaseException as exc:

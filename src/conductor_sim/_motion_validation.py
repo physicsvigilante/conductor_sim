@@ -137,7 +137,14 @@ def validate_planar_motion(motion, *, frames=None):
         for fixed in stationary:
             point = fixed['position_m']
             transverse = _dot(_sub(point,origin),normal)
-            if abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
+            if gravity_obj is not None:
+                point_ulp = max(ulp(abs(v)) for v in point)
+                rel = _sub(point, p0)
+                rel_dist = hypot(*rel)
+                if (abs(transverse) > 64 * ulp(1.0) * hypot(*_sub(point, origin)) + 16 * point_ulp
+                        or (rel_dist > 0.0 and abs(_dot(rel, normal)) > 64 * ulp(1.0) * rel_dist + 16 * point_ulp)):
+                    raise ValueError('fixed charge lies outside the proven physical plane')
+            elif abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
                 raise ValueError('fixed charge lies outside the proven physical plane')
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
@@ -152,9 +159,24 @@ def validate_planar_motion(motion, *, frames=None):
         if (not _position_close(position, projected, scale) or
                 abs(_dot(row['displacement_m'],normal)) > 2e-9*scale):
             raise ValueError('all motion graph positions must remain in the physical slice')
-        if (abs(_dot(velocity,normal)) > max(1e-12,5e-9*hypot(*velocity)) or
-                abs(_dot(force,normal)) > max(1e-20,5e-9*hypot(*force))):
-            raise ValueError('motion velocity/force disagrees with physical planar symmetry')
+        if gravity_obj is None:
+            if (abs(_dot(velocity,normal)) > max(1e-12,5e-9*hypot(*velocity)) or
+                    abs(_dot(force,normal)) > max(1e-20,5e-9*hypot(*force))):
+                raise ValueError('motion velocity/force disagrees with physical planar symmetry')
+        else:
+            e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
+            e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')
+            if not (_vector(e_force) and _vector(g_force) and _number(e_u) and _number(g_u)):
+                raise ValueError('gravity-coupled motion samples require separated force and energy contributions')
+            f_scale_row = max(
+                hypot(*force),
+                hypot(*e_force),
+                hypot(*g_force),
+            )
+            if (abs(_dot(velocity, normal)) > 5e-9 * hypot(*velocity)
+                    or abs(_dot(force, normal)) > 5e-9 * f_scale_row
+                    or abs(_dot(e_force, normal)) > 5e-9 * hypot(*e_force)):
+                raise ValueError('motion velocity/force disagrees with physical planar symmetry')
         if gravity_obj is None:
             if any(not _close(a, f/mass) for a,f in zip(row['acceleration_m_s2'], force)):
                 raise ValueError('motion acceleration disagrees with force and mass')
@@ -182,10 +204,6 @@ def validate_planar_motion(motion, *, frames=None):
             if not _close(row['total_energy_j'], fsum((kinetic, row['interaction_energy_j']))):
                 raise ValueError('motion total energy disagrees with K+U')
         else:
-            e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
-            e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')
-            if not (_vector(e_force) and _vector(g_force) and _number(e_u) and _number(g_u)):
-                raise ValueError('gravity-coupled motion samples require separated force and energy contributions')
             exp_gf = gravity_obj.force_at(position, mass_kg=mass)
             exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
             if any(a != b for a, b in zip(g_force, exp_gf)):

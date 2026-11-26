@@ -1671,3 +1671,64 @@ def test_m45_sol_v19_exact_launch_coplanarity_check_for_tiny_offset_sphere():
     assert bundle["motion_2d"]["termination"] == "duration"
     assert len(bundle["motion_2d"]["samples"]) == 3
     assert "<canvas" in render_html(bundle, title="Sol v19 tiny sphere exact coplanarity")
+
+
+def test_m45_sol_v20_out_of_plane_held_charge_and_floorless_transverse_force():
+    """Regression suite for Sol v20: out-of-plane held charge near moving charge & floorless transverse force."""
+    shell = SphericalShell(inner_radius_m=2.0, outer_radius_m=3.0, constraint=Grounded(), center_m=(0.0, 0.0, 0.0))
+
+    # 1. Exact Sol v20 reproducer: held charge at (1, 0, 5e-10) is directly out of xy plane above (1, 0, 0)
+    prob = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 0.0, 5e-10)),
+        ),
+        (shell,),
+    )
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob, 0, 1e-20, (0.0, 1e-12, 0.0), 0.01, 0.005,
+            charge_guard_m=1e-12,
+            gravity=UniformGravity((0.0, 1e-8, 0.0)),
+        )
+
+    # 2. Even a 1e-16 m out-of-plane offset directly above moving charge (sin_origin=1e-16, sin_rel=1.0) is refused
+    prob_sub_eps = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 0.0, 1e-16)),
+        ),
+        (shell,),
+    )
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob_sub_eps, 0, 1e-20, (0.0, 1e-12, 0.0), 0.01, 0.005,
+            charge_guard_m=1e-18,
+            gravity=UniformGravity((0.0, 1e-8, 0.0)),
+        )
+
+    # 3. Floorless transverse-force check rejects 1e-26 N out-of-plane force (below legacy 1e-20 N floor)
+    from conductor_sim.motion_2d import integrate_motion_2d
+
+    prob_coplanar = ElectrostaticProblem((PointCharge(1e-27, (1.0, 0.0, 0.0)),), (shell,))
+    spec_ok = Motion2DSpec(
+        prob_coplanar, 0, 1e-20, (0.0, 1e-12, 0.0), 0.01, 0.005,
+        gravity=UniformGravity((0.0, 1e-8, 0.0)),
+    )
+    # Valid coplanar tiny-charge run completes cleanly
+    b_ok = sample_motion_2d(spec_ok, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert b_ok["motion_2d"]["termination"] == "duration"
+    assert "<canvas" in render_html(b_ok, title="Valid tiny-charge coplanar shell")
+
+    # Viewer validation rejects forged tiny (1e-26 N) transverse force or tiny (1e-15 m/s) transverse velocity
+    import copy
+    tampered_f = copy.deepcopy(b_ok)
+    tampered_f["motion_2d"]["samples"][0]["electric_force_n"] = [0.0, 0.0, -3.595e-26]
+    tampered_f["motion_2d"]["samples"][0]["force_n"] = [0.0, 1e-28, -3.595e-26]
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered_f, title="Tampered tiny transverse force")
+
+    tampered_v = copy.deepcopy(b_ok)
+    tampered_v["motion_2d"]["samples"][1]["velocity_m_s"] = [0.0, 1e-12, -1e-15]
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered_v, title="Tampered tiny transverse velocity")
