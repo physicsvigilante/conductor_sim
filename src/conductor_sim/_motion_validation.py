@@ -33,6 +33,12 @@ def _dot(a, b):
     return fsum(x*y for x, y in zip(a, b))
 
 
+def _gravity_planar_velocity_ok(velocity, normal, tilted_plane: bool, v_n_prefix: float) -> bool:
+    """Shared planar-velocity symmetry predicate used by both integrator and saved viewer."""
+    v_tol = 5e-9 * hypot(*velocity) + (64.0 * ulp(v_n_prefix) if tilted_plane and v_n_prefix > 0.0 else 0.0)
+    return abs(_dot(velocity, normal)) <= v_tol
+
+
 def _sub(a, b):
     return tuple(x-y for x, y in zip(a, b))
 
@@ -181,8 +187,7 @@ def validate_planar_motion(motion, *, frames=None):
             )
             if tilted_plane:
                 v_n_prefix = max(v_n_prefix, max(abs(velocity[i] * normal[i]) for i in range(3)))
-            v_tol_row = 5e-9 * hypot(*velocity) + (32.0 * ulp(v_n_prefix) if v_n_prefix > 0.0 else 0.0)
-            if (abs(_dot(velocity, normal)) > v_tol_row
+            if (not _gravity_planar_velocity_ok(velocity, normal, tilted_plane, v_n_prefix)
                     or abs(_dot(force, normal)) > 5e-9 * f_scale_row
                     or abs(_dot(e_force, normal)) > 5e-9 * hypot(*e_force)):
                 raise ValueError('motion velocity/force disagrees with physical planar symmetry')

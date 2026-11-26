@@ -689,12 +689,14 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     total_j0 = fsum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
+    tilted_plane = sum(x != 0.0 for x in geometry.normal) >= 2
+    v_n_prefix = 0.0
     records = []
     events = []
     max_drift = 0.
 
     def record(t, values):
-        nonlocal max_drift, peak_grav_exchange, peak_disp
+        nonlocal max_drift, peak_grav_exchange, peak_disp, v_n_prefix
         displacement = _sub(values[:3], launch)
         values = _world_state(origin, values)
         if dynamics is not None:
@@ -720,6 +722,11 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                                     kinetic, interaction_j, total_j, drift)
         else:
             assert grav_force is not None and local_gravity is not None and origin_gravity is not None
+            from ._motion_validation import _gravity_planar_velocity_ok
+            if tilted_plane:
+                v_n_prefix = max(v_n_prefix, max(abs(velocity[i] * geometry.normal[i]) for i in range(3)))
+            if not _gravity_planar_velocity_ok(velocity, geometry.normal, tilted_plane, v_n_prefix):
+                raise UnsupportedProblem('velocity left the physically invariant plane')
             force = tuple(fsum((a, b)) for a, b in zip(elec_force, grav_force))
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             interaction_j = fsum((energy.total_j, u_grav))

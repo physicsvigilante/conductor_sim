@@ -1961,3 +1961,40 @@ def test_m45_sol_v25_multi_step_tilted_plane_turning_point_compensated_rk4():
         bundle = sample_motion_2d(spec, GroundedPlaneBackend(), visual_frames=2, resolution=9)
         assert bundle["motion_2d"]["termination"] == "duration"
         assert "<canvas" in render_html(bundle, title=f"Sol v25 tilted turning point dt={dt}")
+
+
+def test_m45_sol_v26_translated_oblique_plane_and_shared_velocity_parity():
+    """Regression suite for both Sol v26 findings."""
+    from math import ulp
+
+    # 1. Translated oblique plane at (0, 1e6, 2e6) completes, samples, and renders cleanly
+    plane_trans = ConductingPlane((0.0, 1e6, 2e6), (1.0, 2.0, 2.0), Grounded())
+    prob_trans = ElectrostaticProblem((PointCharge(1e-6, (1.0, 1000002.0, 2000002.0)),), (plane_trans,))
+    spec_trans = Motion2DSpec(
+        prob_trans, 0, 1e-4, (1.0, 2.0, 2.0), 0.6313519768873583, 0.02,
+        gravity=UniformGravity((-1.0, -2.0, -2.0), reference_position_m=(0.0, 1e6, 2e6)),
+    )
+    b_trans = sample_motion_2d(spec_trans, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert b_trans["motion_2d"]["termination"] == "duration"
+    assert len(b_trans["motion_2d"]["samples"]) == 33
+    assert "<canvas" in render_html(b_trans, title="Sol v26 translated oblique plane")
+
+    # 2. Qualification, native integration, and playback agree on 50-ULP tilted g_z
+    plane_x = ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    prob_x = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (plane_x,))
+    spec_50ulp = Motion2DSpec(
+        prob_x, 0, 1e-20, (0.0, 500.0, 117.0), 1.0, 0.01,
+        gravity=UniformGravity((0.0, -500.0, -(117.0 + 50.0 * ulp(117.0)))),
+    )
+    b_50ulp = sample_motion_2d(spec_50ulp, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert b_50ulp["motion_2d"]["termination"] == "duration"
+    assert "<canvas" in render_html(b_50ulp, title="Sol v26 50-ULP g_z parity")
+
+    # And a larger drift (e.g. 500 ULPs of v_n_prefix over 1 s) is refused consistently by native integrate_motion_2d
+    from conductor_sim.motion_2d import integrate_motion_2d
+    spec_500ulp = Motion2DSpec(
+        prob_x, 0, 1e-20, (0.0, 500.0, 117.0), 1.0, 0.01,
+        gravity=UniformGravity((0.0, -500.0, -(117.0 + 500.0 * ulp(117.0)))),
+    )
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        integrate_motion_2d(spec_500ulp, GroundedPlaneBackend())

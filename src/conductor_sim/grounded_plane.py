@@ -7,7 +7,7 @@ axisymmetric FEMM solve, point sources need not share a common axis.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import fsum, hypot, isclose, isfinite, pi
+from math import fsum, hypot, isclose, isfinite, pi, ulp
 
 from .model import ConductingPlane, ElectrostaticProblem, Grounded, PointCharge, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
@@ -24,6 +24,16 @@ def _dot(a: Vector3, b: Vector3) -> float:
 def _mirror(point: Vector3, plane: ConductingPlane) -> Vector3:
     h = plane.signed_distance_m(point)
     return tuple(point[i] - 2*h*plane.normal[i] for i in range(3))
+
+
+def _mirror_displacement(target: Vector3, source: Vector3, plane: ConductingPlane) -> Vector3:
+    """Translation-invariant displacement ``target - mirror(source, plane)``.
+
+    Algebraically ``(target - source) + 2*h(source)*n``, avoiding world-coordinate
+    cancellation when ``|source| >> h(source)`` (including ``target == source``).
+    """
+    h = plane.signed_distance_m(source)
+    return tuple((target[i] - source[i]) + 2.0 * h * plane.normal[i] for i in range(3))
 
 
 def _sites(problem: ElectrostaticProblem) -> tuple[PointCharge, ...]:
@@ -74,7 +84,7 @@ class GroundedPlaneSolution:
             distance = hypot(*_minus(point, q.position_m))
             if distance == 0:
                 raise SingularField("potential is singular at an ideal point charge")
-            image_distance = hypot(*_minus(point, _mirror(q.position_m, self.plane)))
+            image_distance = hypot(*_mirror_displacement(point, q.position_m, self.plane))
             # Rationalize the difference: ri^2-r^2 = 4*h*h_source.
             # Direct reciprocal subtraction loses weak far/near-plane values.
             source_height = self.plane.signed_distance_m(q.position_m)
@@ -96,7 +106,7 @@ class GroundedPlaneSolution:
             dr = hypot(*direct)
             if dr == 0:
                 raise SingularField("electric field is singular at an ideal point charge")
-            image = _minus(point, _mirror(q.position_m, self.plane))
+            image = _mirror_displacement(point, q.position_m, self.plane)
             di = hypot(*image)
             source_height = self.plane.signed_distance_m(q.position_m)
             # (di-dr)/di, obtained without subtracting nearly equal distances.
@@ -113,7 +123,8 @@ class GroundedPlaneSolution:
         if surface != 'outer':
             raise ValueError("the ideal plane has one exposed conducting surface")
         point = _position(point_m, "surface point")
-        if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=1e-12):
+        tol = max(1e-12, 16.0 * ulp(max(hypot(*point), hypot(*self.plane.point_m))))
+        if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=tol):
             raise ValueError("surface-density point must lie on conducting plane")
         return -fsum(q.charge_c * self.plane.signed_distance_m(q.position_m) /
                      (2*pi*hypot(*_minus(point, q.position_m))**3)
@@ -147,7 +158,7 @@ class GroundedPlaneSolution:
                 d = hypot(*v)
                 for i in range(3):
                     items[i].append(source.charge_c*other.charge_c*v[i]/d**3)
-            reflected = _minus(source.position_m, _mirror(other.position_m, self.plane))
+            reflected = _mirror_displacement(source.position_m, other.position_m, self.plane)
             d = hypot(*reflected)
             for i in range(3):
                 items[i].append(-source.charge_c*other.charge_c*reflected[i]/d**3)
@@ -165,8 +176,8 @@ class GroundedPlaneSolution:
         direct = [self.sources[i].charge_c*self.sources[j].charge_c /
                   hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m))
                   for i in range(len(self.sources)) for j in range(i+1, len(self.sources))]
-        image = [(-q.charge_c*other.charge_c / hypot(*_minus(
-            q.position_m, _mirror(other.position_m, self.plane))))
+        image = [(-q.charge_c*other.charge_c / hypot(*_mirror_displacement(
+            q.position_m, other.position_m, self.plane)))
                  for q in self.sources for other in self.sources]
         return self._k*(fsum(direct) + 0.5*fsum(image))
 
