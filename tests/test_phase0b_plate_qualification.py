@@ -21,7 +21,6 @@ from conductor_sim import (
     PointCharge,
     force_energy,
 )
-from conductor_sim.parallel_plates import _tail_bounds_orientation
 from conductor_sim.solver import OutsideDomain, UnsupportedProblem
 from conductor_sim.visual_adapters import context_for_solution
 from conductor_sim.visualization import SliceSpec, sample_frame
@@ -340,7 +339,9 @@ def test_wb6_rb3_low_order_visualization_masks_uncertified_cells_and_terminates_
     for r_row, v_row, e_row in zip(regions, potentials, fields):
         for r, v, e in zip(r_row, v_row, e_row):
             if r == "outside-domain":
-                assert v is None or e is None
+                assert v is None and e is None
+            if v is not None:
+                assert r != "outside-domain"
     assert frame["line_termination_counts"].get("outside-domain", 0) > 0
     assert any(v is None for prof in frame["profiles"] for v in prof["sigma_c_per_m2"])
     # Existing force_energy remains unaffected on explicit order
@@ -351,6 +352,8 @@ def test_wb6_rb3_low_order_visualization_masks_uncertified_cells_and_terminates_
 # --- R-b1 (iii): Adversarial ratio grid & explicit plate-swap + 16u representational floor checks ---
 
 def test_rb1_plate_swap_symmetry_and_16u_representational_floor_visible():
+    from conductor_sim.parallel_plates import _tail_bounds_orientation
+
     d, q = 0.05, 1e-9
     sol_a = ParallelPlateBackend(image_order=48).solve(
         ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25 * d)),), _plates(d))

@@ -363,7 +363,6 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                         region = 'surface'
                     except OutsideDomain:
                         ee.append(None)
-                        region = 'outside-domain'
             rr.append(region)
         grid['potential_v'].append(vv);grid['electric_field_v_per_m'].append(ee);grid['region'].append(rr)
     observed = sorted(abs(v) for row in grid['potential_v'] for v in row if v is not None)
