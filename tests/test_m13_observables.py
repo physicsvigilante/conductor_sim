@@ -189,9 +189,11 @@ def test_reciprocity_and_plate_order_invariance_for_fields_and_observations():
     p=slab(sites,-5.,8.)
     b=ParallelPlateBackend(image_order=3)
     a=b.solve(p);z=b.solve(replace(p,conductors=tuple(reversed(p.conductors))))
+    bf=ParallelPlateBackend(image_order=16)
+    af=bf.solve(p);zf=bf.solve(replace(p,conductors=tuple(reversed(p.conductors))))
     for pt in ((.08,.015,.11),(-.08,.01,.08)):
-        assert a.potential_at(pt)==pytest.approx(z.potential_at(pt),rel=1e-13,abs=1e-11)
-        assert a.electric_field_at(pt)==pytest.approx(z.electric_field_at(pt),rel=1e-13,abs=1e-10)
+        assert af.potential_at(pt)==pytest.approx(zf.potential_at(pt),rel=1e-13,abs=1e-11)
+        assert af.electric_field_at(pt)==pytest.approx(zf.electric_field_at(pt),rel=1e-13,abs=1e-10)
     oa,oz=force_energy(a),force_energy(z)
     assert oa.energy.total_j==pytest.approx(oz.energy.total_j,rel=1e-13)
     for f,g in zip(oa.charges,oz.charges):

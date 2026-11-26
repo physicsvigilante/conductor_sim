@@ -127,6 +127,7 @@ def potential_refinements(context, plane, grid, masks, *, target_subdivisions=5,
     it need not remain blank when its subcells can be sampled safely. The
     actual mask is never sampled or bridged. No new physical model is used.
     """
+    from .solver import OutsideDomain
     from .visualization import _finite
     xs, ys = grid['x_m'], grid['y_m']
     dx, dy = xs[1]-xs[0], ys[1]-ys[0]
@@ -168,7 +169,11 @@ def potential_refinements(context, plane, grid, masks, *, target_subdivisions=5,
                 if kind in ('source-mask','outside-domain'):
                     row.append(None)
                 else:
-                    row.append(_finite(context.solution.potential_at(point), 'refined potential'))
+                    try:
+                        row.append(_finite(context.solution.potential_at(point), 'refined potential'))
+                    except OutsideDomain:
+                        regions[-1] = 'outside-domain'
+                        row.append(None)
             fine['region'].append(regions)
             fine['potential_v'].append(row)
         # The caller computes conservative subcell stencils using the same
