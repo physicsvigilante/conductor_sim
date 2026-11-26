@@ -352,7 +352,9 @@ def validate_motion_1d_gravity(motion):
                 'kinetic_energy_j', 'interaction_energy_j', 'total_energy_j')):
             raise ValueError('gravity-coupled 1D motion samples require finite kinematic and energy fields')
         exp_pos = tuple(p0[i] + row['displacement_m'] * axis[i] for i in range(3))
-        if not all(isfinite(x) for x in exp_pos) or not _position_close(position, exp_pos, scale):
+        if (not all(isfinite(x) for x in exp_pos) or
+                any(abs(position[i] - exp_pos[i]) > 2e-9 * scale + 16 * ulp(max(abs(p0[i]), abs(exp_pos[i])))
+                    for i in range(3))):
             raise ValueError('saved 1D sample position disagrees with axis displacement')
         e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
         e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')

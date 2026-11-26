@@ -622,3 +622,58 @@ def test_m45_sol_v3_exact_boundary_root_grid_aligned_tangent_opposing_overflow_a
     bundle_1d["motion_1d"]["samples"][1]["position_m"] = [1.3e308, 1.3e308, orig_z]
     with pytest.raises(ValueError, match="finite distance scale|disagrees"):
         render_html(bundle_1d, title="Forged overflowing 1D graph position")
+
+
+def test_m45_sol_v4_exact_tangent_grid_zero_subnormal_bracket_translated_axis_and_cancellation():
+    """Regression suite for all 4 Sol v4 findings."""
+    from math import ulp
+
+    # 1. Exact grid zero at the tangent peak must return 1 indeterminate root, never split into 3
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.10, constraint=FixedNetCharge(5.0e-7))
+    spec_t0 = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(2.0e-7, (0.0, 0.0, 0.1716550374351809)),), (sphere,)),
+        0, 0.021323196966509944, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -1.0)),
+    )
+    eq_t0 = find_1d_equilibria(
+        spec_t0, ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-0.005, 0.005), scan_samples=9,
+    )
+    assert len(eq_t0) == 1
+    assert eq_t0[0].stability == "indeterminate"
+    assert eq_t0[0].small_oscillation_angular_frequency_rad_s is None
+
+    # 2. Subnormal sign-changing bracket must NOT be erased by zero_band
+    plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    spec_sub = Motion1DSpec(
+        ElectrostaticProblem(
+            (PointCharge(3e-161, (0.0, 0.0, 1.0)),),
+            (plane,),
+            permittivity_f_per_m=1.0 / (4.0 * pi),
+        ),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
+        gravity=UniformGravity((0.0, 0.0, 42.0 * ulp(0.0))),
+    )
+    eq_sub = find_1d_equilibria(
+        spec_sub, GroundedPlaneBackend(),
+        displacement_bounds_m=(-0.2, 0.2), scan_samples=9,
+    )
+    assert len(eq_sub) == 1
+    assert isclose(eq_sub[0].position_m[2], 1.0375, rel_tol=1e-2)
+
+    # 3. Translated 1D bundle starting at (1e16, 0, 1) must reject a 1 m off-axis y forgery
+    spec_tr = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, (1e16, 0.0, 1.0)),), (plane,)),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025,
+        gravity=UniformGravity((0.0, 0.0, 2.0)),
+    )
+    bundle_tr = sample_motion_1d(spec_tr, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(bundle_tr, title="Valid translated 1D gravity")
+    orig_p = list(bundle_tr["motion_1d"]["samples"][1]["position_m"])
+    bundle_tr["motion_1d"]["samples"][1]["position_m"] = [orig_p[0], 1.0, orig_p[2]]
+    with pytest.raises(ValueError, match="axis displacement"):
+        render_html(bundle_tr, title="Forged translated 1D off-axis position")
+
+    # 4. Exact rational UniformGravity.potential_energy_at avoids catastrophic cancellation
+    g_cancel = UniformGravity((1.0, 1.0, 1.0), reference_position_m=(1.0, 0.0, 0.0))
+    assert isclose(g_cancel.potential_energy_at((1e16, -1e16, 0.5), mass_kg=1.0), 0.5, rel_tol=1e-14)

@@ -52,12 +52,18 @@ class UniformGravity:
         try:
             disp = _sub(p, self.reference_position_m)
             prods = tuple(a * d for a, d in zip(self.acceleration_m_s2, disp))
-            if all(isfinite(pr) for pr in prods):
+            bounds = tuple(
+                abs(a) * (abs(pi) + abs(ri))
+                for a, pi, ri in zip(self.acceleration_m_s2, p, self.reference_position_m)
+            )
+            if all(isfinite(pr) for pr in prods) and all(isfinite(b) for b in bounds):
                 dot_val = fsum(prods)
+                term_bound = fsum(bounds)
                 raw = -mass_kg * dot_val
-                if isfinite(raw) and raw != 0.:
+                if isfinite(raw) and raw != 0. and isfinite(term_bound):
                     safe_fast = (
-                        abs(dot_val) >= 1e-300
+                        abs(dot_val) >= 0.01 * term_bound
+                        and abs(dot_val) >= 1e-300
                         and not any(a != 0. and d != 0. and abs(pr) < 1e-300
                                     for a, d, pr in zip(self.acceleration_m_s2, disp, prods))
                     )
@@ -65,6 +71,8 @@ class UniformGravity:
             safe_fast = False
         if safe_fast:
             return raw
+        # Exact rational arithmetic eliminates intermediate overflow, underflow,
+        # and catastrophic cancellation (e.g. translated coordinates vs reference).
         exact = -Fraction(float(mass_kg)) * sum(
             (Fraction(a) * (Fraction(pi) - Fraction(ri))
              for a, pi, ri in zip(self.acceleration_m_s2, p, self.reference_position_m)),

@@ -199,7 +199,11 @@ def find_1d_equilibria(
         return observe(s)[2]
 
     def zero_band(f_scale: float) -> float:
-        return 64.0 * ulp(f_scale) if f_scale > 0.0 else 0.0
+        if f_scale <= 0.0:
+            return 0.0
+        # Cap at 1e-12 * f_scale so subnormal forces (where ulp(f_scale) is a
+        # large fraction of f_scale) never erase genuine sign-changing brackets.
+        return min(64.0 * ulp(f_scale), 1e-12 * f_scale)
 
     grid = [s_lo + (s_hi - s_lo) * i / (scan_samples - 1) for i in range(scan_samples)]
     values: list[float] = []
@@ -220,7 +224,15 @@ def find_1d_equilibria(
         if all(abs(r - existing) > dedup_tol for existing in candidate_roots):
             candidate_roots.append(r)
 
-    def inspect_extremum(left_s: float, left_v: float, right_s: float, right_v: float, *, maximize: bool) -> None:
+    def inspect_extremum(
+        left_s: float,
+        left_v: float,
+        right_s: float,
+        right_v: float,
+        *,
+        maximize: bool,
+        allow_tangent: bool = True,
+    ) -> None:
         s_ext, f_ext = _locate_extremum(net_force, left_s, right_s, maximize=maximize, scale=span_scale)
         crossed = (f_ext > 0.0) if maximize else (f_ext < 0.0)
         is_strict_interior = (
@@ -237,7 +249,7 @@ def find_1d_equilibria(
             # Treat extremum values inside the floating-point cancellation band
             # (whether +/- a few ULPs) as a single tangent equilibrium rather
             # than splitting roundoff noise into two spurious close roots.
-            if crossed or is_strict_interior or f_ext == 0.0:
+            if allow_tangent and (crossed or is_strict_interior or f_ext == 0.0):
                 add_root(s_ext)
         elif crossed:
             if (left_v < 0.0 < f_ext) or (f_ext < 0.0 < left_v):
@@ -269,37 +281,47 @@ def find_1d_equilibria(
                     grid[run_idx - 1], values[run_idx - 1],
                     grid[run_end + 1], values[run_end + 1],
                     maximize=(lv < 0.0),
+                    allow_tangent=True,
                 )
         else:
             for k in range(run_idx, run_end + 1):
                 if values[k] == 0.0:
                     add_root(grid[k])
-            if not has_exact_zero:
-                if run_idx == 0 and run_end + 1 < n_grid:
-                    rv = values[run_end + 1]
-                    if (values[run_end] < 0.0 < rv) or (rv < 0.0 < values[run_end]):
-                        add_root(_refine_bracket(net_force, grid[run_end], values[run_end], grid[run_end + 1], rv, span_scale))
-                    else:
-                        inspect_extremum(grid[0], values[0], grid[run_end + 1], rv, maximize=(rv < 0.0))
-                elif run_end == n_grid - 1 and run_idx > 0:
-                    lv = values[run_idx - 1]
-                    if (lv < 0.0 < values[run_idx]) or (values[run_idx] < 0.0 < lv):
-                        add_root(_refine_bracket(net_force, grid[run_idx - 1], lv, grid[run_idx], values[run_idx], span_scale))
-                    else:
-                        inspect_extremum(grid[run_idx - 1], lv, grid[-1], values[-1], maximize=(lv < 0.0))
+            if run_idx == 0 and run_end + 1 < n_grid:
+                rv = values[run_end + 1]
+                if has_exact_zero:
+                    # An exact boundary zero may still share its first cell with
+                    # a second interior root if F genuinely crosses beyond zero_band.
+                    inspect_extremum(
+                        grid[run_end], values[run_end],
+                        grid[run_end + 1], rv,
+                        maximize=(eff_values[run_end + 1] < 0.0),
+                        allow_tangent=False,
+                    )
+                elif (values[run_end] < 0.0 < rv) or (rv < 0.0 < values[run_end]):
+                    add_root(_refine_bracket(net_force, grid[run_end], values[run_end], grid[run_end + 1], rv, span_scale))
+                else:
+                    inspect_extremum(grid[0], values[0], grid[run_end + 1], rv, maximize=(rv < 0.0))
+            elif run_end == n_grid - 1 and run_idx > 0:
+                lv = values[run_idx - 1]
+                if has_exact_zero:
+                    inspect_extremum(
+                        grid[run_idx - 1], lv,
+                        grid[run_idx], values[run_idx],
+                        maximize=(eff_values[run_idx - 1] < 0.0),
+                        allow_tangent=False,
+                    )
+                elif (lv < 0.0 < values[run_idx]) or (values[run_idx] < 0.0 < lv):
+                    add_root(_refine_bracket(net_force, grid[run_idx - 1], lv, grid[run_idx], values[run_idx], span_scale))
+                else:
+                    inspect_extremum(grid[run_idx - 1], lv, grid[-1], values[-1], maximize=(lv < 0.0))
         run_idx = run_end + 1
 
-    # 2. Opposite-sign cells and cells adjacent to an exact zero (so an exact
-    #    root on a boundary or grid vertex cannot hide a second root inside the
-    #    same cell).
+    # 2. Opposite-sign cells strictly outside the cancellation band.
     for idx in range(n_grid - 1):
         ev, ev_next = eff_values[idx], eff_values[idx + 1]
         if (ev < 0.0 < ev_next) or (ev_next < 0.0 < ev):
             add_root(_refine_bracket(net_force, grid[idx], values[idx], grid[idx + 1], values[idx + 1], span_scale))
-        elif values[idx] == 0.0 and ev_next != 0.0:
-            inspect_extremum(grid[idx], 0.0, grid[idx + 1], values[idx + 1], maximize=(ev_next < 0.0))
-        elif values[idx + 1] == 0.0 and ev != 0.0:
-            inspect_extremum(grid[idx], values[idx], grid[idx + 1], 0.0, maximize=(ev < 0.0))
 
     # 3. Local discrete extrema (interior and boundary) approaching zero from
     #    one side, to catch close root pairs inside a single cell or off-grid
