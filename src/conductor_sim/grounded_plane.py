@@ -137,6 +137,10 @@ class GroundedPlaneSolution:
             local_limit = 1e-6 * d_min
             unresolvable = sum(n != 0.0 for n in normal) >= 2 and h_point <= local_limit
             if unresolvable:
+                proj = tuple(point[i] - h_signed * normal[i] for i in range(3))
+                if abs(self.plane.signed_distance_m(proj)) < h_point:
+                    unresolvable = False
+            if unresolvable:
                 for i in range(3):
                     ni = normal[i]
                     if ni == 0.0 or h_point > local_limit * abs(ni):

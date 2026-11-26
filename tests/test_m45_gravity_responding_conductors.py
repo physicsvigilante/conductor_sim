@@ -2215,5 +2215,24 @@ def test_m45_sol_v32_close_charge_far_anchor_narrow_shallow_plane_sweep():
     prof_f = bundle_f["frames"][0]["profiles"][0]
     assert len(prof_f["sigma_c_per_m2"]) == 91
     h_f = p_far.signed_distance_m(q_far)
-    expected_center = -1e-6 * h_f / (2.0 * pi * (0.002 ** 3))
-    assert isclose(prof_f["sigma_c_per_m2"][45], expected_center, rel_tol=1e-5, abs_tol=0.0)
+    from conductor_sim.geometry import slice_geometry
+    geom_f = slice_geometry(p_far, sp_far)
+    nx, ny = geom_f["normal_xy"]
+    nxy = sqrt(nx * nx + ny * ny)
+    tx, ty = (-ny / nxy, nx / nxy)
+    x0, y0 = geom_f["point_m"]
+    for d_coord, sigma_val in zip(prof_f["coordinate_m"], prof_f["sigma_c_per_m2"]):
+        pt_f = sp_far.world((x0 + d_coord * tx, y0 + d_coord * ty))
+        dist_f = sqrt(sum((pt_f[i] - q_far[i]) ** 2 for i in range(3)))
+        expected_f = -1e-6 * h_f / (2.0 * pi * dist_f ** 3)
+        assert isclose(sigma_val, expected_f, rel_tol=5e-6, abs_tol=0.0)
+
+
+def test_m45_sol_v33_normal_projection_rejects_off_plane_within_local_limit():
+    """Regression suite for Sol v33: off-plane point whose normal projection lies within local_limit is rejected."""
+    p_orig_diag = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), Grounded())
+    sol_od = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-6, (1.0, 0.0, 0.0)),), (p_orig_diag,))
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_od.surface_charge_density_at("outer", (1.25e-6, 0.0, 0.0))

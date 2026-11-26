@@ -427,6 +427,11 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                                 break
                             best_pt = point
                             best_h = abs(h_rem)
+                            cand_proj = tuple(point[i] - h_rem * conductor.normal[i] for i in range(3))
+                            h_proj = abs(conductor.signed_distance_m(cand_proj))
+                            if h_proj < best_h:
+                                best_h = h_proj
+                                best_pt = cand_proj
                             for i in range(3):
                                 ni = conductor.normal[i]
                                 if ni == 0.0 or abs(h_rem) > snap_limit * abs(ni):
