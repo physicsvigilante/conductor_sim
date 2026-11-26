@@ -455,10 +455,18 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
     L = DielectricLayer
 
     # Repro A: snapped interior boundary must never create a negative-width final slab
+    # (and an inexact final thin slab is rejected rather than silently reshaped)
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        PlanarStackProblem(
+            ("a", "b"), (0.1, nextafter(0.8, 1.0)), 1.0, g,
+            d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+            gap_layers=((L(0.7, 1e18), L(1.4e-16, 1e18), L(5.4e-17, 1.0)),),
+        )
+    w_exact_last = float(F(nextafter(0.8, 1.0)) - F(0.1) - F(0.7) - F(1.4e-16))
     s_a = solve_planar_stack(PlanarStackProblem(
         ("a", "b"), (0.1, nextafter(0.8, 1.0)), 1.0, g,
         d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
-        gap_layers=((L(0.7, 1e18), L(1.4e-16, 1e18), L(5.4e-17, 1.0)),),
+        gap_layers=((L(0.7, 1e18), L(1.4e-16, 1e18), L(w_exact_last, 1.0)),),
     ))
     assert s_a.capacitance_matrix_f[0][0] > 0.0
     assert s_a.field_energy_j > 0.0
@@ -601,3 +609,16 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
         gap_layers=((L(24.0, 1.0),),),
     ))
     assert s_pyth.potential_at((2.0, 3.0, 6.0)) == 0.0
+
+    # Sol v4 Finding: binary64 fallback must never inflate a tiny last layer (nextafter(1, 0), 2^-100) in a 1 m gap
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        PlanarStackProblem(
+            ("a", "b"), (0.0, 1.0), 1.0, g,
+            d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+            gap_layers=((L(nextafter(1.0, 0.0), 1.0), L(2.0**-100, 2.0)),),
+        )
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        SphericalStackProblem(
+            (ConcentricConductor("a", 0.0, 1.0), ConcentricConductor("b", 2.0, 3.0)), g,
+            gap_layers=((L(nextafter(1.0, 0.0), 1.0), L(2.0**-100, 2.0)),),
+        )

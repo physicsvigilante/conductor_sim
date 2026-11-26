@@ -107,7 +107,9 @@ def _validated_gap_layers(
                 and abs(expected_width - span_dec) * 10**12 <= min(expected_width, widths_dec[-1])
             ):
                 widths = widths_dec[:-1] + (expected_width - sum(widths_dec[:-1], _ZERO),)
-            elif abs(total_bin - expected_width) <= (len(layers) + 2) * w_ulp:
+            elif abs(total_bin - expected_width) <= (len(layers) + 2) * min(
+                w_ulp, Fraction(ulp(layers[-1].thickness_m))
+            ):
                 widths = widths_bin[:-1] + (expected_width - sum(widths_bin[:-1], _ZERO),)
             else:
                 raise UnsupportedProblem(
