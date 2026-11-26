@@ -1788,3 +1788,56 @@ def test_m45_sol_v21_turning_point_velocity_and_saved_held_charge_parity():
                 ch["position_m"] = [1.0, 5e-9, 1e-16]
     with pytest.raises(ValueError, match="fixed charge lies outside"):
         render_html(tampered_held, title="Tampered held charge 1e-16 z offset")
+
+
+def test_m45_sol_v22_boundary_normal_parity_and_timestamp_immune_velocity_check():
+    """Regression suite for both Sol v22 findings."""
+    import copy
+
+    shell = SphericalShell(inner_radius_m=2.0, outer_radius_m=3.0, constraint=Grounded(), center_m=(0.0, 0.0, 0.0))
+
+    # 1. Exact Sol v22 boundary case: native Motion2DSpec and viewer agree (both refuse)
+    prob_boundary = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 1.23e-8, 3.689999999999825e-8)),
+        ),
+        (shell,),
+    )
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob_boundary, 0, 1e-20, (0.0, 1e-12, 3e-12), 0.01, 0.005,
+            charge_guard_m=1e-12,
+            gravity=UniformGravity((0.0, 1e-8, 3e-8)),
+        )
+    # Truly coplanar counterpart passes native integration, sampling, and viewer rendering
+    prob_coplanar = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 1.23e-8, 3.69e-8)),
+        ),
+        (shell,),
+    )
+    spec_coplanar = Motion2DSpec(
+        prob_coplanar, 0, 1e-20, (0.0, 1e-12, 3e-12), 0.01, 0.005,
+        charge_guard_m=1e-12,
+        gravity=UniformGravity((0.0, 1e-8, 3e-8)),
+    )
+    b_coplanar = sample_motion_2d(spec_coplanar, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_coplanar, title="Coplanar tilted held charge")
+
+    # 2. Forging final timestamp to 1e14 s cannot disable midpoint out-of-plane velocity check
+    prob_tp = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (shell,))
+    spec_tp = Motion2DSpec(
+        prob_tp, 0, 1e-20, (0.0, 1e-8, 0.0), 1.0, 0.5,
+        gravity=UniformGravity((0.0, -1e-8, 0.0)),
+    )
+    b_tp = sample_motion_2d(spec_tp, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_tp, title="Valid xy turning point")
+
+    tampered = copy.deepcopy(b_tp)
+    vx, vy, vz = tampered["motion_2d"]["samples"][1]["velocity_m_s"]
+    tampered["motion_2d"]["samples"][1]["velocity_m_s"] = [vx, 0.0, vy]
+    tampered["motion_2d"]["samples"][-1]["time_s"] = 1e14
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered, title="Timestamp-inflated out-of-plane velocity")

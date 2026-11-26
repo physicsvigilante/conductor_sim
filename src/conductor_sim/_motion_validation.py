@@ -4,7 +4,7 @@ A self-consistent file is not an authenticated integration result. This checks
 all graph rows as well as field rows, before solver acquisition or HTML output.
 It does not certify arbitrary user-edited trajectories against a force law.
 """
-from math import fsum, hypot, isclose, isfinite, ulp
+from math import fsum, hypot, isclose, isfinite, sqrt, ulp
 
 
 _VECTOR_FIELDS = ('position_m', 'displacement_m', 'velocity_m_s',
@@ -81,13 +81,15 @@ def validate_planar_motion(motion, *, frames=None):
         raise ValueError('motion plane normal must be a unit vector')
     gravity_obj = None
     if 'gravity' in motion:
+        from fractions import Fraction
         from .conservative_forces import restore_gravity
+        from .motion_2d import _exact_out_of_plane
         gravity_obj = restore_gravity(motion['gravity'])
         g_vec = gravity_obj.acceleration_m_s2
         g_scale = max(abs(x) for x in g_vec)
         if g_scale > 0.:
-            g_scaled = tuple(x / g_scale for x in g_vec)
-            if abs(_dot(g_scaled, normal)) > 64.0 * ulp(1.0) * hypot(*g_scaled):
+            g_sin_out, _ = _exact_out_of_plane(g_vec, tuple(Fraction(x) for x in normal))
+            if g_sin_out > 64.0 * ulp(1.0):
                 raise ValueError('saved uniform gravity lies outside the proven physical plane')
     # Optional M18 source inventory is shared by numerical and viewer data.
     # Original one-source M17 exports remain valid without these fields.
@@ -152,8 +154,10 @@ def validate_planar_motion(motion, *, frames=None):
     if gravity_obj is not None:
         v_traj_scale = max((hypot(*r['velocity_m_s']) for r in rows), default=0.0)
         a_traj_scale = max((hypot(*r['acceleration_m_s2']) for r in rows), default=0.0)
-        dt_span = rows[-1]['time_s'] - rows[0]['time_s']
-        v_cancel_scale = max(v_traj_scale, a_traj_scale * dt_span) if isfinite(a_traj_scale * dt_span) else v_traj_scale
+        disp_scale = max((hypot(*r['displacement_m']) for r in rows), default=0.0)
+        kin_term = 2.0 * a_traj_scale * disp_scale
+        v_kin_scale = sqrt(kin_term) if isfinite(kin_term) and kin_term > 0.0 else 0.0
+        v_cancel_scale = max(v_traj_scale, v_kin_scale)
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
         if stationary is not None and any(

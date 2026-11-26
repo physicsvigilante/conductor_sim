@@ -523,19 +523,27 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     if spec.gravity is not None and _norm(velocity) > 0.:
         if v_sin_out > 64.0 * ulp(1.0) or _exceeds_vel_disp(v_out_exact, spec.duration_s, 1e-9 * scale):
             raise UnsupportedProblem('an invariant planar motion cannot be established')
+    saved_n = tuple(Fraction(x) for x in normal)
     if g_raw is not None and g_scale > 0.:
         sin_out, a_out_exact = _exact_out_of_plane(g_raw, exact_normal)
-        if sin_out > 64.0 * ulp(1.0) or _exceeds_accel_disp(a_out_exact, spec.duration_s, 1e-9 * scale):
+        saved_g_sin, _ = _exact_out_of_plane(g_raw, saved_n)
+        if (sin_out > 64.0 * ulp(1.0) or saved_g_sin > 64.0 * ulp(1.0)
+                or _exceeds_accel_disp(a_out_exact, spec.duration_s, 1e-9 * scale)):
             raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
         raise ValueError('moving charge starts within the stationary point-charge guard')
     for source in stationary:
         if domain.clearance(source.position_m) <= 0:
             raise UnsupportedProblem('fixed point charge must occupy the same valid vacuum region')
-        src_sin_out, src_out_exact = _exact_out_of_plane(_exact_sub(source.position_m, origin), exact_normal)
+        src_delta = _exact_sub(source.position_m, origin)
+        src_sin_out, src_out_exact = _exact_out_of_plane(src_delta, exact_normal)
         if spec.gravity is not None:
-            rel_sin_out, _ = _exact_out_of_plane(_exact_sub(source.position_m, initial), exact_normal)
-            if src_sin_out > 64.0 * ulp(1.0) or rel_sin_out > 64.0 * ulp(1.0):
+            rel_delta = _exact_sub(source.position_m, initial)
+            rel_sin_out, _ = _exact_out_of_plane(rel_delta, exact_normal)
+            saved_src_sin, _ = _exact_out_of_plane(src_delta, saved_n)
+            saved_rel_sin, _ = _exact_out_of_plane(rel_delta, saved_n)
+            if (src_sin_out > 64.0 * ulp(1.0) or rel_sin_out > 64.0 * ulp(1.0)
+                    or saved_src_sin > 64.0 * ulp(1.0) or saved_rel_sin > 64.0 * ulp(1.0)):
                 raise UnsupportedProblem('fixed point charges must share the physically invariant plane')
         elif src_out_exact > Fraction(1, 10**12) * Fraction(scale) and src_sin_out > 1e-9:
             raise UnsupportedProblem('fixed point charges must share the physically invariant plane')
