@@ -121,22 +121,30 @@ def sample_motion_1d(spec: Motion1DSpec, backend, *, result=None, plane=None,
 
     class _CheckedBackend:
         """Prevent attaching an analytical M16a trajectory to a different field solver."""
+        next_index = 0
+
         def supports(self, problem):
             fn = getattr(backend, 'supports', None)
             return fn(problem) if callable(fn) else True
 
         def solve(self, problem):
+            if self.next_index >= len(selected):
+                raise ValueError('unexpected extra field-frame solve')
+            row = selected[self.next_index]
+            if tuple(problem.charges[spec.charge_index].position_m) != tuple(row.position_m):
+                raise UnsupportedProblem('field frame position disagrees with ordered motion sample')
             solution = backend.solve(problem)
             try:
                 data = force_energy(solution)  # FEMM does NOT expose this and must refuse.
                 if len(data.charges) != 1:
                     raise UnsupportedProblem('motion frame must have exactly one active source')
-                selected = data.charges[0]
-                row = expected_by_position[tuple(problem.charges[0].position_m)]
-                elec_force = sum(selected.total_force_n[i] * spec.axis[i] for i in range(3))
+                selected_charge = data.charges[0]
+                elec_force = sum(selected_charge.total_force_n[i] * spec.axis[i] for i in range(3))
                 if spec.gravity is None:
                     expected_force = elec_force
                     expected_u = data.energy.total_j
+                    f_scale = abs(expected_force)
+                    u_scale = abs(expected_u)
                 else:
                     grav_force = sum(
                         spec.gravity.force_at(row.position_m, mass_kg=spec.mass_kg)[i] * spec.axis[i]
@@ -145,29 +153,34 @@ def sample_motion_1d(spec: Motion1DSpec, backend, *, result=None, plane=None,
                     u_grav = spec.gravity.potential_energy_at(row.position_m, mass_kg=spec.mass_kg)
                     expected_force = fsum((elec_force, grav_force))
                     expected_u = fsum((data.energy.total_j, u_grav))
+                    f_scale = max(abs(elec_force), abs(grav_force))
+                    u_scale = max(abs(data.energy.total_j), abs(u_grav))
                     if (
                         row.electric_force_n is None
+                        or row.gravitational_force_n is None
                         or row.electric_interaction_energy_j is None
+                        or row.gravitational_potential_energy_j is None
                         or not isclose(elec_force, row.electric_force_n, rel_tol=2e-10, abs_tol=1e-28)
+                        or not isclose(grav_force, row.gravitational_force_n, rel_tol=2e-10, abs_tol=1e-28)
                         or not isclose(data.energy.total_j, row.electric_interaction_energy_j,
                                        rel_tol=2e-10, abs_tol=1e-26)
+                        or not isclose(u_grav, row.gravitational_potential_energy_j,
+                                       rel_tol=2e-10, abs_tol=1e-26)
                     ):
-                        raise UnsupportedProblem('frame electrostatic contribution disagrees with integrated trajectory')
-                force_scale = max(abs(expected_force), abs(elec_force))
-                energy_scale = max(abs(expected_u), abs(data.energy.total_j))
-                if (not isclose(expected_force, row.force_n, rel_tol=2e-10, abs_tol=max(1e-28, 1e-12 * force_scale)) or
+                        raise UnsupportedProblem('frame gravity/electrostatic contribution disagrees with integrated trajectory')
+                if (not isclose(expected_force, row.force_n, rel_tol=2e-10, abs_tol=max(1e-28, 1e-12 * f_scale)) or
                         not isclose(expected_u, row.interaction_energy_j,
-                                    rel_tol=2e-10, abs_tol=max(1e-26, 1e-12 * energy_scale))):
+                                    rel_tol=2e-10, abs_tol=max(1e-26, 1e-12 * u_scale))):
                     raise UnsupportedProblem('frame field solution disagrees with integrated trajectory')
             except BaseException as exc:
                 close = getattr(solution, 'close', None)
                 if callable(close):
                     cleanup_resources((('time-motion field solution', close),), primary=exc)
                 raise
+            self.next_index += 1
             return solution
 
     selected = [result.samples[i] for i in indices]
-    expected_by_position = {tuple(row.position_m): row for row in selected}
     # Same scalar position can recur at different times (e.g., a turning
     # trajectory). The electrostatic force/energy must then be identical.
     models = []

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from math import fsum, hypot, isfinite, sqrt, ulp
+from math import frexp, fsum, isfinite, ldexp, sqrt, ulp
 from typing import Literal
 
 from ._resources import cleanup_resources
@@ -12,6 +12,8 @@ from .observables import force_energy
 from .solver import UnsupportedProblem
 
 __all__ = ["ConductingGravityEquilibrium", "find_1d_equilibria"]
+
+_INV_PHI = (sqrt(5.0) - 1.0) / 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,13 +33,30 @@ class ConductingGravityEquilibrium:
     total_potential_energy_j: float
 
 
+def _scaled_sqrt_ratio(numerator: float, denominator: float) -> float:
+    """Compute sqrt(numerator / denominator) without intermediate overflow or underflow."""
+    mn, en = frexp(numerator)
+    md, ed = frexp(denominator)
+    diff = en - ed
+    if diff & 1:
+        mn *= 2.0
+        diff -= 1
+    try:
+        omega = ldexp(sqrt(mn / md), diff // 2)
+    except OverflowError as exc:
+        raise UnsupportedProblem("small-oscillation angular frequency outside finite binary64 range") from exc
+    if not isfinite(omega) or omega == 0.0:
+        raise UnsupportedProblem("small-oscillation angular frequency outside finite binary64 range")
+    return omega
+
+
 def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: float) -> float:
-    """Robust Illinois regula-falsi / bisection hybrid preserving exact bracketing."""
+    """Robust regula-falsi / bisection hybrid preserving exact bracketing down to ULP scale."""
     lo, hi = a, b
     flo, fhi = fa, fb
     for iteration in range(96):
         width = hi - lo
-        if width <= 4.0 * ulp(max(abs(lo), abs(hi), scale, 1.0)):
+        if width <= 4.0 * ulp(max(abs(lo), abs(hi), scale)):
             break
         if iteration % 3 != 2 and fhi != flo:
             mid = lo - flo * width / (fhi - flo)
@@ -53,6 +72,29 @@ def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: f
         else:
             lo, flo = mid, fmid
     return 0.5 * (lo + hi)
+
+
+def _locate_extremum(eval_net, a: float, b: float, *, maximize: bool, scale: float) -> tuple[float, float]:
+    """Golden-section search for a local maximum or minimum of F(s) on [a, b]."""
+    lo, hi = a, b
+    c = hi - _INV_PHI * (hi - lo)
+    d = lo + _INV_PHI * (hi - lo)
+    fc = eval_net(c)
+    fd = eval_net(d)
+    for _ in range(96):
+        if hi - lo <= 16.0 * ulp(max(abs(lo), abs(hi), scale)):
+            break
+        better_c = (fc >= fd) if maximize else (fc <= fd)
+        if better_c:
+            hi, d, fd = d, c, fc
+            c = hi - _INV_PHI * (hi - lo)
+            fc = eval_net(c)
+        else:
+            lo, c, fc = c, d, fd
+            d = lo + _INV_PHI * (hi - lo)
+            fd = eval_net(d)
+    s_best = c if ((fc >= fd) if maximize else (fc <= fd)) else d
+    return s_best, (fc if s_best == c else fd)
 
 
 def find_1d_equilibria(
@@ -86,13 +128,20 @@ def find_1d_equilibria(
         s_lo = safe_lo + margin
         s_hi = safe_hi - margin
     else:
-        if (
-            not isinstance(displacement_bounds_m, (tuple, list))
-            or len(displacement_bounds_m) != 2
-            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v) for v in displacement_bounds_m)
-        ):
+        if not isinstance(displacement_bounds_m, (tuple, list)) or len(displacement_bounds_m) != 2:
             raise ValueError("displacement_bounds_m must be a pair of finite numbers")
-        s_lo, s_hi = float(displacement_bounds_m[0]), float(displacement_bounds_m[1])
+        bounds_f: list[float] = []
+        for v in displacement_bounds_m:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError("displacement_bounds_m must be a pair of finite numbers")
+            try:
+                fv = float(v)
+            except OverflowError as exc:
+                raise ValueError("displacement_bounds_m must be a pair of finite numbers") from exc
+            if not isfinite(fv):
+                raise ValueError("displacement_bounds_m must be a pair of finite numbers")
+            bounds_f.append(fv)
+        s_lo, s_hi = bounds_f[0], bounds_f[1]
         if s_lo <= safe_lo or s_hi >= safe_hi:
             raise UnsupportedProblem("displacement_bounds_m must stay strictly inside the safe vacuum domain")
     if s_hi <= s_lo:
@@ -134,7 +183,7 @@ def find_1d_equilibria(
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg) if gravity is not None else 0.0
             if not all(isfinite(v) for v in (elec_along, net, u_elec, u_grav, fsum((u_elec, u_grav)))):
                 raise UnsupportedProblem("nonfinite equilibrium force or energy")
-            return position, elec_along, net, u_elec, u_grav
+            result = (position, elec_along, net, u_elec, u_grav)
         except BaseException as exc:
             close = getattr(solution, "close", None)
             if callable(close):
@@ -144,31 +193,63 @@ def find_1d_equilibria(
             close = getattr(solution, "close", None)
             if callable(close):
                 close()
+        return result
 
     def net_force(s: float) -> float:
         return observe(s)[2]
 
     grid = [s_lo + (s_hi - s_lo) * i / (scan_samples - 1) for i in range(scan_samples)]
     values = [net_force(s) for s in grid]
-    roots: list[float] = []
-    dedup_tol = 1e-10 * max(1.0, domain.scale, s_hi - s_lo)
+    span_scale = max(domain.scale, s_hi - s_lo)
+    dedup_tol = 1e-10 * span_scale
+    candidate_roots: list[float] = []
+
+    def add_root(r: float) -> None:
+        if all(abs(r - existing) > dedup_tol for existing in candidate_roots):
+            candidate_roots.append(r)
 
     for idx, (s, val) in enumerate(zip(grid, values)):
         if val == 0.0:
-            if not roots or abs(s - roots[-1]) > dedup_tol:
-                roots.append(s)
+            add_root(s)
         if idx + 1 < len(grid):
             s_next, v_next = grid[idx + 1], values[idx + 1]
             if (val < 0.0 < v_next) or (v_next < 0.0 < val):
-                root = _refine_bracket(net_force, s, val, s_next, v_next, domain.scale)
-                if not roots or abs(root - roots[-1]) > dedup_tol:
-                    roots.append(root)
+                add_root(_refine_bracket(net_force, s, val, s_next, v_next, span_scale))
+        # Inspect interior local extrema approaching zero from one side to catch
+        # close root pairs inside a single grid cell or tangent roots (F=0, F'=0).
+        if 0 < idx < len(grid) - 1:
+            v_prev, v_next = values[idx - 1], values[idx + 1]
+            if val < 0.0 and v_prev <= val and v_next <= val:
+                s_ext, f_ext = _locate_extremum(net_force, grid[idx - 1], grid[idx + 1], maximize=True, scale=span_scale)
+                if f_ext > 0.0:
+                    add_root(_refine_bracket(net_force, grid[idx - 1], v_prev, s_ext, f_ext, span_scale))
+                    add_root(_refine_bracket(net_force, s_ext, f_ext, grid[idx + 1], v_next, span_scale))
+                else:
+                    _, elec_e, _, _, _ = observe(s_ext)
+                    f_scale = max(abs(elec_e), abs(grav_along), abs(v_prev), abs(v_next))
+                    if f_ext == 0.0 or (f_scale > 0.0 and abs(f_ext) <= 64.0 * ulp(f_scale)):
+                        add_root(s_ext)
+            elif val > 0.0 and v_prev >= val and v_next >= val:
+                s_ext, f_ext = _locate_extremum(net_force, grid[idx - 1], grid[idx + 1], maximize=False, scale=span_scale)
+                if f_ext < 0.0:
+                    add_root(_refine_bracket(net_force, grid[idx - 1], v_prev, s_ext, f_ext, span_scale))
+                    add_root(_refine_bracket(net_force, s_ext, f_ext, grid[idx + 1], v_next, span_scale))
+                else:
+                    _, elec_e, _, _, _ = observe(s_ext)
+                    f_scale = max(abs(elec_e), abs(grav_along), abs(v_prev), abs(v_next))
+                    if f_ext == 0.0 or (f_scale > 0.0 and abs(f_ext) <= 64.0 * ulp(f_scale)):
+                        add_root(s_ext)
 
+    candidate_roots.sort()
     equilibria: list[ConductingGravityEquilibrium] = []
-    for s_eq in roots:
+    for s_eq in candidate_roots:
         pos, elec_along, net, u_elec, u_grav = observe(s_eq)
         clearance = domain.clearance(s_eq)
-        step = min(1e-6 * max(domain.scale, abs(s_eq), 1.0), 0.25 * clearance)
+        dist_lo = s_eq - domain.lower
+        dist_hi = domain.upper - s_eq
+        finite_dists = [d for d in (dist_lo, dist_hi) if isfinite(d)]
+        local_scale = min(finite_dists) if finite_dists else max(domain.scale, abs(s_eq), s_hi - s_lo)
+        step = min(1e-5 * local_scale, 0.25 * clearance)
         if step <= 0.0 or not (domain.safe(s_eq - step) and domain.safe(s_eq + step)):
             stiffness = 0.0
             stability: Literal["stable", "unstable", "indeterminate"] = "indeterminate"
@@ -178,16 +259,14 @@ def find_1d_equilibria(
             f_minus = net_force(s_eq - step)
             # k_eff = -dF/ds = d^2U/ds^2; positive k_eff => restoring force => stable equilibrium.
             stiffness = -(f_plus - f_minus) / (2.0 * step)
-            force_scale = max(abs(elec_along), abs(grav_along), abs(f_plus), abs(f_minus), 1e-30)
-            stiffness_floor = 1e-10 * force_scale / max(domain.scale, 1.0)
+            force_scale = max(abs(elec_along), abs(grav_along), abs(f_plus), abs(f_minus))
+            stiffness_floor = 1e-8 * force_scale / local_scale if local_scale > 0.0 else 0.0
             if not isfinite(stiffness) or abs(stiffness) <= stiffness_floor:
                 stability = "indeterminate"
                 omega = None
             elif stiffness > 0.0:
                 stability = "stable"
-                omega = sqrt(stiffness / spec.mass_kg)
-                if not isfinite(omega):
-                    raise UnsupportedProblem("small-oscillation angular frequency outside finite binary64 range")
+                omega = _scaled_sqrt_ratio(stiffness, spec.mass_kg)
             else:
                 stability = "unstable"
                 omega = None

@@ -314,3 +314,116 @@ def test_symmetry_and_contract_refusals():
     # Bounds crossing surface guard -> refused
     with pytest.raises(UnsupportedProblem, match="safe vacuum domain"):
         find_1d_equilibria(spec_unbounded, GroundedPlaneBackend(), displacement_bounds_m=(-0.5, 0.5))
+
+    # Overflowing int bound raises ValueError (never raw OverflowError)
+    with pytest.raises(ValueError, match="finite"):
+        find_1d_equilibria(spec_unbounded, GroundedPlaneBackend(), displacement_bounds_m=(0, 10**500))
+
+
+def test_sol_m45_review_regressions():
+    # 1. Exact 3-term total_energy_j agreement between integrator and validator (no HTML export refusal)
+    plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_e = ElectrostaticProblem((PointCharge(1e-7, (0.0, 0.0, 0.5)),), (plane,))
+    u_elec0 = -(1e-7) ** 2 / (16.0 * pi * EPSILON_0 * 0.5)
+    m_cancel = -2.0 * u_elec0
+    spec_e = Motion2DSpec(
+        prob_e, 0, m_cancel, (1.0, 0.0, 0.0), 0.01, 0.005,
+        gravity=UniformGravity((1.0, 0.0, 0.0), reference_position_m=(1e-18, 0.0, 0.0)),
+    )
+    res_e = integrate_motion_2d(spec_e, GroundedPlaneBackend())
+    bundle_e = sample_motion_2d(spec_e, GroundedPlaneBackend(), result=res_e, visual_frames=3, resolution=9)
+    assert "gravity" in bundle_e["motion_2d"]
+
+    # 2. Close pair of roots inside a single uniform grid cell is found by extremum refinement!
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.1, constraint=FixedNetCharge(5e-7))
+    spec_close = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.3)),), (sphere,)),
+        0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393506555945)),
+    )
+    eqs_close = find_1d_equilibria(spec_close, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-0.19, 0.5))
+    assert len(eqs_close) == 2
+    assert isclose(eqs_close[0].position_m[2], 0.1716488813521, rel_tol=1e-7)
+    assert isclose(eqs_close[1].position_m[2], 0.1716611949418, rel_tol=1e-7)
+    assert eqs_close[0].stability == "unstable" and eqs_close[1].stability == "stable"
+
+    # 3. Micro-scale stiffness accuracy (z = 2e-6 m, mg = 0.001 N -> k = -1000 N/m) + extreme omega scales
+    z_micro = 2e-6
+    mg_micro = 1e-3
+    q_micro = 4.0 * z_micro * sqrt(pi * EPSILON_0 * mg_micro)
+    ceil_plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, -1.0), Grounded())
+    spec_micro = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q_micro, (0.0, 0.0, -z_micro)),), (ceil_plane,)),
+        0, 1e-4, (0.0, 0.0, -1.0), 0.0, 0.01, 0.005,
+        surface_guard_m=1e-8, gravity=UniformGravity((0.0, 0.0, -10.0)),
+    )
+    eq_micro = find_1d_equilibria(
+        spec_micro, GroundedPlaneBackend(), displacement_bounds_m=(-1e-6, 1e-6),
+    )[0]
+    assert isclose(eq_micro.stiffness_n_per_m, -1000.0, rel_tol=1e-6)
+
+    # Extreme omega via scaled sqrt(k/m) without intermediate overflow/underflow
+    from conductor_sim.conductor_gravity import _scaled_sqrt_ratio
+    assert isclose(_scaled_sqrt_ratio(1e8, 1e-300), 1e154, rel_tol=1e-12)
+    assert isclose(_scaled_sqrt_ratio(1e-300, 1e26), 1e-163, rel_tol=1e-12)
+
+    # 4. Tiny out-of-plane gravity (0, 5e-13, 0) is rejected at Motion2DSpec construction!
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(prob_e, 0, 1e-3, (1.0, 0.0, 0.0), 0.1, 0.01, gravity=UniformGravity((0.0, 5e-13, 0.0)))
+
+    # 5. Returning 1D trajectory checks every ordered frame (no duplicate-position overwrite) & checks gravity terms
+    spec_ret = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.0)),), (plane,)),
+        0, 1.0, (0.0, 0.0, 1.0), -1.0, 1.0, 0.25,
+        gravity=UniformGravity((0.0, 0.0, 2.0)),
+    )
+    res_ret = integrate_motion_1d(spec_ret, GroundedPlaneBackend())
+    from dataclasses import replace as dc_replace
+    forged_samples = (dc_replace(res_ret.samples[0], electric_force_n=99.0), *res_ret.samples[1:])
+    forged_res = dc_replace(res_ret, samples=forged_samples)
+    with pytest.raises(UnsupportedProblem, match="disagrees"):
+        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=forged_res, visual_frames=5, resolution=9)
+    forged_g_samples = (dc_replace(res_ret.samples[0], gravitational_force_n=99.0), *res_ret.samples[1:])
+    with pytest.raises(UnsupportedProblem, match="disagrees"):
+        sample_motion_1d(spec_ret, GroundedPlaneBackend(), result=dc_replace(res_ret, samples=forged_g_samples), visual_frames=5, resolution=9)
+
+    # 2D validator rejects gravity contribution keys without gravity metadata and huge forged electric_force_n
+    d_no_g = res_e.as_dict()
+    del d_no_g["gravity"]
+    with pytest.raises(ValueError, match="gravity metadata"):
+        validate_planar_motion(d_no_g)
+    d_huge = res_e.as_dict()
+    d_huge["samples"][0]["electric_force_n"] = [1.5e308, 1.5e308, 1.5e308]
+    d_huge["samples"][0]["gravitational_force_n"] = [999.0, 0.0, 0.0]
+    with pytest.raises(ValueError, match="gravitational force"):
+        validate_planar_motion(d_huge)
+
+    # 6. Closeable solutions are closed on EVERY find_1d_equilibria probe (0 leaks)
+    counts = {"open": 0, "close": 0}
+    base_backend = GroundedPlaneBackend()
+
+    from conductor_sim import force_energy as _fe
+
+    class _CountingBackend:
+        def supports(self, p):
+            return base_backend.supports(p)
+
+        def solve(self, p):
+            sol = base_backend.solve(p)
+            counts["open"] += 1
+
+            class _Wrap:
+                def force_energy(self):
+                    return _fe(sol)
+
+                def close(self):
+                    counts["close"] += 1
+
+            return _Wrap()
+
+    find_1d_equilibria(spec_micro, _CountingBackend(), displacement_bounds_m=(-1e-6, 1e-6), scan_samples=25)
+    assert counts["open"] > 0 and counts["open"] == counts["close"]
+
+    # 7. UniformGravity.potential_energy_at avoids intermediate underflow/overflow
+    g_ext = UniformGravity((1e-200, 0.0, 0.0), reference_position_m=(0.0, 0.0, 0.0))
+    assert isclose(g_ext.potential_energy_at((1e-200, 0.0, 0.0), mass_kg=1e200), -1e-200, rel_tol=1e-14)

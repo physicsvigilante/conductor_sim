@@ -7,6 +7,7 @@ the shared motion controller receives their sum without losing the ledger.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from fractions import Fraction
 from math import fsum, hypot, isclose, isfinite, ulp
 
 from .model import Vector3
@@ -46,8 +47,19 @@ class UniformGravity:
     def potential_energy_at(self, position_m, *, mass_kg):
         p = _vector(position_m, 'gravity observation position')
         _number(mass_kg, 'mass_kg', positive=True)
-        return _number(-mass_kg * _dot(self.acceleration_m_s2, _sub(p, self.reference_position_m)),
-                       'gravitational potential energy')
+        raw = -mass_kg * _dot(self.acceleration_m_s2, _sub(p, self.reference_position_m))
+        if isfinite(raw) and raw != 0.:
+            return raw
+        exact = -Fraction(float(mass_kg)) * sum(
+            (Fraction(a) * (Fraction(pi) - Fraction(ri))
+             for a, pi, ri in zip(self.acceleration_m_s2, p, self.reference_position_m)),
+            Fraction(),
+        )
+        try:
+            value = float(exact)
+        except OverflowError as exc:
+            raise ValueError('gravitational potential energy must be finite') from exc
+        return _number(value, 'gravitational potential energy')
 
     def as_dict(self):
         return dict(kind='UniformGravity', **asdict(self))

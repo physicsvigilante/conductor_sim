@@ -357,7 +357,8 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         raise UnsupportedProblem('an invariant planar motion cannot be established')
     if spec.gravity is not None:
         g_vec = spec.gravity.acceleration_m_s2
-        if abs(_dot(g_vec, normal)) > max(1e-12, 1e-9 * _norm(g_vec)):
+        g_mag = _norm(g_vec)
+        if g_mag > 0. and abs(_dot(g_vec, normal)) > 1e-9 * g_mag:
             raise UnsupportedProblem('uniform gravity must lie in the physically invariant plane')
     if domain.charge_clearance(initial) <= 0:
         raise ValueError('moving charge starts within the stationary point-charge guard')

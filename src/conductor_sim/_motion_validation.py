@@ -72,7 +72,8 @@ def validate_planar_motion(motion, *, frames=None):
         from .conservative_forces import restore_gravity
         gravity_obj = restore_gravity(motion['gravity'])
         g_vec = gravity_obj.acceleration_m_s2
-        if abs(_dot(g_vec, normal)) > max(1e-12, 1e-9 * hypot(*g_vec)):
+        g_mag = hypot(*g_vec)
+        if g_mag > 0. and abs(_dot(g_vec, normal)) > 1e-9 * g_mag:
             raise ValueError('saved uniform gravity lies outside the proven physical plane')
     # Optional M18 source inventory is shared by numerical and viewer data.
     # Original one-source M17 exports remain valid without these fields.
@@ -146,27 +147,35 @@ def validate_planar_motion(motion, *, frames=None):
         kinetic = .5*mass*hypot(*velocity)**2
         if row['kinetic_energy_j'] < 0 or not _close(row['kinetic_energy_j'], kinetic):
             raise ValueError('motion kinetic energy disagrees with velocity and mass')
-        if not _close(row['total_energy_j'], fsum((kinetic,row['interaction_energy_j']))):
-            raise ValueError('motion total energy disagrees with K+U')
-        if gravity_obj is not None:
+        if gravity_obj is None:
+            if any(k in row for k in ('electric_force_n', 'gravitational_force_n',
+                                      'electric_interaction_energy_j', 'gravitational_potential_energy_j')):
+                raise ValueError('gravity contribution fields require gravity metadata')
+            if not _close(row['total_energy_j'], fsum((kinetic, row['interaction_energy_j']))):
+                raise ValueError('motion total energy disagrees with K+U')
+        else:
             e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
             e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')
             if not (_vector(e_force) and _vector(g_force) and _number(e_u) and _number(g_u)):
                 raise ValueError('gravity-coupled motion samples require separated force and energy contributions')
             exp_gf = gravity_obj.force_at(position, mass_kg=mass)
             exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
-            f_scale = max(hypot(*e_force), hypot(*g_force))
-            u_scale = max(abs(e_u), abs(g_u))
-            if any(not isclose(a, b, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(f_scale))) for a, b in zip(g_force, exp_gf)):
+            if any(not isclose(a, b, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(b))))
+                   for a, b in zip(g_force, exp_gf)):
                 raise ValueError('saved gravitational force disagrees with UniformGravity')
-            if any(not isclose(a, fsum((b, c)), rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(f_scale)))
+            if any(not isclose(a, fsum((b, c)), rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(max(abs(b), abs(c)))))
                    for a, b, c in zip(force, e_force, g_force)):
                 raise ValueError('saved total force disagrees with electric + gravitational sum')
-            if not isclose(g_u, exp_gu, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(max(abs(exp_gu), u_scale)))):
+            if not isclose(g_u, exp_gu, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gu)))):
                 raise ValueError('saved gravitational energy disagrees with UniformGravity')
+            u_scale = max(abs(e_u), abs(g_u))
             if not isclose(row['interaction_energy_j'], fsum((e_u, g_u)),
                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(u_scale))):
                 raise ValueError('saved interaction energy disagrees with electric + gravitational sum')
+            e_scale = max(abs(kinetic), abs(e_u), abs(g_u))
+            if not isclose(row['total_energy_j'], fsum((kinetic, e_u, g_u)),
+                           rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
+                raise ValueError('motion total energy disagrees with K+U_elec+U_grav')
     max_drift = motion.get('max_abs_energy_drift_j')
     if not _number(max_drift) or not _close(max_drift,max(abs(r['energy_drift_j']) for r in rows)):
         raise ValueError('motion maximum energy drift disagrees with saved samples')
