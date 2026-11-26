@@ -34,6 +34,19 @@ def _sites(problem: ElectrostaticProblem) -> tuple[PointCharge, ...]:
                  if (q := fsum(qs)) != 0.0)
 
 
+def _checked_site_index(index: int, count: int) -> int:
+    """Grouped-site index policy of ``ForceEnergyResult.force_on_charge_n``.
+
+    Negative, boolean and non-integer indices are rejected, so a legacy
+    per-site force can never select a site and then fail to exclude it.
+    """
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise TypeError('source index must be an integer')
+    if not 0 <= index < count:
+        raise IndexError('source index is outside the grouped active sites')
+    return index
+
+
 @dataclass(frozen=True, slots=True)
 class GroundedPlaneSolution:
     plane: ConductingPlane
@@ -126,7 +139,7 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
-        source = self.sources[index]
+        source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
         for j, other in enumerate(self.sources):
             if include_direct and j != index:

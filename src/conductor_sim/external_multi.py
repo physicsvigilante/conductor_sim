@@ -205,7 +205,8 @@ class ExternalMultiSphereSolution:
 
     def conductor_force_on_charge_n(self, index: int) -> Vector3:
         """Force on an active external site from the METAL only, no direct pair force."""
-        site = self.sites[index]
+        from .grounded_plane import _checked_site_index
+        site = self.sites[_checked_site_index(index, len(self.sites))]
         pt = site.position_m
         contributions = [[],[],[]]
         for image in self.image_sources:
@@ -223,7 +224,8 @@ class ExternalMultiSphereSolution:
 
     def force_on_charge_n(self, index: int) -> Vector3:
         """Total force on active site, including other REAL charges, excluding its own field."""
-        site = self.sites[index]
+        from .grounded_plane import _checked_site_index
+        site = self.sites[_checked_site_index(index, len(self.sites))]
         conductor = self.conductor_force_on_charge_n(index)
         terms = [[conductor[k]] for k in range(3)]
         for j,other in enumerate(self.sites):
