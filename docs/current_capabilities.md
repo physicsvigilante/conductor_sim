@@ -43,6 +43,7 @@ Choose the physical contract first, then pick the matching route:
 
 | Physical arrangement & boundary condition | Exact import & entry point | Supported observables | Key limits / explicit refusals |
 | --- | --- | --- | --- |
+| **One connected spherical conductor** with 0–N disjoint sealed spherical cavities and arbitrary interior + exterior 3D charges (M42a — preferred general single-sphere route) | `conductor_sim`: `SphericalConductorProblem`, `SphericalCavity`, `SphericalPointSource`, `SphericalRegion`, `SphericalConductorSolution`, `solve_spherical_conductor` | `V_m`, `Q_metal`, named `Q_inner` / `Q_outer`, `region_at`, region-resolved local `V`/`E`, exact wall `V` | Single connected metal; `Grounded`, `FixedNetCharge`, or `FixedPotential(0)`; refuses nonzero `FixedPotential`, bare wall `E`, wall/metal sources, touching cavities, `force_energy` |
 | Centered charge in 1 concentric spherical shell | `conductor_sim`: `ElectrostaticProblem`, `SphericalShell`, `ConcentricShellBackend` | `V`, `E`, face charges | Centered charge only; `Grounded` or `FixedNetCharge` |
 | 1 or more 3D charges inside 1 spherical cavity | `conductor_sim`: `ImageChargeShellBackend` (1 charge) / `MultiImageShellBackend` (many); `force_energy` | `V`, `E`, face charges, cavity `force_energy` | All charges inside the single cavity; no exterior charges |
 | Strictly nested concentric shells (2–8) + charges in innermost cavity | `conductor_sim`: `NestedShellBackend`; `force_energy` | `V`, `E`, per-face charges, innermost cavity `force_energy` | Charges only in innermost cavity; no annulus/exterior charges |
@@ -62,7 +63,6 @@ Choose the physical contract first, then pick the matching route:
 | Scenario revisions, driven protocols, events & dipoles | `conductor_sim.scenarios` (`PrescribedScenario`, `revise_scenario`), `conductor_sim.structural_scenarios` (`reassemble_scenario`), `conductor_sim.driven_motion` (`DrivenModel`, `investigate_driven_motion`), `conductor_sim.motion_events` (`EventStudy`, `investigate_motion`), `conductor_sim.dipoles` (`RigidDipole`, `DipoleModel`, `observe_dipole`) | Requalified revisions, terminal events, driven switching, dipole torque/work | Prescribed-field regime; every revision requalifies atomically |
 
 **Currently unsupported (refuse explicitly rather than substituting):**
-- Hollow conducting shell with an exterior charge, simultaneous interior + exterior charges on one shell, or general local `V`/`E` inside multi-cavity spheres *(planned for M42a)*.
 - Point charge in the annulus between concentric shells, or public nonzero `FixedPotential` on bounded spheres/shells *(planned for M42b)*.
 - Layered linear dielectrics, conducting sphere/shell in a uniform background field, gravity coupled with responding conductors, arbitrary irregular 3D conductors, and multi-moving-charge dynamics.
 
