@@ -10,7 +10,7 @@ claim a finite-radius particle, impact dynamics, or an exact collision time.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from math import fsum, hypot, isfinite
+from math import fsum, hypot, isfinite, ulp
 from typing import Literal
 
 from ._directions import unit_direction
@@ -258,6 +258,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)
     if not (lower+guard < 0. < upper-guard):
         raise ValueError('initial charge position must be strictly outside the surface guard')
+    if spec.gravity is not None:
+        active_ulp = max((ulp(abs(x[i])) for i in range(3) if axis[i] != 0.0), default=0.0)
+        if active_ulp > 1e-4 * guard:
+            raise UnsupportedProblem(
+                'world coordinates along motion axis lack binary64 precision for gravity-coupled 1D motion'
+            )
     return _Domain(lower,upper,scale,guard)
 
 
@@ -326,6 +332,10 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     s,v,t=0.,float(spec.initial_velocity_m_s),0.
     _, _, reference_energy, _ = observe(s)
     ref=reference_energy
+    local_gravity = (
+        UniformGravity(gravity.acceleration_m_s2, reference_position_m=original.position_m)
+        if gravity is not None else None
+    )
     energy0=.5*spec.mass_kg*v*v
     samples=[]
     events=[]
@@ -334,6 +344,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         nonlocal max_drift
         force, elec_force, energy, u_grav = observe(s)
         kinetic=.5*spec.mass_kg*v*v
+        position = _add(original.position_m, spec.axis, s)
         if gravity is None:
             interaction_j = energy.total_j
             total_j = kinetic + interaction_j
@@ -341,20 +352,29 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                          energy.direct_j-ref.direct_j,
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j))
-            sample = MotionSample(t,s,_add(original.position_m,spec.axis,s),v,
+            sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,
                                   interaction_j,total_j,drift)
         else:
+            assert local_gravity is not None
             interaction_j = fsum((energy.total_j, u_grav))
             total_j = fsum((kinetic, energy.total_j, u_grav))
-            # Exact gauge-invariant gravitational delta: -m (g . axis) * s avoids r_ref cancellation.
+            # Compare exact gauge-invariant displacement delta against the actual
+            # world-position gravitational delta so coordinate rounding can never
+            # hide a saved total-energy jump inside a zero drift report.
             delta_u_grav = -grav_force_along * s
+            world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
+            du_scale = max(abs(kinetic - energy0), abs(energy.total_j - ref.total_j),
+                           abs(delta_u_grav), abs(world_du_grav))
+            pos_energy_roundoff = 16.0 * abs(grav_force_along) * ulp(max(domain.scale, abs(s)))
+            if abs(world_du_grav - delta_u_grav) > max(1e-24, 1e-6 * du_scale, pos_energy_roundoff, 256.0 * ulp(du_scale)):
+                raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             drift=fsum((kinetic-energy0,
                          energy.direct_j-ref.direct_j,
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j,
-                         delta_u_grav))
-            sample = MotionSample(t,s,_add(original.position_m,spec.axis,s),v,
+                         world_du_grav))
+            sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,
                                   interaction_j,total_j,drift,
                                   elec_force, grav_force_along, energy.total_j, u_grav)

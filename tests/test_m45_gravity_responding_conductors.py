@@ -643,7 +643,9 @@ def test_m45_sol_v4_exact_tangent_grid_zero_subnormal_bracket_translated_axis_an
     assert eq_t0[0].stability == "indeterminate"
     assert eq_t0[0].small_oscillation_angular_frequency_rad_s is None
 
-    # 2. Subnormal sign-changing bracket must NOT be erased by zero_band
+    # 2. Subnormal forces (42*ulp(0.0)) cannot be resolved accurately in binary64:
+    #    both (-0.2, 0.2) and the subnormal plateau (0.036, 0.038) must honestly refuse,
+    #    while tiny normal-scale forces (~1e-305 N) still bracket cleanly.
     plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
     spec_sub = Motion1DSpec(
         ElectrostaticProblem(
@@ -654,14 +656,28 @@ def test_m45_sol_v4_exact_tangent_grid_zero_subnormal_bracket_translated_axis_an
         0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
         gravity=UniformGravity((0.0, 0.0, 42.0 * ulp(0.0))),
     )
-    eq_sub = find_1d_equilibria(
-        spec_sub, GroundedPlaneBackend(),
-        displacement_bounds_m=(-0.2, 0.2), scan_samples=9,
-    )
-    assert len(eq_sub) == 1
-    assert isclose(eq_sub[0].position_m[2], 1.0375, rel_tol=1e-2)
+    with pytest.raises(UnsupportedProblem, match="subnormal"):
+        find_1d_equilibria(spec_sub, GroundedPlaneBackend(), displacement_bounds_m=(-0.2, 0.2), scan_samples=9)
+    with pytest.raises(UnsupportedProblem, match="subnormal"):
+        find_1d_equilibria(spec_sub, GroundedPlaneBackend(), displacement_bounds_m=(0.036, 0.038), scan_samples=9)
 
-    # 3. Translated 1D bundle starting at (1e16, 0, 1) must reject a 1 m off-axis y forgery
+    spec_tiny_normal = Motion1DSpec(
+        ElectrostaticProblem(
+            (PointCharge(2e-152, (0.0, 0.0, 1.0)),),
+            (plane,),
+            permittivity_f_per_m=1.0 / (4.0 * pi),
+        ),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.05,
+        gravity=UniformGravity((0.0, 0.0, 1.0e-304)),
+    )
+    # Image force = -(2e-152)^2 / (4 z^2) = -1e-304 / z^2 -> exact equilibrium at z = 1.0 m!
+    eq_tiny = find_1d_equilibria(
+        spec_tiny_normal, GroundedPlaneBackend(), displacement_bounds_m=(-0.2, 0.2), scan_samples=9,
+    )
+    assert len(eq_tiny) == 1
+    assert isclose(eq_tiny[0].position_m[2], 1.0, rel_tol=1e-12)
+
+    # 3. Translated 1D bundle starting at (1e16, 0, 1) must reject BOTH y=1 AND x+=16/32 off-axis forgeries
     spec_tr = Motion1DSpec(
         ElectrostaticProblem((PointCharge(1e-17, (1e16, 0.0, 1.0)),), (plane,)),
         0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025,
@@ -672,8 +688,55 @@ def test_m45_sol_v4_exact_tangent_grid_zero_subnormal_bracket_translated_axis_an
     orig_p = list(bundle_tr["motion_1d"]["samples"][1]["position_m"])
     bundle_tr["motion_1d"]["samples"][1]["position_m"] = [orig_p[0], 1.0, orig_p[2]]
     with pytest.raises(ValueError, match="axis displacement"):
-        render_html(bundle_tr, title="Forged translated 1D off-axis position")
+        render_html(bundle_tr, title="Forged translated 1D off-axis y")
+    bundle_tr["motion_1d"]["samples"][1]["position_m"] = [orig_p[0] + 16.0, orig_p[1], orig_p[2]]
+    with pytest.raises(ValueError, match="axis displacement"):
+        render_html(bundle_tr, title="Forged translated 1D off-axis x+16")
+    bundle_tr["motion_1d"]["samples"][1]["position_m"] = [orig_p[0] + 32.0, orig_p[1], orig_p[2]]
+    with pytest.raises(ValueError, match="axis displacement"):
+        render_html(bundle_tr, title="Forged translated 1D off-axis x+32")
 
     # 4. Exact rational UniformGravity.potential_energy_at avoids catastrophic cancellation
     g_cancel = UniformGravity((1.0, 1.0, 1.0), reference_position_m=(1.0, 0.0, 0.0))
     assert isclose(g_cancel.potential_energy_at((1e16, -1e16, 0.5), mass_kg=1.0), 0.5, rel_tol=1e-14)
+
+
+def test_m45_sol_v5_wide_scan_dedup_and_world_coordinate_precision():
+    """Regression suite for Sol v5 findings: wide scan (1e6 m) preserving close roots,
+    and refusing world coordinates along the active axis that lose gravitational energy precision."""
+    # 1. Wide upper bound (1e6 m) must NOT merge two roots 1.23e-5 m apart
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.1, constraint=FixedNetCharge(5e-7))
+    spec_close = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.3)),), (sphere,)),
+        0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393506555945)),
+    )
+    eq_wide = find_1d_equilibria(
+        spec_close, ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-0.19, 1e6), scan_samples=129,
+    )
+    assert len(eq_wide) == 2
+    assert isclose(eq_wide[0].position_m[2], 0.1716488813521, rel_tol=1e-7)
+    assert isclose(eq_wide[1].position_m[2], 0.1716611949418, rel_tol=1e-7)
+    assert eq_wide[0].stability == "unstable"
+    assert eq_wide[1].stability == "stable"
+
+    # 2. World coordinates at z=1e16+100 m along +z lack binary64 precision for 1 m displacement:
+    #    must never report zero drift while saved total energy jumps by 2 J!
+    plane_far = ConductingPlane((0.0, 0.0, 1e16), (0.0, 0.0, 1.0), Grounded())
+    p_far = (0.0, 0.0, 1e16 + 100.0)
+    with pytest.raises(UnsupportedProblem, match="binary64 precision"):
+        Motion1DSpec(
+            ElectrostaticProblem((PointCharge(1e-17, p_far),), (plane_far,)),
+            0, 1.0, (0.0, 0.0, 1.0), 0.0, 1.0, 0.5,
+            gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+        )
+    # 2D integration at z=1e16+100 m must also refuse when world position roundoff loses Ug resolution
+    from conductor_sim.motion_1d import MotionIntegrationError
+    spec_2d_far = Motion2DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, p_far),), (plane_far,)),
+        0, 1.0, (0.0, 0.0, 0.0), 1.0, 0.5,
+        gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+    )
+    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+        integrate_motion_2d(spec_2d_far, GroundedPlaneBackend())

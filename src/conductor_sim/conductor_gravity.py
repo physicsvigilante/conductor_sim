@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from math import frexp, fsum, isfinite, ldexp, sqrt, ulp
+from sys import float_info
 from typing import Literal
 
 from ._resources import cleanup_resources
@@ -14,6 +15,7 @@ from .solver import UnsupportedProblem
 __all__ = ["ConductingGravityEquilibrium", "find_1d_equilibria"]
 
 _INV_PHI = (sqrt(5.0) - 1.0) / 2.0
+_MIN_NORMAL = float_info.min
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +185,8 @@ def find_1d_equilibria(
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg) if gravity is not None else 0.0
             if not all(isfinite(v) for v in (elec_along, net, u_elec, u_grav, fsum((u_elec, u_grav)))):
                 raise UnsupportedProblem("nonfinite equilibrium force or energy")
+            if (0.0 < abs(elec_along) < _MIN_NORMAL) or (0.0 < abs(grav_along) < _MIN_NORMAL):
+                raise UnsupportedProblem("equilibrium force underflows into subnormal binary64 precision")
             result = (position, elec_along, net, u_elec, u_grav)
         except BaseException as exc:
             close = getattr(solution, "close", None)
@@ -216,12 +220,17 @@ def find_1d_equilibria(
     # numerically zero so +/-few-ULP noise at a grid-aligned tangent cannot
     # manufacture false opposite-sign brackets.
     eff_values = [0.0 if (v == 0.0 or abs(v) <= zero_band(sc)) else v for v, sc in zip(values, scales)]
-    span_scale = max(domain.scale, s_hi - s_lo)
-    dedup_tol = 1e-10 * span_scale
+    # Keep convergence and deduplication tied to the local physical domain scale
+    # (never the full scan width s_hi - s_lo) so wide scan bounds such as 1e6 m
+    # cannot merge distinct nearby roots.
+    local_root_scale = domain.scale
     candidate_roots: list[float] = []
 
     def add_root(r: float) -> None:
-        if all(abs(r - existing) > dedup_tol for existing in candidate_roots):
+        if all(
+            abs(r - existing) > 128.0 * ulp(max(abs(r), abs(existing), local_root_scale))
+            for existing in candidate_roots
+        ):
             candidate_roots.append(r)
 
     def inspect_extremum(
@@ -233,7 +242,7 @@ def find_1d_equilibria(
         maximize: bool,
         allow_tangent: bool = True,
     ) -> None:
-        s_ext, f_ext = _locate_extremum(net_force, left_s, right_s, maximize=maximize, scale=span_scale)
+        s_ext, f_ext = _locate_extremum(net_force, left_s, right_s, maximize=maximize, scale=local_root_scale)
         crossed = (f_ext > 0.0) if maximize else (f_ext < 0.0)
         is_strict_interior = (
             (f_ext > left_v and f_ext > right_v) if maximize
@@ -253,9 +262,9 @@ def find_1d_equilibria(
                 add_root(s_ext)
         elif crossed:
             if (left_v < 0.0 < f_ext) or (f_ext < 0.0 < left_v):
-                add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, span_scale))
+                add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, local_root_scale))
             if (f_ext < 0.0 < right_v) or (right_v < 0.0 < f_ext):
-                add_root(_refine_bracket(net_force, s_ext, f_ext, right_s, right_v, span_scale))
+                add_root(_refine_bracket(net_force, s_ext, f_ext, right_s, right_v, local_root_scale))
 
     n_grid = len(grid)
     # 1. Exact/near-zero contiguous runs on the grid (handles exact boundary
@@ -268,13 +277,24 @@ def find_1d_equilibria(
         run_end = run_idx
         while run_end + 1 < n_grid and eff_values[run_end + 1] == 0.0:
             run_end += 1
+        if run_idx == 0 and run_end == n_grid - 1:
+            raise UnsupportedProblem(
+                "net force vanishes or underflows across the entire equilibrium scan interval"
+            )
+        if run_end > run_idx and any(
+            values[k] == 0.0 and values[k + 1] == 0.0 and net_force(0.5 * (grid[k] + grid[k + 1])) == 0.0
+            for k in range(run_idx, run_end)
+        ):
+            raise UnsupportedProblem(
+                "net force vanishes or underflows across an equilibrium scan plateau"
+            )
         has_exact_zero = any(values[k] == 0.0 for k in range(run_idx, run_end + 1))
         if run_idx > 0 and run_end < n_grid - 1:
             lv, rv = eff_values[run_idx - 1], eff_values[run_end + 1]
             if (lv < 0.0 < rv) or (rv < 0.0 < lv):
                 add_root(_refine_bracket(
                     net_force, grid[run_idx - 1], values[run_idx - 1],
-                    grid[run_end + 1], values[run_end + 1], span_scale,
+                    grid[run_end + 1], values[run_end + 1], local_root_scale,
                 ))
             else:
                 inspect_extremum(
@@ -299,7 +319,7 @@ def find_1d_equilibria(
                         allow_tangent=False,
                     )
                 elif (values[run_end] < 0.0 < rv) or (rv < 0.0 < values[run_end]):
-                    add_root(_refine_bracket(net_force, grid[run_end], values[run_end], grid[run_end + 1], rv, span_scale))
+                    add_root(_refine_bracket(net_force, grid[run_end], values[run_end], grid[run_end + 1], rv, local_root_scale))
                 else:
                     inspect_extremum(grid[0], values[0], grid[run_end + 1], rv, maximize=(rv < 0.0))
             elif run_end == n_grid - 1 and run_idx > 0:
@@ -312,7 +332,7 @@ def find_1d_equilibria(
                         allow_tangent=False,
                     )
                 elif (lv < 0.0 < values[run_idx]) or (values[run_idx] < 0.0 < lv):
-                    add_root(_refine_bracket(net_force, grid[run_idx - 1], lv, grid[run_idx], values[run_idx], span_scale))
+                    add_root(_refine_bracket(net_force, grid[run_idx - 1], lv, grid[run_idx], values[run_idx], local_root_scale))
                 else:
                     inspect_extremum(grid[run_idx - 1], lv, grid[-1], values[-1], maximize=(lv < 0.0))
         run_idx = run_end + 1
@@ -321,7 +341,7 @@ def find_1d_equilibria(
     for idx in range(n_grid - 1):
         ev, ev_next = eff_values[idx], eff_values[idx + 1]
         if (ev < 0.0 < ev_next) or (ev_next < 0.0 < ev):
-            add_root(_refine_bracket(net_force, grid[idx], values[idx], grid[idx + 1], values[idx + 1], span_scale))
+            add_root(_refine_bracket(net_force, grid[idx], values[idx], grid[idx + 1], values[idx + 1], local_root_scale))
 
     # 3. Local discrete extrema (interior and boundary) approaching zero from
     #    one side, to catch close root pairs inside a single cell or off-grid

@@ -474,6 +474,14 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         y = (*y, 0., 0., 0., 0.)  # fixed/applied/gravity work, dissipation
     reference_force, reference_energy = observe(p0)
     _ = reference_force
+    local_gravity = (
+        UniformGravity(gravity.acceleration_m_s2, reference_position_m=p0)
+        if gravity is not None else None
+    )
+    origin_gravity = (
+        UniformGravity(gravity.acceleration_m_s2, reference_position_m=(0., 0., 0.))
+        if gravity is not None else None
+    )
     energy0 = .5*spec.mass_kg*_norm(spec.initial_velocity_m_s)**2
     records = []
     events = []
@@ -505,18 +513,25 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                                     tuple(x/spec.mass_kg for x in force), force,
                                     kinetic, interaction_j, total_j, drift)
         else:
-            assert grav_force is not None
+            assert grav_force is not None and local_gravity is not None and origin_gravity is not None
             force = tuple(fsum((a, b)) for a, b in zip(elec_force, grav_force))
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             interaction_j = fsum((energy.total_j, u_grav))
             total_j = fsum((kinetic, energy.total_j, u_grav))
-            # Exact gauge-invariant gravitational delta: -m (g . displacement) avoids r_ref cancellation.
-            delta_u_grav = -_dot(grav_force, displacement)
+            # Compare exact displacement delta against saved world-position delta
+            # so coordinate roundoff cannot hide a total-energy jump inside drift.
+            delta_u_grav = origin_gravity.potential_energy_at(displacement, mass_kg=spec.mass_kg)
+            world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
+            du_scale = max(abs(kinetic - energy0), abs(energy.total_j - reference_energy.total_j),
+                           abs(delta_u_grav), abs(world_du_grav))
+            pos_energy_roundoff = 16.0 * _norm(grav_force) * ulp(max(geometry.scale, _norm(displacement)))
+            if abs(world_du_grav - delta_u_grav) > max(1e-24, 1e-6 * du_scale, pos_energy_roundoff, 256.0 * ulp(du_scale)):
+                raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             drift = fsum((kinetic-energy0,
                           energy.direct_j-reference_energy.direct_j,
                           energy.induced_j-reference_energy.induced_j,
                           energy.background_j-reference_energy.background_j,
-                          delta_u_grav))
+                          world_du_grav))
             if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
                 raise MotionIntegrationError('motion data became nonfinite')
             sample = Motion2DSample(t, displacement, position, velocity,
