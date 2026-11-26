@@ -1447,3 +1447,39 @@ def test_m45_sol_v13_collinear_245_coplanar_2d_exact_normal_and_same_pos_ke_drif
         b_h[key]["max_abs_energy_drift_j"] = max(abs(r["energy_drift_j"]) for r in b_h[key]["samples"])
         with pytest.raises(ValueError, match="identical position and kinetic energy"):
             render_html(b_h, title=f"Forged same pos+KE drift {key}")
+
+
+def test_m45_sol_v14_exact_rational_1d_collinear_2d_fallback_and_huge_out_of_plane():
+    """Regression suite for all 3 Sol v14 findings."""
+    # 1. Exact collinear (1, 2, 3) plane/axis/gravity (g = 2^40 * n) is duration-independent (0.001 vs 0.1 s)
+    plane_123 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 2.0, 3.0), Grounded())
+    n_123 = plane_123.normal
+    prob_123 = ElectrostaticProblem(
+        (PointCharge(float(2**22), tuple(2.0 * c for c in n_123)),),
+        (plane_123,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_123 = UniformGravity(tuple(float(2**40) * c for c in n_123))
+    for dur in (0.001, 0.1, 1.0):
+        spec_123 = Motion1DSpec(prob_123, 0, 1.0, (1.0, 2.0, 3.0), 0.0, dur, dur / 2.0, gravity=g_123)
+        eq_123 = find_1d_equilibria(
+            spec_123, GroundedPlaneBackend(), displacement_bounds_m=(-0.001, 0.001), scan_samples=17,
+        )
+        assert len(eq_123) == 1
+        assert abs(eq_123[0].displacement_m) < 1e-12
+        assert eq_123[0].stability == "unstable"
+
+    # 2. 2D release from rest with g = 2^20 * n on (1, 2, 3) plane uses exact rational fallback normal
+    p0_tiny = tuple(1e-8 * c for c in n_123)
+    prob_2d_rest = ElectrostaticProblem((PointCharge(1e-24, p0_tiny),), (plane_123,))
+    g_2d_rest = UniformGravity(tuple(float(2**20) * c for c in n_123), reference_position_m=p0_tiny)
+    for dur in (1e-4, 1e-3):
+        spec_rest = Motion2DSpec(prob_2d_rest, 0, 1.0, (0.0, 0.0, 0.0), dur, dur / 2.0, gravity=g_2d_rest)
+        assert spec_rest.gravity == g_2d_rest
+
+    # 3. Huge finite out-of-plane gravity (8e307, 8e307, 8e307) raises UnsupportedProblem (never OverflowError!)
+    plane_1m10 = ConductingPlane((0.0, 0.0, 0.0), (1.0, -1.0, 0.0), Grounded())
+    prob_ovf = ElectrostaticProblem((PointCharge(1e-12, (1.0, 0.0, 0.0)),), (plane_1m10,))
+    g_huge_oop = UniformGravity((8e307, 8e307, 8e307), reference_position_m=(1.0, 0.0, 0.0))
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(prob_ovf, 0, 1e-300, (1.0, 1.0, -2.0), 1e-3, 5e-4, gravity=g_huge_oop)

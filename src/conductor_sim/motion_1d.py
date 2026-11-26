@@ -10,6 +10,7 @@ claim a finite-radius particle, impact dynamics, or an exact collision time.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from fractions import Fraction
 from math import fsum, hypot, isfinite, ulp
 from typing import Literal
 
@@ -37,6 +38,28 @@ def _norm(v):
 
 def _add(a, b, factor):
     return tuple(a[i]+factor*b[i] for i in range(3))
+
+
+def _exact_sin_angle(a, b) -> float:
+    """Exact rational |a x b| / (|a| * |b|) in [0, 1], eliminating float64 cancellation/overflow."""
+    fa = tuple(Fraction(x) for x in a)
+    fb = tuple(Fraction(x) for x in b)
+    a_max = max(abs(x) for x in fa)
+    b_max = max(abs(x) for x in fb)
+    if a_max == 0 or b_max == 0:
+        return 0.0
+    fc = (
+        fa[1] * fb[2] - fa[2] * fb[1],
+        fa[2] * fb[0] - fa[0] * fb[2],
+        fa[0] * fb[1] - fa[1] * fb[0],
+    )
+    c_max = max(abs(x) for x in fc)
+    if c_max == 0:
+        return 0.0
+    norm_a = hypot(*(float(x / a_max) for x in fa))
+    norm_b = hypot(*(float(x / b_max) for x in fb))
+    norm_c = hypot(*(float(x / c_max) for x in fc))
+    return float(c_max / (a_max * b_max)) * norm_c / (norm_a * norm_b)
 
 
 _NONRELATIVISTIC_SPEED_LIMIT_M_S = .1 * 299_792_458.0
@@ -208,11 +231,11 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
             if abs(abs(cos)-1)>1e-10:
                 raise UnsupportedProblem('1D plane motion must follow the physical plane normal')
             if spec.gravity is not None:
-                sin_err = _norm(_minus(axis, tuple(cos * u for u in c.normal)))
-                g_scale_plane = max(abs(val) for val in spec.gravity.acceleration_m_s2)
+                sin_err = _exact_sin_angle(axis, c.normal)
+                g_mag_plane = _norm(spec.gravity.acceleration_m_s2)
                 if (sin_err > 16.0 * ulp(1.0)
                         or any(c.normal[i] == 0.0 and axis[i] != 0.0 for i in range(3))
-                        or 0.5 * (g_scale_plane * sin_err) * (spec.duration_s * spec.duration_s) > 1e-9 * max(c.signed_distance_m(x), 1e-30)):
+                        or 0.5 * (g_mag_plane * sin_err) * (spec.duration_s * spec.duration_s) > 1e-9 * max(c.signed_distance_m(x), 1e-30)):
                     raise UnsupportedProblem('1D plane motion with gravity must align strictly with the plane normal')
             height=c.signed_distance_m(x)
             if height<=0:
@@ -254,18 +277,16 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         raise UnsupportedProblem('no connected vacuum interval along authored axis')
     if spec.gravity is not None:
         g_vec = spec.gravity.acceleration_m_s2
-        g_scale = max(abs(c) for c in g_vec)
-        if g_scale > 0.:
+        g_mag = _norm(g_vec)
+        if g_mag > 0.:
             if any(axis[i] == 0.0 and g_vec[i] != 0.0 for i in range(3)):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
-            g_scaled = tuple(c / g_scale for c in g_vec)
-            g_along = _dot(g_scaled, axis)
-            g_trans = _norm(_minus(g_scaled, tuple(g_along * u for u in axis)))
-            if g_trans > 64.0 * ulp(1.0) * _norm(g_scaled):
+            sin_trans = _exact_sin_angle(g_vec, axis)
+            if sin_trans > 64.0 * ulp(1.0):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
-            # Reject even machine-epsilon axis misalignment when huge |g| would
+            # Reject even machine-epsilon misalignment when huge |g| would
             # cause non-negligible transverse displacement over duration_s.
-            if 0.5 * (g_scale * g_trans) * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
+            if 0.5 * (g_mag * sin_trans) * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)

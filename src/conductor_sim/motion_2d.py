@@ -103,7 +103,8 @@ def _exact_out_of_plane(vec, exact_normal):
     norm_v_scaled = hypot(*(float(x / v_max) for x in fv))
     abs_dot = abs(dot_exact)
     sin_out = float(abs_dot / (n_max * v_max)) / (norm_n_scaled * norm_v_scaled)
-    phys_comp = float(abs_dot / n_max) / norm_n_scaled
+    v_mag = hypot(*vec)
+    phys_comp = sin_out * v_mag if isfinite(v_mag) else float('inf')
     return sin_out, phys_comp
 
 
@@ -123,8 +124,10 @@ def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravit
         scaled_cross, sin_ratio, fc = _exact_cross(primary, gravity_anchor)
         if sin_ratio > gravity_sin_tol and _norm(scaled_cross) > 0.0:
             return _unit(scaled_cross), fc
-    normal = _invariant_normal(primary, velocity)
-    return normal, tuple(Fraction(x) for x in normal)
+    base = primary if _norm(primary) else (velocity if _norm(velocity) else (1., 0., 0.))
+    ref_axis = (1., 0., 0.) if abs(base[0]) < .8 * _norm(base) else (0., 1., 0.)
+    scaled_cross, _, fc = _exact_cross(base, ref_axis)
+    return _unit(scaled_cross), fc
 
 
 def _invariant_normal(radial_or_normal, velocity):
