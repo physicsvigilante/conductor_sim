@@ -1841,3 +1841,48 @@ def test_m45_sol_v22_boundary_normal_parity_and_timestamp_immune_velocity_check(
     tampered["motion_2d"]["samples"][-1]["time_s"] = 1e14
     with pytest.raises(ValueError, match="planar symmetry"):
         render_html(tampered, title="Timestamp-inflated out-of-plane velocity")
+
+
+def test_m45_sol_v23_forged_acceleration_velocity_check_and_reverse_boundary_parity():
+    """Regression suite for both Sol v23 findings."""
+    import copy
+
+    shell = SphericalShell(inner_radius_m=2.0, outer_radius_m=3.0, constraint=Grounded(), center_m=(0.0, 0.0, 0.0))
+
+    # 1. Forging electric force/acceleration on another graph-only row cannot hide out-of-plane velocity
+    prob_tp = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (shell,))
+    spec_tp = Motion2DSpec(
+        prob_tp, 0, 1e-20, (0.0, 1e-8, 0.0), 1.0, 0.25,
+        gravity=UniformGravity((0.0, -1e-8, 0.0)),
+    )
+    b_tp = sample_motion_2d(spec_tp, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_tp, title="Valid 0.25s turning point")
+
+    tampered = copy.deepcopy(b_tp)
+    # Move 0.25 s row's y-velocity into z
+    vx, vy, _ = tampered["motion_2d"]["samples"][1]["velocity_m_s"]
+    tampered["motion_2d"]["samples"][1]["velocity_m_s"] = [vx, 0.0, vy]
+    # Inflate a different graph-only row's in-plane electric force/acceleration to 0.1 N
+    r2 = tampered["motion_2d"]["samples"][2]
+    gf = r2["gravitational_force_n"]
+    r2["electric_force_n"] = [0.1, 0.0, 0.0]
+    r2["force_n"] = [0.1 + gf[0], gf[1], gf[2]]
+    r2["acceleration_m_s2"] = [f / 1e-20 for f in r2["force_n"]]
+    with pytest.raises(ValueError, match="planar symmetry"):
+        render_html(tampered, title="Acceleration-inflated out-of-plane velocity")
+
+    # 2. Reverse-direction held-charge boundary parity: native Motion2DSpec and viewer agree identically
+    prob_rev = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 1.229999999999999e-8, 3.690000000000172e-8)),
+        ),
+        (shell,),
+    )
+    spec_rev = Motion2DSpec(
+        prob_rev, 0, 1e-20, (0.0, 1e-12, 3e-12), 0.01, 0.005,
+        charge_guard_m=1e-12,
+        gravity=UniformGravity((0.0, 1e-8, 3e-8)),
+    )
+    b_rev = sample_motion_2d(spec_rev, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_rev, title="Reverse boundary parity")

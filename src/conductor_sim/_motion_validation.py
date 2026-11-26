@@ -4,7 +4,7 @@ A self-consistent file is not an authenticated integration result. This checks
 all graph rows as well as field rows, before solver acquisition or HTML output.
 It does not certify arbitrary user-edited trajectories against a force law.
 """
-from math import fsum, hypot, isclose, isfinite, sqrt, ulp
+from math import fsum, hypot, isclose, isfinite, ulp
 
 
 _VECTOR_FIELDS = ('position_m', 'displacement_m', 'velocity_m_s',
@@ -150,14 +150,7 @@ def validate_planar_motion(motion, *, frames=None):
                 transverse = _dot(_sub(point,origin),normal)
                 if abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
                     raise ValueError('fixed charge lies outside the proven physical plane')
-    v_cancel_scale = 0.0
-    if gravity_obj is not None:
-        v_traj_scale = max((hypot(*r['velocity_m_s']) for r in rows), default=0.0)
-        a_traj_scale = max((hypot(*r['acceleration_m_s2']) for r in rows), default=0.0)
-        disp_scale = max((hypot(*r['displacement_m']) for r in rows), default=0.0)
-        kin_term = 2.0 * a_traj_scale * disp_scale
-        v_kin_scale = sqrt(kin_term) if isfinite(kin_term) and kin_term > 0.0 else 0.0
-        v_cancel_scale = max(v_traj_scale, v_kin_scale)
+    v_cancel_scale = max((hypot(*r['velocity_m_s']) for r in rows), default=0.0) if gravity_obj is not None else 0.0
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
         if stationary is not None and any(
