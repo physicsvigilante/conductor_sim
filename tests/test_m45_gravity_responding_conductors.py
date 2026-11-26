@@ -1597,3 +1597,62 @@ def test_m45_sol_v17_nearly_axial_held_charge_selects_exact_plane():
     bundle_tiny = sample_motion_2d(spec_tiny, GroundedPlaneBackend(), visual_frames=2, resolution=9)
     assert abs(bundle_tiny["motion_2d"]["plane_normal"][0]) > 1.0 - 1e-12
     assert "<canvas" in render_html(bundle_tiny, title="Tiny held charge yz plane")
+
+
+def test_m45_sol_v18_exact_displacement_before_plane_cross_product():
+    """Regression suite for Sol v18: exact rational displacement prevents float64 subtraction tilt."""
+    plane_tilted = ConductingPlane((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0), Grounded())
+    r = 3.0 * (2.0 ** -55)
+    d = 2.0 ** -43
+    launch = (r - d, r + d, r)
+    prob = ElectrostaticProblem(
+        (
+            PointCharge(1e-8, launch),
+            PointCharge(-1e-8, (1.0, 1.0, 1.0)),
+        ),
+        (plane_tilted,),
+    )
+    spec = Motion2DSpec(
+        prob, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.1, -0.1, 0.0), reference_position_m=launch),
+    )
+    bundle = sample_motion_2d(spec, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    # Exact plane normal is proportional to (1, 1, -2) / sqrt(6)
+    n = bundle["motion_2d"]["plane_normal"]
+    expected = (1.0 / sqrt(6.0), 1.0 / sqrt(6.0), -2.0 / sqrt(6.0))
+    dot_abs = abs(sum(a * b for a, b in zip(n, expected)))
+    assert dot_abs > 1.0 - 1e-12
+    assert "<canvas" in render_html(bundle, title="Exact coplanar tilted plane")
+
+    # Matching exterior-sphere and spherical-cavity geometry checks with exact rational displacements
+    from conductor_sim.motion_2d import _geometry as _m2d_geometry
+
+    sphere = SolidSphere(radius_m=0.5, constraint=Grounded(), center_m=(-1.0, -1.0, -1.0))
+    prob_sph = ElectrostaticProblem(
+        (
+            PointCharge(1e-8, launch),
+            PointCharge(-1e-8, (1.0, 1.0, 1.0)),
+        ),
+        (sphere,),
+    )
+    spec_sph = Motion2DSpec(
+        prob_sph, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.1, -0.1, 0.0), reference_position_m=launch),
+    )
+    n_sph = _m2d_geometry(spec_sph).normal
+    assert abs(sum(a * b for a, b in zip(n_sph, expected))) > 1.0 - 1e-12
+
+    shell = SphericalShell(inner_radius_m=4.0, outer_radius_m=5.0, constraint=Grounded(), center_m=(-1.0, -1.0, -1.0))
+    prob_cav = ElectrostaticProblem(
+        (
+            PointCharge(1e-8, launch),
+            PointCharge(-1e-8, (1.0, 1.0, 1.0)),
+        ),
+        (shell,),
+    )
+    spec_cav = Motion2DSpec(
+        prob_cav, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.1, -0.1, 0.0), reference_position_m=launch),
+    )
+    n_cav = _m2d_geometry(spec_cav).normal
+    assert abs(sum(a * b for a, b in zip(n_cav, expected))) > 1.0 - 1e-12

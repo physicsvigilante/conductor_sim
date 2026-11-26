@@ -124,6 +124,24 @@ def _exceeds_vel_disp(vel_exact: Fraction, duration_s: float, limit_m: float) ->
     return abs(vel_exact) * Fraction(duration_s) > Fraction(limit_m)
 
 
+def _exact_sub(a, b) -> tuple[Fraction, Fraction, Fraction]:
+    """Exact rational vector difference avoiding float64 rounding before cross products."""
+    return (Fraction(a[0]) - Fraction(b[0]), Fraction(a[1]) - Fraction(b[1]), Fraction(a[2]) - Fraction(b[2]))
+
+
+def _exact_nonzero(vec) -> bool:
+    return any(x != 0 for x in vec)
+
+
+def _exact_ref_axis(vec) -> tuple[float, float, float]:
+    fv = tuple(Fraction(x) for x in vec)
+    v_max = max(abs(x) for x in fv)
+    if v_max == 0:
+        return (1., 0., 0.)
+    scaled = tuple(float(x / v_max) for x in fv)
+    return (1., 0., 0.) if abs(scaled[0]) < .8 * hypot(*scaled) else (0., 1., 0.)
+
+
 def _certified_normal(
     primary,
     velocity,
@@ -178,8 +196,8 @@ def _certified_normal(
         return _unit(best_anchor_scaled), best_anchor_fc
     if gravity_anchor is not None and _norm(g_scaled) > 0.0:
         return _unit(g_scaled), g_fc
-    base = primary if _norm(primary) else (velocity if _norm(velocity) else (1., 0., 0.))
-    ref_axis = (1., 0., 0.) if abs(base[0]) < .8 * _norm(base) else (0., 1., 0.)
+    base = primary if _exact_nonzero(primary) else (velocity if _exact_nonzero(velocity) else (1., 0., 0.))
+    ref_axis = _exact_ref_axis(base)
     scaled_cross, _, _, fc = _exact_cross(base, ref_axis)
     return _unit(scaled_cross), fc
 
@@ -437,7 +455,7 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         origin = initial
         normal, exact_normal = _certified_normal(
             conductors[0].normal, velocity,
-            tuple(_sub(q.position_m, initial) for q in stationary),
+            tuple(_exact_sub(q.position_m, initial) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
             has_gravity=has_gravity,
             duration_s=spec.duration_s,
@@ -451,8 +469,8 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
             raise UnsupportedProblem('moving charge must begin outside solid sphere')
         origin, scale = center, conductors[0].radius_m
         normal, exact_normal = _certified_normal(
-            delta, velocity,
-            tuple(_sub(q.position_m, center) for q in stationary),
+            _exact_sub(initial, center), velocity,
+            tuple(_exact_sub(q.position_m, center) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
             has_gravity=has_gravity,
             duration_s=spec.duration_s,
@@ -468,16 +486,19 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
         r = _sub(initial, center)
         if _norm(r) >= shells[0].inner_radius_m:
             raise UnsupportedProblem('moving charge must begin in innermost vacuum cavity')
-        primary = r if _norm(r) else velocity
-        if not _norm(primary):
-            primary = next((_sub(q.position_m, center) for q in stationary
-                            if _norm(_sub(q.position_m, center))), None)
-        if primary is None or not _norm(primary):
+        r_exact = _exact_sub(initial, center)
+        primary = r_exact if _exact_nonzero(r_exact) else velocity
+        if not _exact_nonzero(primary):
+            primary = next(
+                (a for a in (_exact_sub(q.position_m, center) for q in stationary) if _exact_nonzero(a)),
+                None,
+            )
+        if primary is None or not _exact_nonzero(primary):
             primary = next((g for g in gravity_anchors if _norm(g)), (1., 0., 0.))
         origin, scale = center, shells[0].inner_radius_m
         normal, exact_normal = _certified_normal(
             primary, velocity,
-            tuple(_sub(q.position_m, center) for q in stationary),
+            tuple(_exact_sub(q.position_m, center) for q in stationary),
             gravity_anchor=g_raw if g_scale > 0. else None,
             has_gravity=has_gravity,
             duration_s=spec.duration_s,
