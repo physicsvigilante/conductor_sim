@@ -580,3 +580,33 @@ def test_unsupported_topology_has_no_netlist_or_fringing_route():
         solve_spherical_stack(ElectrostaticProblem())
     with pytest.raises(UnsupportedProblem, match="requires a solved"):
         switch_conductor_stack(ElectrostaticProblem(), ())
+
+
+def test_exact_binary64_cancellation_between_source_and_fixed_charge_and_planar_si_products():
+    # Exact cancellation between cavity source (+1e-9) and shell FixedNetCharge (-1e-9).
+    sol = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("s", 1.0, 2.0),),
+        (group("s", FixedNetCharge(-1e-9)),),
+        sources=(StackPointCharge("q", 1e-9, (0.0, 0.0, 0.0)),),
+    ))
+    cr = sol.conductor_results[0]
+    assert cr.outer_surface_charge_c == 0.0
+    assert cr.potential_v == 0.0
+    assert sol.potential_at((5.0, 0.0, 0.0)) == 0.0
+    assert sol.electric_field_at((5.0, 0.0, 0.0)) == (0.0, 0.0, 0.0)
+
+    # Planar neutrality accepts binary64 SI products (1*NC, 2*NC, -3*NC) as well as decimal literals.
+    nc = 1e-9
+    p_sol = solve_planar_stack(PlanarStackProblem(
+        ("a", "b", "c"), (0.0, 1.0, 2.0), 1.0,
+        (group("a", FixedNetCharge(1 * nc)), group("b", FixedNetCharge(2 * nc)), group("c", FixedNetCharge(-3 * nc))),
+        voltage_reference=PlanarVoltageReference("a", 0.0), **BOUNDARIES,
+    ))
+    assert fsum(r.net_charge_c for r in p_sol.plate_results) == 0.0
+    # Genuinely non-neutral charges (even by 1e-12 relative) remain refused.
+    with pytest.raises(UnsupportedProblem, match="neutral total charge"):
+        solve_planar_stack(PlanarStackProblem(
+            ("a", "b"), (0.0, 1.0), 1.0,
+            (group("a", FixedNetCharge(1e-9)), group("b", FixedNetCharge(-1.000000000001e-9))),
+            voltage_reference=PlanarVoltageReference("a", 0.0), **BOUNDARIES,
+        ))

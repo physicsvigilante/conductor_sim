@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
+from math import ulp
 
 from .model import FixedNetCharge, FixedPotential, Grounded
 from .nested_shells import _solve_linear
@@ -26,7 +27,6 @@ class ConductorGroup:
 
     FixedNetCharge sets the whole group's charge in a static solve. Use
     Floating in a switch to obtain that total from the initial equilibrium.
-    Static charge targets use the supplied number's decimal spelling.
     """
 
     members: tuple[str, ...]
@@ -165,9 +165,7 @@ def _solve_coupling(
         elif initial_charges is None:
             if type(constraint) is Floating:
                 raise UnsupportedProblem("static floating groups require FixedNetCharge")
-            # Charge targets use the authored decimal spelling, so e.g.
-            # (1e-9, 2e-9, -3e-9) is exactly neutral.
-            targets[i] = Fraction(str(constraint.charge_c))
+            targets[i] = Fraction(constraint.charge_c)
         else:
             targets[i] = sum((initial_charges[j] for j in indices), _ZERO)
             if (type(constraint) is FixedNetCharge
@@ -179,8 +177,23 @@ def _solve_coupling(
             if reference is not None:
                 raise UnsupportedProblem("a prescribed terminal already sets the planar voltage reference")
         else:
-            if sum(targets.values()) != 0:
-                raise UnsupportedProblem("zero planar exterior displacement requires neutral total charge")
+            total = sum(targets.values(), _ZERO)
+            if total != 0:
+                # Also accept neutral charge sets whose authored decimal spelling
+                # sums to zero (for example 1e-9, 2e-9, -3e-9) or whose binary64
+                # SI products (for example 1*1e-9, 2*1e-9, -3*1e-9) sum to zero
+                # within floating-point rounding of the inputs.
+                decimal_targets = (
+                    {i: Fraction(str(groups[i].constraint.charge_c)) for i in targets}
+                    if initial_charges is None else None
+                )
+                if decimal_targets is not None and sum(decimal_targets.values(), _ZERO) == 0:
+                    targets = decimal_targets
+                else:
+                    max_abs = max((abs(float(q)) for q in targets.values()), default=0.0)
+                    if not (initial_charges is None and max_abs > 0.0
+                            and abs(total) <= Fraction(len(targets) * ulp(max_abs))):
+                        raise UnsupportedProblem("zero planar exterior displacement requires neutral total charge")
             if type(reference) is not PlanarVoltageReference or reference.plate_id not in ids:
                 raise UnsupportedProblem("a charge-constrained planar stack requires a voltage reference on a plate")
             gauge = group_at[ids.index(reference.plate_id)]

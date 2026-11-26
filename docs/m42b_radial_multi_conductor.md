@@ -5,8 +5,12 @@ electrical node. A singleton group specifies an individual conductor. A group
 with multiple member IDs models an ideal wire at a common potential. Use
 `Grounded()`, `FixedPotential(volts)`, or `FixedNetCharge(coulombs)` for a static
 solve. A fixed charge belongs to the entire group, and the solver distributes
-it among the members. Authored fixed charges use the decimal spelling of the SI
-number, so `1e-9`, `2e-9`, and `-3e-9` form an exactly neutral planar stack.
+it among the members. Static charge targets use exact binary64 values (matching
+point-source charges); for all-floating planar stacks, neutrality is accepted
+when the total charge vanishes in exact binary64, exact decimal spelling, or
+within binary64 input rounding (so both `1e-9, 2e-9, -3e-9` and
+`1*1e-9, 2*1e-9, -3*1e-9` are accepted, while genuinely non-neutral sets are
+refused).
 
 ## Concentric conductors
 
