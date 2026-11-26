@@ -263,17 +263,23 @@ __all__ += [
     "SphericalPointSource", "SphericalRegion", "solve_spherical_conductor",
 ]
 
+from .dielectric_layers import DielectricInterfaceCharge, DielectricLayer, DielectricLayerField
 from .stack_coupling import ConductorGroup, Floating, PlanarVoltageReference
 from .spherical_stack import (
     ConcentricConductor, SphericalStackProblem, SphericalStackRegion,
     SphericalStackSolution, StackPointCharge, solve_spherical_stack,
 )
 from .planar_stack import PlanarPlateResult, PlanarStackProblem, PlanarStackSolution, solve_planar_stack
-from .stack_switching import StackSwitchResult, TerminalTransfer, switch_conductor_stack
+from .stack_switching import (
+    QuasistaticTransitionResult, StackSwitchResult, TerminalTransfer,
+    quasistatic_stack_transition, switch_conductor_stack,
+)
 
 __all__ += [
+    "DielectricInterfaceCharge", "DielectricLayer", "DielectricLayerField",
     "ConductorGroup", "Floating", "PlanarVoltageReference", "ConcentricConductor", "StackPointCharge",
     "SphericalStackProblem", "SphericalStackRegion", "SphericalStackSolution", "solve_spherical_stack",
     "PlanarPlateResult", "PlanarStackProblem", "PlanarStackSolution", "solve_planar_stack",
-    "StackSwitchResult", "TerminalTransfer", "switch_conductor_stack",
+    "QuasistaticTransitionResult", "StackSwitchResult", "TerminalTransfer",
+    "quasistatic_stack_transition", "switch_conductor_stack",
 ]
