@@ -1,4 +1,4 @@
-"""Concentric spherical conductor stacks in a homogeneous dielectric, SI."""
+"""Concentric spherical conductor stacks with homogeneous or layered linear dielectrics, SI."""
 
 from __future__ import annotations
 
@@ -6,14 +6,21 @@ from collections.abc import Mapping
 from dataclasses import KW_ONLY, dataclass, field
 from fractions import Fraction
 from math import pi
+import sys
 from types import MappingProxyType
 from typing import Literal
 
+from .dielectric_layers import (
+    DielectricInterfaceCharge,
+    DielectricLayer,
+    _validated_exterior_layers,
+    _validated_gap_layers,
+)
 from .model import EPSILON_0, ORIGIN, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
 from .spherical_conductor import (
     _KelvinSite, _RegionKernel, _difference, _distance, _finite_si, _identity,
-    _radial_gap, _representable, _sum_finite,
+    _radial_gap, _representable, _squared_distance, _sum_finite,
 )
 from .stack_coupling import ConductorGroup, _Coupling, _Gap, _State, _solve_coupling
 
@@ -21,6 +28,8 @@ __all__ = [
     "ConcentricConductor", "StackPointCharge", "SphericalStackProblem",
     "SphericalStackRegion", "SphericalStackSolution", "solve_spherical_stack",
 ]
+
+_ZERO = Fraction()
 
 
 def _world_point(value: Vector3, label: str) -> Vector3:
@@ -66,7 +75,11 @@ class SphericalStackProblem:
 
     Each conductor belongs to exactly one group. The group can be a singleton
     or an ideal wire joining any subset of conductors. Held charges are allowed
-    in the cavity, the gaps, and the exterior.
+    in the cavity, homogeneous gaps, and an uncoated exterior.
+    Optionally supply gap_layers (one ordered tuple of DielectricLayer per gap,
+    relative to vacuum EPSILON_0) and/or exterior_layers (finite concentric
+    dielectric coatings outside the outermost conductor, surrounded by
+    permittivity_f_per_m to infinity).
     """
 
     conductors: tuple[ConcentricConductor, ...]
@@ -75,6 +88,8 @@ class SphericalStackProblem:
     center_m: Vector3 = ORIGIN
     sources: tuple[StackPointCharge, ...] = ()
     permittivity_f_per_m: float = EPSILON_0
+    gap_layers: tuple[tuple[DielectricLayer, ...], ...] | None = None
+    exterior_layers: tuple[DielectricLayer, ...] = ()
 
     def __post_init__(self) -> None:
         _finite_si(self.permittivity_f_per_m, "permittivity", positive=True)
@@ -93,6 +108,26 @@ class SphericalStackProblem:
             raise UnsupportedProblem("spherical stack sources must be held StackPointCharge objects")
         if len({s.source_id for s in self.sources}) != len(self.sources):
             raise ValueError("source IDs must be unique")
+        if (self.gap_layers is not None or self.exterior_layers) and self.permittivity_f_per_m < EPSILON_0:
+            raise UnsupportedProblem("background permittivity must be >= EPSILON_0 when dielectric layers are specified")
+        if self.gap_layers is not None:
+            if not isinstance(self.gap_layers, (tuple, list)):
+                raise UnsupportedProblem("gap_layers must be a sequence of per-gap DielectricLayer tuples")
+            normalized = tuple(
+                tuple(row) if isinstance(row, (tuple, list)) else row for row in self.gap_layers
+            )
+            spans = tuple(
+                (Fraction(left.outer_radius_m), Fraction(right.inner_radius_m))
+                for left, right in zip(self.conductors, self.conductors[1:])
+            )
+            _validated_gap_layers(normalized, spans, "spherical stack")
+            object.__setattr__(self, "gap_layers", normalized)
+        if not isinstance(self.exterior_layers, (tuple, list)):
+            raise UnsupportedProblem("exterior_layers must be a sequence of DielectricLayer entries")
+        ext_layers = tuple(self.exterior_layers)
+        if ext_layers:
+            _validated_exterior_layers(ext_layers, Fraction(self.conductors[-1].outer_radius_m))
+        object.__setattr__(self, "exterior_layers", ext_layers)
 
     @property
     def conductor_ids(self) -> tuple[str, ...]:
@@ -131,6 +166,58 @@ def _sample_region(problem: SphericalStackProblem, point: Vector3) -> tuple[Sphe
     return SphericalStackRegion("exterior"), len(problem.conductors) - 1, radial, radius
 
 
+_MIN_NORMAL = sys.float_info.min
+
+
+def _exact_radius_fraction(radial: Vector3, r: float) -> Fraction:
+    """Full-precision radius Fraction: exact float r when normal, scaled hypot when subnormal."""
+    if r >= _MIN_NORMAL:
+        return Fraction(r)
+    scale = max(abs(radial[0]), abs(radial[1]), abs(radial[2]))
+    u = (radial[0] / scale, radial[1] / scale, radial[2] / scale)
+    return Fraction(scale) * Fraction(_distance(u))
+
+
+def _radial_field_vector(
+    q_enc: Fraction, inv_eps_4pi: Fraction, point: Vector3, center: Vector3,
+    r_sq: Fraction, r_frac: Fraction, label: str,
+) -> Vector3:
+    """Evaluate radial field components in exact Fraction before final float conversion."""
+    if q_enc == 0:
+        return ORIGIN
+    denom = inv_eps_4pi * r_sq * r_frac
+    components: list[float] = []
+    for p, c in zip(point, center):
+        delta = Fraction(p) - Fraction(c)
+        if delta == 0:
+            components.append(0.0)
+            continue
+        try:
+            value = float(q_enc * delta / denom)
+        except OverflowError as exc:
+            raise UnsupportedProblem(f"{label} outside the binary64 range") from exc
+        components.append(value)
+    if components == [0.0, 0.0, 0.0]:
+        raise UnsupportedProblem(f"{label} outside the binary64 range")
+    return (components[0], components[1], components[2])
+
+
+def _radial_gap_fraction(point: Vector3, center: Vector3, r_frac: Fraction, radius: Fraction) -> Fraction:
+    """Exact signed radial offset (r - radius) via exact squared-distance difference."""
+    squared_gap = _squared_distance(point, center) - radius * radius
+    if squared_gap == 0:
+        return _ZERO
+    return squared_gap / (r_frac + radius)
+
+
+def _same_outer_medium(kappa: Fraction, permittivity_f_per_m: float) -> bool:
+    """True when an outermost coating's represented permittivity matches the infinite background."""
+    try:
+        return float(Fraction(EPSILON_0) * kappa) == permittivity_f_per_m
+    except OverflowError:
+        return False
+
+
 def _inner_weight(point: Vector3, center: Vector3, r: float, inner: float, outer: float) -> Fraction:
     # a(b-r) / [a(b-r) + b(r-a)] equals the reciprocal-radius weight.
     # Use signed geometric gaps so a rounded r can still resolve either wall.
@@ -152,14 +239,18 @@ def _kelvin_kernel(center: Vector3, radius: float, sources: Mapping[Vector3, Fra
 
 @dataclass(frozen=True, slots=True)
 class SphericalStackSolution:
-    """Conductor state, complete face totals, and supported local observables."""
+    """Conductor state, complete face totals, dielectric interfaces, and supported local observables."""
 
     problem: SphericalStackProblem
     conductor_results: tuple[ConductorResult, ...]
     source_regions: Mapping[str, SphericalStackRegion]
+    dielectric_interfaces: tuple[DielectricInterfaceCharge, ...]
     _state: _State = field(repr=False)
     _inverse_k: Fraction = field(repr=False)
+    _inverse_k0: Fraction = field(repr=False)
     _annulus_sites: tuple[frozenset[Vector3], ...] = field(repr=False)
+    _gap_sublayers: tuple[tuple[tuple[Fraction, Fraction, Fraction], ...], ...] | None = field(repr=False)
+    _exterior_sublayers: tuple[tuple[Fraction, Fraction, Fraction], ...] = field(repr=False)
     _cavity: _RegionKernel | None = field(repr=False)
     _exterior: _RegionKernel = field(repr=False)
 
@@ -191,12 +282,98 @@ class SphericalStackSolution:
         if sites:
             raise UnsupportedProblem("local observations in a charged annulus require its Green function")
 
+    def _layered_gap_potential(self, i: int, point: Vector3, radial: Vector3, r: float) -> float:
+        assert self._gap_sublayers is not None
+        layers = self._gap_sublayers[i]
+        q_enc = self._state.right_faces[i]
+        v_outer = self._state.voltages[i + 1]
+        r_frac = _exact_radius_fraction(radial, r)
+        for idx, (_lo, hi, kappa) in enumerate(layers):
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
+            if g_hi <= 0:
+                elastance_out = sum(
+                    ((1 / l_lo - 1 / l_hi) / (self._inverse_k0 * l_k) for l_lo, l_hi, l_k in layers[idx + 1:]),
+                    _ZERO,
+                )
+                if g_hi < 0:
+                    elastance_out += (-g_hi / (r_frac * hi)) / (self._inverse_k0 * kappa)
+                return _representable(v_outer + q_enc * elastance_out, "layered gap potential")
+        return _representable(v_outer, "layered gap potential")
+
+    def _layered_gap_field(self, i: int, point: Vector3, radial: Vector3, r: float) -> Vector3:
+        assert self._gap_sublayers is not None
+        layers = self._gap_sublayers[i]
+        q_enc = self._state.right_faces[i]
+        r_frac = _exact_radius_fraction(radial, r)
+        r_sq = _squared_distance(point, self.problem.center_m)
+        for idx, (_lo, hi, kappa) in enumerate(layers):
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
+            if g_hi < 0:
+                return _radial_field_vector(
+                    q_enc, self._inverse_k0 * kappa, point, self.problem.center_m, r_sq, r_frac, "layered radial field"
+                )
+            if g_hi == 0 and idx + 1 < len(layers):
+                next_kappa = layers[idx + 1][2]
+                if kappa != next_kappa:
+                    raise SingularField("electric field has a jump discontinuity at a dielectric interface")
+                return _radial_field_vector(
+                    q_enc, self._inverse_k0 * kappa, point, self.problem.center_m, r_sq, r_frac, "layered radial field"
+                )
+        kappa = layers[-1][2]
+        return _radial_field_vector(
+            q_enc, self._inverse_k0 * kappa, point, self.problem.center_m, r_sq, r_frac, "layered radial field"
+        )
+
+    def _coated_exterior_potential(self, point: Vector3, radial: Vector3, r: float) -> float:
+        layers = self._exterior_sublayers
+        q_enc = self._state.right_faces[-1]
+        r_frac = _exact_radius_fraction(radial, r)
+        r_coat_out = layers[-1][1]
+        tail_elastance = 1 / (self._inverse_k * r_coat_out)
+        for idx, (_lo, hi, kappa) in enumerate(layers):
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
+            if g_hi <= 0:
+                elastance = tail_elastance + sum(
+                    ((1 / l_lo - 1 / l_hi) / (self._inverse_k0 * l_k) for l_lo, l_hi, l_k in layers[idx + 1:]),
+                    _ZERO,
+                )
+                if g_hi < 0:
+                    elastance += (-g_hi / (r_frac * hi)) / (self._inverse_k0 * kappa)
+                return _representable(q_enc * elastance, "coated exterior potential")
+        return _representable(q_enc / (self._inverse_k * r_frac), "coated exterior potential")
+
+    def _coated_exterior_field(self, point: Vector3, radial: Vector3, r: float) -> Vector3:
+        layers = self._exterior_sublayers
+        q_enc = self._state.right_faces[-1]
+        r_frac = _exact_radius_fraction(radial, r)
+        r_sq = _squared_distance(point, self.problem.center_m)
+        for idx, (_lo, hi, kappa) in enumerate(layers):
+            g_hi = _radial_gap_fraction(point, self.problem.center_m, r_frac, hi)
+            if g_hi < 0:
+                return _radial_field_vector(
+                    q_enc, self._inverse_k0 * kappa, point, self.problem.center_m, r_sq, r_frac, "coated exterior field"
+                )
+            if g_hi == 0:
+                if idx + 1 < len(layers):
+                    if kappa != layers[idx + 1][2]:
+                        raise SingularField("electric field has a jump discontinuity at a dielectric interface")
+                elif not _same_outer_medium(kappa, self.problem.permittivity_f_per_m):
+                    raise SingularField("electric field has a jump discontinuity at a dielectric interface")
+                return _radial_field_vector(
+                    q_enc, self._inverse_k0 * kappa, point, self.problem.center_m, r_sq, r_frac, "coated exterior field"
+                )
+        return _radial_field_vector(
+            q_enc, self._inverse_k, point, self.problem.center_m, r_sq, r_frac, "coated exterior field"
+        )
+
     def potential_at(self, point_m: Vector3) -> float:
         point = _world_point(point_m, "sample point")
-        region, i, _, r = _sample_region(self.problem, point)
+        region, i, radial, r = _sample_region(self.problem, point)
         voltages = self._state.voltages
         if region.kind == "annulus":
             self._require_source_free_annulus(i, point)
+            if self._gap_sublayers is not None:
+                return self._layered_gap_potential(i, point, radial, r)
             inner = self.problem.conductors[i].outer_radius_m
             outer = self.problem.conductors[i + 1].inner_radius_m
             weight = _inner_weight(point, self.problem.center_m, r, inner, outer)
@@ -204,6 +381,9 @@ class SphericalStackSolution:
             return _representable(voltages[i + 1] + drop, "gap potential")
         if region.kind not in ("cavity", "exterior"):
             return self.conductor_results[i].potential_v
+
+        if region.kind == "exterior" and self._exterior_sublayers:
+            return self._coated_exterior_potential(point, radial, r)
 
         cavity = region.kind == "cavity"
         kernel = self._cavity if cavity else self._exterior
@@ -225,9 +405,14 @@ class SphericalStackSolution:
             return ORIGIN
         if region.kind == "annulus":
             self._require_source_free_annulus(i, point)
+            if self._gap_sublayers is not None:
+                return self._layered_gap_field(i, point, radial, r)
             factor = _representable(self._state.right_faces[i] / (self._inverse_k * Fraction(r)**2),
                                     "radial gap field")
             return tuple(factor * (x / r) for x in radial)
+
+        if region.kind == "exterior" and self._exterior_sublayers:
+            return self._coated_exterior_field(point, radial, r)
 
         cavity = region.kind == "cavity"
         kernel = self._cavity if cavity else self._exterior
@@ -249,7 +434,10 @@ def _solve_spherical_stack(
 ) -> SphericalStackSolution:
     conductors = problem.conductors
     center = problem.center_m
-    inverse_k = Fraction(4 * pi) * Fraction(problem.permittivity_f_per_m)
+    four_pi = Fraction(4 * pi)
+    inverse_k = four_pi * Fraction(problem.permittivity_f_per_m)
+    inverse_k0 = four_pi * Fraction(EPSILON_0)
+
     buckets: list[dict[Vector3, Fraction]] = [{} for _ in range(len(conductors) + 1)]
     regions = {}
     for source in problem.sources:
@@ -259,27 +447,58 @@ def _solve_spherical_stack(
         regions[source.source_id] = region
         bucket = buckets[i + 1]
         point = source.position_m
-        bucket[point] = bucket.get(point, Fraction()) + Fraction(source.charge_c)
+        bucket[point] = bucket.get(point, _ZERO) + Fraction(source.charge_c)
     cavity_sites, *annulus_sites, exterior_sites = (
         {point: q for point, q in bucket.items() if q} for bucket in buckets
     )
 
+    spans = tuple(
+        (Fraction(left.outer_radius_m), Fraction(right.inner_radius_m))
+        for left, right in zip(conductors, conductors[1:])
+    )
+    validated_gaps = (
+        _validated_gap_layers(problem.gap_layers, spans, "spherical stack")
+        if problem.gap_layers is not None else None
+    )
+    outer = Fraction(conductors[-1].outer_radius_m)
+    validated_ext = _validated_exterior_layers(problem.exterior_layers, outer)
+
+    if validated_ext and exterior_sites:
+        raise UnsupportedProblem("active point charges outside a dielectric-coated spherical stack are unsupported")
+
     gaps = []
-    for left, right, sites in zip(conductors, conductors[1:], annulus_sites):
+    for g, (left, right, sites) in enumerate(zip(conductors, conductors[1:], annulus_sites)):
         a, b = Fraction(left.outer_radius_m), Fraction(right.inner_radius_m)
-        inverse_drop = 1 / a - 1 / b
-        induced = Fraction()
+        if validated_gaps is None:
+            elastance = (1 / a - 1 / b) / inverse_k
+        else:
+            layers = validated_gaps[g]
+            if sites and len({kappa for _, _, kappa in layers}) > 1:
+                raise UnsupportedProblem("active point charges inside a multi-layer dielectric gap are unsupported")
+            elastance = sum(((1 / lo - 1 / hi) / (inverse_k0 * kappa) for lo, hi, kappa in layers), _ZERO)
+        induced = _ZERO
         for point, charge in sites.items():
             r = _distance(_difference(point, center))
             weight = _inner_weight(point, center, r, left.outer_radius_m, right.inner_radius_m)
             induced -= charge * weight
-        gaps.append(_Gap(inverse_drop / inverse_k, induced, -sum(sites.values()) - induced))
+        gaps.append(_Gap(elastance, induced, -sum(sites.values(), _ZERO) - induced))
 
-    outer = Fraction(conductors[-1].outer_radius_m)
-    exterior_offset = -sum(q * outer / Fraction(_distance(_difference(p, center)))
-                           for p, q in exterior_sites.items())
-    coupling = _Coupling(tuple(gaps), _Gap(1 / (outer * inverse_k), exterior_offset),
-                         -sum(cavity_sites.values(), Fraction()))
+    if validated_ext:
+        coat_outer = validated_ext[-1][1]
+        ext_elastance = sum(
+            ((1 / lo - 1 / hi) / (inverse_k0 * kappa) for lo, hi, kappa in validated_ext),
+            _ZERO,
+        ) + 1 / (coat_outer * inverse_k)
+        exterior_offset = _ZERO
+    else:
+        ext_elastance = 1 / (outer * inverse_k)
+        exterior_offset = -sum(
+            (q * outer / Fraction(_distance(_difference(p, center))) for p, q in exterior_sites.items()),
+            _ZERO,
+        )
+
+    coupling = _Coupling(tuple(gaps), _Gap(ext_elastance, exterior_offset),
+                         -sum(cavity_sites.values(), _ZERO))
     state = _solve_coupling(coupling, problem.conductor_ids, problem.groups, initial_charges=initial_charges)
     results = tuple(ConductorResult(name, _representable(v, "conductor potential"),
                                     _representable(q, "conductor charge"),
@@ -287,17 +506,82 @@ def _solve_spherical_stack(
                                     _representable(b, "outer-face charge"))
                     for name, v, q, a, b in zip(problem.conductor_ids, state.voltages, state.charges,
                                                 state.left_faces, state.right_faces))
+
+    # Bound surface charge ledger on all source-free layered dielectric interfaces.
+    interfaces: list[DielectricInterfaceCharge] = []
+    if validated_gaps is not None:
+        for g, (layers, sites) in enumerate(zip(validated_gaps, annulus_sites)):
+            if sites:
+                continue  # Off-center point charge makes angular bound density non-uniform.
+            q_enc = state.right_faces[g]
+            r0, _, k0 = layers[0]
+            q_b0 = -(1 - 1 / k0) * q_enc
+            interfaces.append(DielectricInterfaceCharge(
+                "gap", g, float(r0), "conductor_outer", None, float(k0),
+                _representable(q_b0 / (four_pi * r0**2), "bound surface density"),
+                _representable(q_b0, "bound face charge"),
+            ))
+            for idx in range(len(layers) - 1):
+                _, r_if, k1 = layers[idx]
+                k2 = layers[idx + 1][2]
+                q_bif = (1 / k2 - 1 / k1) * q_enc
+                interfaces.append(DielectricInterfaceCharge(
+                    "gap", g, float(r_if), "dielectric_interface", float(k1), float(k2),
+                    _representable(q_bif / (four_pi * r_if**2), "bound surface density"),
+                    _representable(q_bif, "bound interface charge"),
+                ))
+            _, r_end, kl = layers[-1]
+            q_bl = (1 - 1 / kl) * q_enc
+            interfaces.append(DielectricInterfaceCharge(
+                "gap", g, float(r_end), "conductor_inner", float(kl), None,
+                _representable(q_bl / (four_pi * r_end**2), "bound surface density"),
+                _representable(q_bl, "bound face charge"),
+            ))
+    if validated_ext:
+        q_enc = state.right_faces[-1]
+        kappa_ext = inverse_k / inverse_k0
+        r0, _, k0 = validated_ext[0]
+        q_b0 = -(1 - 1 / k0) * q_enc
+        interfaces.append(DielectricInterfaceCharge(
+            "exterior", None, float(r0), "conductor_outer", None, float(k0),
+            _representable(q_b0 / (four_pi * r0**2), "bound surface density"),
+            _representable(q_b0, "bound face charge"),
+        ))
+        for idx in range(len(validated_ext) - 1):
+            _, r_if, k1 = validated_ext[idx]
+            k2 = validated_ext[idx + 1][2]
+            q_bif = (1 / k2 - 1 / k1) * q_enc
+            interfaces.append(DielectricInterfaceCharge(
+                "exterior", None, float(r_if), "dielectric_interface", float(k1), float(k2),
+                _representable(q_bif / (four_pi * r_if**2), "bound surface density"),
+                _representable(q_bif, "bound interface charge"),
+            ))
+        _, r_end, kl = validated_ext[-1]
+        if _same_outer_medium(kl, problem.permittivity_f_per_m):
+            q_bend = _ZERO
+            right_kappa_f = float(kl)
+        else:
+            q_bend = (1 / kappa_ext - 1 / kl) * q_enc
+            right_kappa_f = _representable(kappa_ext, "background relative permittivity")
+        interfaces.append(DielectricInterfaceCharge(
+            "exterior", None, _representable(r_end, "exterior interface radius"), "dielectric_interface",
+            float(kl), right_kappa_f,
+            _representable(q_bend / (four_pi * r_end**2), "bound surface density"),
+            _representable(q_bend, "bound interface charge"),
+        ))
+
     inner = conductors[0].inner_radius_m
     return SphericalStackSolution(
-        problem, results, MappingProxyType(regions), state, inverse_k,
+        problem, results, MappingProxyType(regions), tuple(interfaces), state, inverse_k, inverse_k0,
         tuple(frozenset(sites) for sites in annulus_sites),
+        validated_gaps, validated_ext,
         _kelvin_kernel(center, float(inner), cavity_sites) if inner else None,
         _kelvin_kernel(center, float(outer), exterior_sites),
     )
 
 
 def solve_spherical_stack(problem: SphericalStackProblem) -> SphericalStackSolution:
-    """Solve concentric geometry with homogeneous permittivity and held sources."""
+    """Solve concentric spherical geometry with homogeneous or layered linear dielectrics."""
     if type(problem) is not SphericalStackProblem:
         raise UnsupportedProblem("expected a SphericalStackProblem")
     return _solve_spherical_stack(problem)
