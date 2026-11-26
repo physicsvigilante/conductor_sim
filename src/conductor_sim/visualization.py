@@ -429,11 +429,10 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                             best_h = abs(h_rem)
                             for i in range(3):
                                 ni = conductor.normal[i]
-                                if ni == 0.0:
+                                if ni == 0.0 or abs(h_rem) > snap_limit * abs(ni):
                                     continue
-                                cands = []
-                                if abs(h_rem) <= snap_limit * abs(ni):
-                                    cands.append(point[i] - h_rem / ni)
+                                snap_val = point[i] - h_rem / ni
+                                cands = [snap_val]
                                 nbr_val = nextafter(point[i], -inf if h_rem * ni > 0.0 else inf)
                                 if abs(nbr_val - point[i]) <= snap_limit:
                                     cands.append(nbr_val)

@@ -2198,3 +2198,22 @@ def test_m45_sol_v31_narrow_slice_sweep_and_adjacent_float_off_plane():
     )
     with pytest.raises(ValueError, match="conducting plane"):
         sol_diag.surface_charge_density_at("outer", (1000000.0000000001, 1e6, 0.0))
+
+
+def test_m45_sol_v32_close_charge_far_anchor_narrow_shallow_plane_sweep():
+    """Regression suite for Sol v32: close charge on far shallowly tilted plane exports all 91 profile samples."""
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    p_far = ConductingPlane((1e7, 1e7, 0.0), (1.0, 0.01, 0.0), Grounded())
+    q_far = (1e7 + 0.002, 1e7, 0.0)
+    prob_far = ElectrostaticProblem((PointCharge(1e-6, q_far),), (p_far,))
+    sp_far = SliceSpec(
+        origin_m=(1e7, 1e7, 0.0), u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-0.001, 0.001), y_range_m=(-0.001, 0.001), resolution=9,
+    )
+    bundle_f = sample_sweep([("far-shallow", prob_far)], GroundedPlaneBackend(), plane=sp_far, resolution=9)
+    prof_f = bundle_f["frames"][0]["profiles"][0]
+    assert len(prof_f["sigma_c_per_m2"]) == 91
+    h_f = p_far.signed_distance_m(q_far)
+    expected_center = -1e-6 * h_f / (2.0 * pi * (0.002 ** 3))
+    assert isclose(prof_f["sigma_c_per_m2"][45], expected_center, rel_tol=1e-5, abs_tol=0.0)

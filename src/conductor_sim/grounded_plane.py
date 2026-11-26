@@ -139,11 +139,9 @@ class GroundedPlaneSolution:
             if unresolvable:
                 for i in range(3):
                     ni = normal[i]
-                    if ni == 0.0:
+                    if ni == 0.0 or h_point > local_limit * abs(ni):
                         continue
-                    cands = []
-                    if h_point <= local_limit * abs(ni):
-                        cands.append(point[i] - h_signed / ni)
+                    cands = [point[i] - h_signed / ni]
                     nbr_val = nextafter(point[i], -inf if h_signed * ni > 0.0 else inf)
                     if abs(nbr_val - point[i]) <= local_limit:
                         cands.append(nbr_val)
