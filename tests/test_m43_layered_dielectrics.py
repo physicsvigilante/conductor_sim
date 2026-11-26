@@ -622,3 +622,20 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
             (ConcentricConductor("a", 0.0, 1.0), ConcentricConductor("b", 2.0, 3.0)), g,
             gap_layers=((L(nextafter(1.0, 0.0), 1.0), L(2.0**-100, 2.0)),),
         )
+
+    # Sol v5 Finding: decimal residual on (0.1, 1.1001) with (1.0, 0.0001) goes onto the 1.0 m layer,
+    # keeping the 0.0001 m layer exact to 0 ULPs (never shifted by 5,331 ULPs!)
+    s_v5_p = solve_planar_stack(PlanarStackProblem(
+        ("a", "b"), (0.1, 1.1001), 1.0, g,
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+        gap_layers=((L(1.0, 1e18), L(0.0001, 1.0)),),
+    ))
+    c_v5_expected = 1.0 / (1.0 / (EPSILON_0 * 1e18) + 0.0001 / EPSILON_0)
+    _approx(s_v5_p.capacitance_matrix_f[0][0], c_v5_expected, rel=1e-14)
+    s_v5_s = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 0.1), ConcentricConductor("b", 1.1001, 2.0)), g,
+        gap_layers=((L(1.0, 1e18), L(0.0001, 1.0)),),
+    ))
+    inv_k0 = F(4 * pi) * F(EPSILON_0)
+    e_v5_s = (F(10) - F(10, 11)) / (inv_k0 * F(10**18)) + (F(10, 11) - F(10000, 11001)) / inv_k0
+    _approx(s_v5_s.capacitance_matrix_f[0][0], float(1 / e_v5_s), rel=1e-14)

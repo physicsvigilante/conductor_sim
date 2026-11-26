@@ -98,15 +98,18 @@ def _validated_gap_layers(
             # Accept authored decimal spellings summing to the gap width (e.g. 0.001 + 0.002 == 0.003)
             # or binary64 input rounding of the exact span, without ever inflating a thin layer.
             w_ulp = _width_ulp(expected_width, layers)
-            end_ulp = Fraction(ulp(max(abs(float(start)), abs(float(end)))))
             widths_dec = tuple(Fraction(str(layer.thickness_m)) for layer in layers)
             span_dec = Fraction(str(float(end))) - Fraction(str(float(start)))
+            idx_max = max(range(len(layers)), key=lambda j: layers[j].thickness_m)
+            max_layer_ulp = Fraction(ulp(layers[idx_max].thickness_m))
             if (
                 sum(widths_dec, _ZERO) == span_dec
-                and abs(expected_width - span_dec) <= 4 * max(w_ulp, end_ulp)
-                and abs(expected_width - span_dec) * 10**12 <= min(expected_width, widths_dec[-1])
+                and abs(expected_width - span_dec) <= 4 * max_layer_ulp
             ):
-                widths = widths_dec[:-1] + (expected_width - sum(widths_dec[:-1], _ZERO),)
+                residual = expected_width - span_dec
+                widths = tuple(
+                    w + residual if j == idx_max else w for j, w in enumerate(widths_dec)
+                )
             elif abs(total_bin - expected_width) <= (len(layers) + 2) * min(
                 w_ulp, Fraction(ulp(layers[-1].thickness_m))
             ):
