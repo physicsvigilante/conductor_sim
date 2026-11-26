@@ -40,14 +40,14 @@ def _add(a, b, factor):
     return tuple(a[i]+factor*b[i] for i in range(3))
 
 
-def _exact_transverse(a, b) -> tuple[float, float]:
+def _exact_transverse(a, b) -> tuple[float, Fraction]:
     """Exact rational (sin(angle), |a x b| / |b|) avoiding cancellation, overflow, and underflow."""
     fa = tuple(Fraction(x) for x in a)
     fb = tuple(Fraction(x) for x in b)
     a_max = max(abs(x) for x in fa)
     b_max = max(abs(x) for x in fb)
     if a_max == 0 or b_max == 0:
-        return 0.0, 0.0
+        return 0.0, Fraction()
     fc = (
         fa[1] * fb[2] - fa[2] * fb[1],
         fa[2] * fb[0] - fa[0] * fb[2],
@@ -55,16 +55,21 @@ def _exact_transverse(a, b) -> tuple[float, float]:
     )
     c_max = max(abs(x) for x in fc)
     if c_max == 0:
-        return 0.0, 0.0
+        return 0.0, Fraction()
     norm_a = hypot(*(float(x / a_max) for x in fa))
     norm_b = hypot(*(float(x / b_max) for x in fb))
     norm_c = hypot(*(float(x / c_max) for x in fc))
     sin_angle = float(c_max / (a_max * b_max)) * norm_c / (norm_a * norm_b)
-    try:
-        phys_trans = float((c_max * Fraction(norm_c)) / (b_max * Fraction(norm_b)))
-    except OverflowError:
-        phys_trans = float('inf')
+    phys_trans = (c_max * Fraction(norm_c)) / (b_max * Fraction(norm_b))
     return sin_angle, phys_trans
+
+
+def _exceeds_accel_disp(accel_exact: Fraction, duration_s: float, limit_m: float) -> bool:
+    """Exact rational test for 0.5 * |accel| * duration_s^2 > limit_m (no underflow/overflow)."""
+    if accel_exact == 0 or duration_s <= 0.0:
+        return False
+    t = Fraction(duration_s)
+    return Fraction(1, 2) * abs(accel_exact) * t * t > Fraction(limit_m)
 
 
 _NONRELATIVISTIC_SPEED_LIMIT_M_S = .1 * 299_792_458.0
@@ -236,11 +241,15 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
             if abs(abs(cos)-1)>1e-10:
                 raise UnsupportedProblem('1D plane motion must follow the physical plane normal')
             if spec.gravity is not None:
-                sin_err, _ = _exact_transverse(axis, c.normal)
+                sin_err, sin_err_frac = _exact_transverse(axis, c.normal)
                 g_mag_plane = _norm(spec.gravity.acceleration_m_s2)
                 if (sin_err > 16.0 * ulp(1.0)
                         or any(c.normal[i] == 0.0 and axis[i] != 0.0 for i in range(3))
-                        or 0.5 * (g_mag_plane * sin_err) * (spec.duration_s * spec.duration_s) > 1e-9 * max(c.signed_distance_m(x), 1e-30)):
+                        or _exceeds_accel_disp(
+                            Fraction(g_mag_plane) * sin_err_frac,
+                            spec.duration_s,
+                            1e-9 * max(c.signed_distance_m(x), 1e-30),
+                        )):
                     raise UnsupportedProblem('1D plane motion with gravity must align strictly with the plane normal')
             height=c.signed_distance_m(x)
             if height<=0:
@@ -286,12 +295,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         if g_mag > 0.:
             if any(axis[i] == 0.0 and g_vec[i] != 0.0 for i in range(3)):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
-            sin_trans, a_trans_phys = _exact_transverse(g_vec, axis)
+            sin_trans, a_trans_exact = _exact_transverse(g_vec, axis)
             if sin_trans > 64.0 * ulp(1.0):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
-            # Reject even machine-epsilon misalignment when huge |g| would
-            # cause non-negligible transverse displacement over duration_s.
-            if 0.5 * a_trans_phys * (spec.duration_s * spec.duration_s) > 1e-9 * scale:
+            # Reject even machine-epsilon misalignment when huge |g| or huge duration
+            # would cause non-negligible transverse displacement over duration_s.
+            if _exceeds_accel_disp(a_trans_exact, spec.duration_s, 1e-9 * scale):
                 raise UnsupportedProblem('1D gravity must be collinear with the motion axis')
     # A finite numerical event guard also prevents evaluation on singular ideal surfaces.
     guard=(1e-6*scale if spec.surface_guard_m is None else spec.surface_guard_m)

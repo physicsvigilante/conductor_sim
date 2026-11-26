@@ -1512,3 +1512,39 @@ def test_m45_sol_v15_near_normal_launch_plane_and_underflow_free_out_of_plane():
             prob, 0, 1e-300, (1.0, 0.0, 0.0), 1e6, 5e5,
             gravity=UniformGravity((1e308, 1e-20, 0.0), reference_position_m=(0.0, 0.0, 1.0)),
         )
+
+
+def test_m45_sol_v16_tiny_yz_velocity_and_exact_rational_displacement_bounds():
+    """Regression suite for both Sol v16 findings."""
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+
+    # 1. Valid yz trajectory with v=(0, 1e-14, 1) selects yz plane & passes sample_motion_2d + render_html
+    prob_yz = ElectrostaticProblem((PointCharge(1e-30, (0.0, 0.0, 1.0)),), (plane0,))
+    spec_yz = Motion2DSpec(
+        prob_yz, 0, 1.0, (0.0, 1e-14, 1.0), 2.0, 2.0,
+        gravity=UniformGravity((0.0, 0.0, -1.0)),
+    )
+    b_yz = sample_motion_2d(spec_yz, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert abs(b_yz["motion_2d"]["plane_normal"][0]) > 1.0 - 1e-12
+    assert "<canvas" in render_html(b_yz, title="Valid 1e-14 yz trajectory")
+
+    # 2a. Subnormal transverse gravity 5e-324 over t=1e154 s (0.5*5e-324*1e308 = 2.47e-16 > 1e-17) is refused
+    prob_sub_t = ElectrostaticProblem((PointCharge(1e-30, (0.0, 0.0, 1e-8)),), (plane0,))
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob_sub_t, 0, 1.0, (1e-154, 0.0, 0.0), 1e154, 1e154,
+            gravity=UniformGravity((1e-308, 5e-324, 0.0), reference_position_m=(0.0, 0.0, 1e-8)),
+        )
+    # Same subnormal-times-t^2 loss in 1D is also refused cleanly
+    with pytest.raises(UnsupportedProblem, match="collinear"):
+        Motion1DSpec(
+            prob_sub_t, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1e154, 1e154,
+            gravity=UniformGravity((0.0, 5e-324, 1e-308), reference_position_m=(0.0, 0.0, 1e-8)),
+        )
+
+    # 2b. Huge duration t=1e160 s does NOT disable gravity-based plane selection via t^2 overflow
+    spec_1e160 = Motion2DSpec(
+        prob_yz, 0, 1.0, (0.0, 0.0, 0.0), 1e160, 1e160,
+        gravity=UniformGravity((0.0, 1e-322, 1e-306)),
+    )
+    assert spec_1e160.gravity is not None
