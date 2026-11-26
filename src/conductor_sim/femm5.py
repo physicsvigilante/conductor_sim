@@ -509,6 +509,10 @@ class Femm5Backend:
     def supports(self, problem: ElectrostaticProblem) -> bool:
         if not 1 <= len(problem.conductors) <= 8:
             return False
+        # Capability queries must be safe for every authored shape: a plane
+        # has no spherical radii, so check types before radial sorting.
+        if any(not isinstance(shell,SphericalShell) for shell in problem.conductors):
+            return False
         shells=_radial_shells(problem)
         center=shells[0].center_m
         if any(not isinstance(shell,SphericalShell)

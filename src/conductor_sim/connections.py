@@ -159,8 +159,8 @@ def _layout(plan: ConnectionPlan):
         if not MixedRadialBackend().supports(problem):
             raise UnsupportedProblem('mixed connections require one innermost solid sphere, '
                                      '1–7 concentric shells, and no point sources')
-    elif not (2 <= len(shells) <= 8) or not NestedShellBackend().supports(problem):
-        raise UnsupportedProblem('connected shells require 2–8 nonintersecting concentric '
+    elif not (1 <= len(shells) <= 8) or not NestedShellBackend().supports(problem):
+        raise UnsupportedProblem('connected shells require 1–8 nonintersecting concentric '
                                  'SphericalShells with sources only in the innermost cavity')
     return _wire_groups(shells, plan.links)
 
