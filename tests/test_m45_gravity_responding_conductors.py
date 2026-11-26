@@ -561,3 +561,64 @@ def test_m45_sol_v2_boundary_cell_false_root_tangent_and_subnormal():
     d_sub["gravity"]["acceleration_m_s2"] = [5e-324, 0.0, 0.0]
     with pytest.raises(ValueError, match="outside the proven physical plane"):
         validate_planar_motion(d_sub)
+
+
+def test_m45_sol_v3_exact_boundary_root_grid_aligned_tangent_opposing_overflow_and_inf_scale():
+    """Regression suite for all 4 Sol v3 findings."""
+    R = 0.10
+    Q_net = 5.0e-7
+    q = 2.0e-7
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=R, constraint=FixedNetCharge(Q_net))
+    backend = ExternalIsolatedSphereBackend()
+
+    # 1. Exact root on scan boundary z=0.17164 must NOT hide the second stable root inside [grid[0], grid[1]]
+    spec_b = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.17164)),), (sphere,)),
+        0, 0.02132319569394952, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -1.0)),
+    )
+    eq_b = find_1d_equilibria(
+        spec_b, backend, displacement_bounds_m=(0.0, 0.18 - 0.17164), scan_samples=129,
+    )
+    assert len(eq_b) == 2
+    assert isclose(eq_b[0].position_m[2], 0.17164, rel_tol=1e-9)
+    assert isclose(eq_b[1].position_m[2], 0.17167008137887, rel_tol=1e-7)
+    assert eq_b[0].stability == "unstable"
+    assert eq_b[1].stability == "stable"
+
+    # 2. Grid-aligned tangent (9 samples centered exactly on r_peak) returns 1 indeterminate root
+    r_tan = 0.17165503777020558
+    spec_tan_aligned = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25)),), (sphere,)),
+        0, 0.002173618447146783, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -9.81)),
+    )
+    eq_aligned = find_1d_equilibria(
+        spec_tan_aligned, backend,
+        displacement_bounds_m=(r_tan - 0.002 - 0.25, r_tan + 0.002 - 0.25),
+        scan_samples=9,
+    )
+    assert len(eq_aligned) == 1
+    assert eq_aligned[0].stability == "indeterminate"
+    assert eq_aligned[0].small_oscillation_angular_frequency_rad_s is None
+
+    # 3. Opposing overflow (+inf and -inf products) falls cleanly into exact Fraction fallback -> -3.0 J
+    g_cancel_ovf = UniformGravity((2.0, 2.0, 1.0))
+    assert isclose(
+        g_cancel_ovf.potential_energy_at((1e308, -1e308, 3.0), mass_kg=1.0),
+        -3.0,
+        rel_tol=1e-14,
+    )
+
+    # 4. Off-axis graph-only position whose distance overflows to inf is rejected by render_html
+    plane = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    spec_1d = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.0)),), (plane,)),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025,
+        gravity=UniformGravity((0.0, 0.0, 2.0)),
+    )
+    bundle_1d = sample_motion_1d(spec_1d, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    orig_z = bundle_1d["motion_1d"]["samples"][1]["position_m"][2]
+    bundle_1d["motion_1d"]["samples"][1]["position_m"] = [1.3e308, 1.3e308, orig_z]
+    with pytest.raises(ValueError, match="finite distance scale|disagrees"):
+        render_html(bundle_1d, title="Forged overflowing 1D graph position")

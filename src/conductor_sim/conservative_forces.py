@@ -52,15 +52,16 @@ class UniformGravity:
         try:
             disp = _sub(p, self.reference_position_m)
             prods = tuple(a * d for a, d in zip(self.acceleration_m_s2, disp))
-            dot_val = fsum(prods)
-            raw = -mass_kg * dot_val
-            if isfinite(raw) and raw != 0.:
-                safe_fast = (
-                    abs(dot_val) >= 1e-300
-                    and not any(a != 0. and d != 0. and abs(pr) < 1e-300
-                                for a, d, pr in zip(self.acceleration_m_s2, disp, prods))
-                )
-        except OverflowError:
+            if all(isfinite(pr) for pr in prods):
+                dot_val = fsum(prods)
+                raw = -mass_kg * dot_val
+                if isfinite(raw) and raw != 0.:
+                    safe_fast = (
+                        abs(dot_val) >= 1e-300
+                        and not any(a != 0. and d != 0. and abs(pr) < 1e-300
+                                    for a, d, pr in zip(self.acceleration_m_s2, disp, prods))
+                    )
+        except (OverflowError, ValueError):
             safe_fast = False
         if safe_fast:
             return raw

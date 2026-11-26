@@ -22,6 +22,13 @@ def _vector(value):
             and all(_number(x) for x in value))
 
 
+def _safe_fsum(values):
+    try:
+        return fsum(values)
+    except (OverflowError, ValueError):
+        return float('inf')
+
+
 def _dot(a, b):
     return fsum(x*y for x, y in zip(a, b))
 
@@ -45,10 +52,15 @@ def normal_roundoff(position, normal):
 
 
 def _position_close(a, b, scale):
+    if not isfinite(scale):
+        return False
+    dist = hypot(*_sub(a, b))
+    if not isfinite(dist):
+        return False
     # Allow subtraction roundoff for translated models, not a tolerance
     # proportional to distance from the unrelated world-coordinate origin.
     rounding = 16*max(ulp(abs(x)) for x in (*a, *b))
-    return hypot(*_sub(a, b)) <= 2e-9*scale + rounding
+    return dist <= 2e-9*scale + rounding
 
 
 def validate_planar_motion(motion, *, frames=None):
@@ -115,6 +127,8 @@ def validate_planar_motion(motion, *, frames=None):
     if rows[0]['time_s'] != 0:
         raise ValueError('planar motion must start at t=0')
     scale = max(1e-12, *(hypot(*_sub(r['position_m'], origin)) for r in rows))
+    if not isfinite(scale):
+        raise ValueError('motion sample positions exceed finite distance scale')
     p0, v0 = motion['initial_position_m'], motion['initial_velocity_m_s']
     if (any(rows[0]['displacement_m']) or not _position_close(rows[0]['position_m'], p0, scale) or
             any(not _close(x,y) for x,y in zip(rows[0]['velocity_m_s'],v0))):
@@ -165,17 +179,17 @@ def validate_planar_motion(motion, *, frames=None):
             if any(not isclose(a, b, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(b))))
                    for a, b in zip(g_force, exp_gf)):
                 raise ValueError('saved gravitational force disagrees with UniformGravity')
-            if any(not isclose(a, fsum((b, c)), rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(max(abs(b), abs(c)))))
+            if any(not isclose(a, _safe_fsum((b, c)), rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(max(abs(b), abs(c)))))
                    for a, b, c in zip(force, e_force, g_force)):
                 raise ValueError('saved total force disagrees with electric + gravitational sum')
             if not isclose(g_u, exp_gu, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gu)))):
                 raise ValueError('saved gravitational energy disagrees with UniformGravity')
             u_scale = max(abs(e_u), abs(g_u))
-            if not isclose(row['interaction_energy_j'], fsum((e_u, g_u)),
+            if not isclose(row['interaction_energy_j'], _safe_fsum((e_u, g_u)),
                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(u_scale))):
                 raise ValueError('saved interaction energy disagrees with electric + gravitational sum')
             e_scale = max(abs(kinetic), abs(e_u), abs(g_u))
-            if not isclose(row['total_energy_j'], fsum((kinetic, e_u, g_u)),
+            if not isclose(row['total_energy_j'], _safe_fsum((kinetic, e_u, g_u)),
                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
                 raise ValueError('motion total energy disagrees with K+U_elec+U_grav')
     max_drift = motion.get('max_abs_energy_drift_j')
@@ -329,6 +343,8 @@ def validate_motion_1d_gravity(motion):
         if not isinstance(row, dict) or not _vector(row.get('position_m')):
             raise ValueError('gravity-coupled 1D motion samples require finite position_m')
     scale = max(1e-12, *(hypot(*_sub(r['position_m'], p0)) for r in rows))
+    if not isfinite(scale):
+        raise ValueError('saved 1D sample positions exceed finite distance scale')
     for row in rows:
         position = row['position_m']
         if not all(_number(row.get(k)) for k in (
@@ -336,18 +352,18 @@ def validate_motion_1d_gravity(motion):
                 'kinetic_energy_j', 'interaction_energy_j', 'total_energy_j')):
             raise ValueError('gravity-coupled 1D motion samples require finite kinematic and energy fields')
         exp_pos = tuple(p0[i] + row['displacement_m'] * axis[i] for i in range(3))
-        if not _position_close(position, exp_pos, scale):
+        if not all(isfinite(x) for x in exp_pos) or not _position_close(position, exp_pos, scale):
             raise ValueError('saved 1D sample position disagrees with axis displacement')
         e_force, g_force = row.get('electric_force_n'), row.get('gravitational_force_n')
         e_u, g_u = row.get('electric_interaction_energy_j'), row.get('gravitational_potential_energy_j')
         if not all(_number(v) for v in (e_force, g_force, e_u, g_u)):
             raise ValueError('gravity-coupled 1D motion samples require separated force and energy contributions')
-        exp_gf = _dot(gravity_obj.force_at(position, mass_kg=mass), axis)
+        exp_gf = _safe_fsum(x * y for x, y in zip(gravity_obj.force_at(position, mass_kg=mass), axis))
         exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
-        if not isclose(g_force, exp_gf, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gf)))):
+        if not isfinite(exp_gf) or not isclose(g_force, exp_gf, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gf)))):
             raise ValueError('saved 1D gravitational force disagrees with UniformGravity')
         f_scale = max(abs(e_force), abs(g_force))
-        if not isclose(row['force_n'], fsum((e_force, g_force)),
+        if not isclose(row['force_n'], _safe_fsum((e_force, g_force)),
                        rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(f_scale))):
             raise ValueError('saved 1D total force disagrees with electric + gravitational sum')
         exp_acc = row['force_n'] / mass
@@ -359,7 +375,7 @@ def validate_motion_1d_gravity(motion):
         if not isclose(g_u, exp_gu, rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(exp_gu)))):
             raise ValueError('saved 1D gravitational energy disagrees with UniformGravity')
         u_scale = max(abs(e_u), abs(g_u))
-        if not isclose(row['interaction_energy_j'], fsum((e_u, g_u)),
+        if not isclose(row['interaction_energy_j'], _safe_fsum((e_u, g_u)),
                        rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(u_scale))):
             raise ValueError('saved 1D interaction energy disagrees with electric + gravitational sum')
         from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
@@ -372,6 +388,6 @@ def validate_motion_1d_gravity(motion):
                             rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(abs(kinetic))))):
             raise ValueError('saved 1D kinetic energy disagrees with velocity and mass')
         e_scale = max(abs(kinetic), abs(e_u), abs(g_u))
-        if not isclose(row['total_energy_j'], fsum((kinetic, e_u, g_u)),
+        if not isclose(row['total_energy_j'], _safe_fsum((kinetic, e_u, g_u)),
                        rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
             raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')

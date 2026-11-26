@@ -198,8 +198,20 @@ def find_1d_equilibria(
     def net_force(s: float) -> float:
         return observe(s)[2]
 
+    def zero_band(f_scale: float) -> float:
+        return 64.0 * ulp(f_scale) if f_scale > 0.0 else 0.0
+
     grid = [s_lo + (s_hi - s_lo) * i / (scan_samples - 1) for i in range(scan_samples)]
-    values = [net_force(s) for s in grid]
+    values: list[float] = []
+    scales: list[float] = []
+    for s in grid:
+        _, elec_s, net_s, _, _ = observe(s)
+        values.append(net_s)
+        scales.append(max(abs(elec_s), abs(grav_along)))
+    # Treat grid values inside the local floating-point cancellation band as
+    # numerically zero so +/-few-ULP noise at a grid-aligned tangent cannot
+    # manufacture false opposite-sign brackets.
+    eff_values = [0.0 if (v == 0.0 or abs(v) <= zero_band(sc)) else v for v, sc in zip(values, scales)]
     span_scale = max(domain.scale, s_hi - s_lo)
     dedup_tol = 1e-10 * span_scale
     candidate_roots: list[float] = []
@@ -220,46 +232,100 @@ def find_1d_equilibria(
         _, elec_e, _, _, _ = observe(s_ext)
         # Use only the local force cancellation scale at s_ext; distant
         # singular-boundary grid samples must never inflate the zero band.
-        f_scale = max(abs(elec_e), abs(grav_along))
-        zero_band = 64.0 * ulp(f_scale) if f_scale > 0.0 else 0.0
-        if f_ext == 0.0 or abs(f_ext) <= zero_band:
+        band = zero_band(max(abs(elec_e), abs(grav_along)))
+        if f_ext == 0.0 or abs(f_ext) <= band:
             # Treat extremum values inside the floating-point cancellation band
             # (whether +/- a few ULPs) as a single tangent equilibrium rather
             # than splitting roundoff noise into two spurious close roots.
             if crossed or is_strict_interior or f_ext == 0.0:
                 add_root(s_ext)
         elif crossed:
-            add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, span_scale))
-            add_root(_refine_bracket(net_force, s_ext, f_ext, right_s, right_v, span_scale))
+            if (left_v < 0.0 < f_ext) or (f_ext < 0.0 < left_v):
+                add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, span_scale))
+            if (f_ext < 0.0 < right_v) or (right_v < 0.0 < f_ext):
+                add_root(_refine_bracket(net_force, s_ext, f_ext, right_s, right_v, span_scale))
 
-    for idx, (s, val) in enumerate(zip(grid, values)):
-        if val == 0.0:
-            add_root(s)
-        if idx + 1 < len(grid):
-            s_next, v_next = grid[idx + 1], values[idx + 1]
-            if (val < 0.0 < v_next) or (v_next < 0.0 < val):
-                add_root(_refine_bracket(net_force, s, val, s_next, v_next, span_scale))
-        # Inspect interior AND boundary local extrema approaching zero from one
-        # side to catch close root pairs inside any cell (including boundary
-        # cells) as well as tangent roots (F=0, F'=0).
-        if idx == 0:
-            v_right = values[1]
-            if val < 0.0 and v_right <= val:
-                inspect_extremum(grid[0], val, grid[1], v_right, maximize=True)
-            elif val > 0.0 and v_right >= val:
-                inspect_extremum(grid[0], val, grid[1], v_right, maximize=False)
-        elif idx == len(grid) - 1:
-            v_left = values[-2]
-            if val < 0.0 and v_left <= val:
-                inspect_extremum(grid[-2], v_left, grid[-1], val, maximize=True)
-            elif val > 0.0 and v_left >= val:
-                inspect_extremum(grid[-2], v_left, grid[-1], val, maximize=False)
+    n_grid = len(grid)
+    # 1. Exact/near-zero contiguous runs on the grid (handles exact boundary
+    #    roots, simple crossings near a grid point, and grid-aligned tangents).
+    run_idx = 0
+    while run_idx < n_grid:
+        if eff_values[run_idx] != 0.0:
+            run_idx += 1
+            continue
+        run_end = run_idx
+        while run_end + 1 < n_grid and eff_values[run_end + 1] == 0.0:
+            run_end += 1
+        has_exact_zero = any(values[k] == 0.0 for k in range(run_idx, run_end + 1))
+        if run_idx > 0 and run_end < n_grid - 1:
+            lv, rv = eff_values[run_idx - 1], eff_values[run_end + 1]
+            if (lv < 0.0 < rv) or (rv < 0.0 < lv):
+                add_root(_refine_bracket(
+                    net_force, grid[run_idx - 1], values[run_idx - 1],
+                    grid[run_end + 1], values[run_end + 1], span_scale,
+                ))
+            else:
+                inspect_extremum(
+                    grid[run_idx - 1], values[run_idx - 1],
+                    grid[run_end + 1], values[run_end + 1],
+                    maximize=(lv < 0.0),
+                )
         else:
-            v_prev, v_next = values[idx - 1], values[idx + 1]
-            if val < 0.0 and v_prev <= val and v_next <= val:
-                inspect_extremum(grid[idx - 1], v_prev, grid[idx + 1], v_next, maximize=True)
-            elif val > 0.0 and v_prev >= val and v_next >= val:
-                inspect_extremum(grid[idx - 1], v_prev, grid[idx + 1], v_next, maximize=False)
+            for k in range(run_idx, run_end + 1):
+                if values[k] == 0.0:
+                    add_root(grid[k])
+            if not has_exact_zero:
+                if run_idx == 0 and run_end + 1 < n_grid:
+                    rv = values[run_end + 1]
+                    if (values[run_end] < 0.0 < rv) or (rv < 0.0 < values[run_end]):
+                        add_root(_refine_bracket(net_force, grid[run_end], values[run_end], grid[run_end + 1], rv, span_scale))
+                    else:
+                        inspect_extremum(grid[0], values[0], grid[run_end + 1], rv, maximize=(rv < 0.0))
+                elif run_end == n_grid - 1 and run_idx > 0:
+                    lv = values[run_idx - 1]
+                    if (lv < 0.0 < values[run_idx]) or (values[run_idx] < 0.0 < lv):
+                        add_root(_refine_bracket(net_force, grid[run_idx - 1], lv, grid[run_idx], values[run_idx], span_scale))
+                    else:
+                        inspect_extremum(grid[run_idx - 1], lv, grid[-1], values[-1], maximize=(lv < 0.0))
+        run_idx = run_end + 1
+
+    # 2. Opposite-sign cells and cells adjacent to an exact zero (so an exact
+    #    root on a boundary or grid vertex cannot hide a second root inside the
+    #    same cell).
+    for idx in range(n_grid - 1):
+        ev, ev_next = eff_values[idx], eff_values[idx + 1]
+        if (ev < 0.0 < ev_next) or (ev_next < 0.0 < ev):
+            add_root(_refine_bracket(net_force, grid[idx], values[idx], grid[idx + 1], values[idx + 1], span_scale))
+        elif values[idx] == 0.0 and ev_next != 0.0:
+            inspect_extremum(grid[idx], 0.0, grid[idx + 1], values[idx + 1], maximize=(ev_next < 0.0))
+        elif values[idx + 1] == 0.0 and ev != 0.0:
+            inspect_extremum(grid[idx], values[idx], grid[idx + 1], 0.0, maximize=(ev < 0.0))
+
+    # 3. Local discrete extrema (interior and boundary) approaching zero from
+    #    one side, to catch close root pairs inside a single cell or off-grid
+    #    tangent roots (F=0, F'=0).
+    for idx in range(n_grid):
+        ev = eff_values[idx]
+        if ev == 0.0:
+            continue
+        if idx == 0:
+            ev_right = eff_values[1]
+            if ev < 0.0 and ev_right < 0.0 and values[1] <= values[0]:
+                inspect_extremum(grid[0], values[0], grid[1], values[1], maximize=True)
+            elif ev > 0.0 and ev_right > 0.0 and values[1] >= values[0]:
+                inspect_extremum(grid[0], values[0], grid[1], values[1], maximize=False)
+        elif idx == n_grid - 1:
+            ev_left = eff_values[-2]
+            if ev < 0.0 and ev_left < 0.0 and values[-2] <= values[-1]:
+                inspect_extremum(grid[-2], values[-2], grid[-1], values[-1], maximize=True)
+            elif ev > 0.0 and ev_left > 0.0 and values[-2] >= values[-1]:
+                inspect_extremum(grid[-2], values[-2], grid[-1], values[-1], maximize=False)
+        else:
+            ev_prev, ev_next = eff_values[idx - 1], eff_values[idx + 1]
+            if ev < 0.0 and ev_prev < 0.0 and ev_next < 0.0 and values[idx - 1] <= values[idx] and values[idx + 1] <= values[idx]:
+                inspect_extremum(grid[idx - 1], values[idx - 1], grid[idx + 1], values[idx + 1], maximize=True)
+            elif ev > 0.0 and ev_prev > 0.0 and ev_next > 0.0 and values[idx - 1] >= values[idx] and values[idx + 1] >= values[idx]:
+                inspect_extremum(grid[idx - 1], values[idx - 1], grid[idx + 1], values[idx + 1], maximize=False)
 
     candidate_roots.sort()
     equilibria: list[ConductingGravityEquilibrium] = []
