@@ -739,7 +739,7 @@ def test_m45_sol_v5_wide_scan_dedup_and_world_coordinate_precision():
         0, 1.0, (0.0, 0.0, 0.0), 1.0, 0.5,
         gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
     )
-    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+    with pytest.raises(MotionIntegrationError, match="displacement resolution|gravitational potential energy"):
         integrate_motion_2d(spec_2d_far, GroundedPlaneBackend())
 
 
@@ -787,13 +787,13 @@ def test_m45_sol_v6_huge_bracket_stalled_position_remote_gauge_and_drift_validat
         prob_stall, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1.0, 0.5,
         gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
     )
-    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+    with pytest.raises(MotionIntegrationError, match="displacement resolution|gravitational potential energy"):
         integrate_motion_1d(spec_1d_stall, GroundedPlaneBackend())
     spec_2d_stall = Motion2DSpec(
         prob_stall, 0, 1.0, (0.0, 0.0, 0.0), 1.0, 0.5,
         gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
     )
-    with pytest.raises(MotionIntegrationError, match="gravitational potential energy resolution"):
+    with pytest.raises(MotionIntegrationError, match="displacement resolution|gravitational potential energy"):
         integrate_motion_2d(spec_2d_stall, GroundedPlaneBackend())
 
     # 2b. Remote energy gauge (z_ref=5e15 m) causing a 2 J ULP jump in saved total energy -> refused in 1D & 2D
@@ -829,3 +829,92 @@ def test_m45_sol_v6_huge_bracket_stalled_position_remote_gauge_and_drift_validat
     b_bad_both["motion_1d"]["max_abs_energy_drift_j"] = 1e100
     with pytest.raises(ValueError, match="energy_drift_j"):
         render_html(b_bad_both, title="Forged huge drift + max")
+
+
+def test_m45_sol_v7_reversed_scan_fast_launch_static_gauge_drift_and_2d_drift():
+    """Regression suite for all 4 Sol v7 findings."""
+    from conductor_sim.motion_1d import MotionIntegrationError
+
+    # 1. Reversed scan axis (0,0,-1) on (-1e18, 0.19) preserves both isolated-sphere roots
+    sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.1, constraint=FixedNetCharge(5e-7))
+    spec_rev = Motion1DSpec(
+        ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.3)),), (sphere,)),
+        0, 5e-4, (0.0, 0.0, -1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393506555945)),
+    )
+    eq_rev = find_1d_equilibria(
+        spec_rev, ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-1e18, 0.19), scan_samples=129,
+    )
+    assert len(eq_rev) == 2
+    zs_rev = sorted(e.position_m[2] for e in eq_rev)
+    assert isclose(zs_rev[0], 0.1716488813521, rel_tol=1e-7)
+    assert isclose(zs_rev[1], 0.1716611949418, rel_tol=1e-7)
+
+    # 2. High initial kinetic energy (+100 m/s) cannot mask stalled position or remote gauge in 1D & 2D
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    p_far = (0.0, 0.0, 1e16 + 100.0)
+    prob_stall = ElectrostaticProblem((PointCharge(1e-17, p_far),), (plane0,))
+    with pytest.raises(MotionIntegrationError, match="displacement resolution|gravitational potential energy"):
+        integrate_motion_1d(
+            Motion1DSpec(
+                prob_stall, 0, 1.0, (0.0, 0.0, 1.0), 100.0, 1e-5, 1e-5,
+                gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+            ),
+            GroundedPlaneBackend(),
+        )
+    with pytest.raises(MotionIntegrationError, match="displacement resolution|gravitational potential energy"):
+        integrate_motion_2d(
+            Motion2DSpec(
+                prob_stall, 0, 1.0, (0.0, 0.0, 100.0), 1e-5, 1e-5,
+                gravity=UniformGravity((0.0, 0.0, 2.0), reference_position_m=p_far),
+            ),
+            GroundedPlaneBackend(),
+        )
+    prob_gauge = ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.25)),), (plane0,))
+    g_remote = UniformGravity((0.0, 0.0, 2.0), reference_position_m=(0.0, 0.0, 5e15))
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_1d(
+            Motion1DSpec(prob_gauge, 0, 1.0, (0.0, 0.0, 1.0), 100.0, 1e-5, 1e-5, gravity=g_remote),
+            GroundedPlaneBackend(),
+        )
+    with pytest.raises(MotionIntegrationError, match="gauge|total energy"):
+        integrate_motion_2d(
+            Motion2DSpec(prob_gauge, 0, 1.0, (0.0, 0.0, 100.0), 1e-5, 1e-5, gravity=g_remote),
+            GroundedPlaneBackend(),
+        )
+
+    # 3. 1D viewer rejects forged 1000 J drift at static equilibrium even with z_ref = 1e18 m
+    spec_eq_static = Motion1DSpec(
+        ElectrostaticProblem(
+            (PointCharge(2.0, (0.0, 0.0, 2.0)),),
+            (plane0,),
+            permittivity_f_per_m=1.0 / (4.0 * pi),
+        ),
+        0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025,
+        gravity=UniformGravity((0.0, 0.0, 0.25), reference_position_m=(0.0, 0.0, 1e18)),
+    )
+    b_eq = sample_motion_1d(spec_eq_static, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_eq, title="Valid static equilibrium with remote gauge")
+    b_eq["motion_1d"]["samples"][1]["energy_drift_j"] = 1000.0
+    b_eq["motion_1d"]["max_abs_energy_drift_j"] = 1000.0
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(b_eq, title="Forged 1000 J static equilibrium drift")
+
+    # 4. 2D viewer rejects forged 1e100 J drift (on row 1 or row 0) even when summary max matches
+    spec_2d_v = Motion2DSpec(
+        ElectrostaticProblem((PointCharge(1e-17, (0.0, 0.0, 1.0)),), (plane0,)),
+        0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.025,
+        gravity=UniformGravity((0.0, 0.0, 2.0)),
+    )
+    b_2d = sample_motion_2d(spec_2d_v, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_2d, title="Valid 2D gravity bundle")
+    b_2d["motion_2d"]["samples"][1]["energy_drift_j"] = 1e100
+    b_2d["motion_2d"]["max_abs_energy_drift_j"] = 1e100
+    with pytest.raises(ValueError, match="energy_drift_j"):
+        render_html(b_2d, title="Forged 2D row 1 drift")
+    b_2d_0 = sample_motion_2d(spec_2d_v, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    b_2d_0["motion_2d"]["samples"][0]["energy_drift_j"] = 1e100
+    b_2d_0["motion_2d"]["max_abs_energy_drift_j"] = 1e100
+    with pytest.raises(ValueError, match="initial energy_drift_j"):
+        render_html(b_2d_0, title="Forged 2D row 0 drift")

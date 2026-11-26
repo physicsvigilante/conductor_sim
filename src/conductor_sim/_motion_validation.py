@@ -192,6 +192,26 @@ def validate_planar_motion(motion, *, frames=None):
             if not isclose(row['total_energy_j'], _safe_fsum((kinetic, e_u, g_u)),
                            rel_tol=2e-9, abs_tol=max(1e-30, 128 * ulp(e_scale))):
                 raise ValueError('motion total energy disagrees with K+U_elec+U_grav')
+    if gravity_obj is not None:
+        if rows[0]['energy_drift_j'] != 0.0:
+            raise ValueError('saved initial energy_drift_j must be zero')
+        from .conservative_forces import UniformGravity
+        local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
+        r0 = rows[0]
+        for row in rows:
+            dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
+            deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
+            dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
+            exp_drift = _safe_fsum((dk, deu, dgu))
+            d_scale = max(
+                abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j']),
+                abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j']),
+                abs(dgu),
+            )
+            if not isfinite(exp_drift) or not isclose(
+                    row['energy_drift_j'], exp_drift,
+                    rel_tol=1e-6, abs_tol=max(1e-24, 256 * ulp(d_scale))):
+                raise ValueError('saved planar energy_drift_j disagrees with energy ledger')
     max_drift = motion.get('max_abs_energy_drift_j')
     if not _number(max_drift) or not _close(max_drift,max(abs(r['energy_drift_j']) for r in rows)):
         raise ValueError('motion maximum energy drift disagrees with saved samples')
@@ -397,16 +417,18 @@ def validate_motion_1d_gravity(motion):
             raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')
     if rows[0]['energy_drift_j'] != 0.0:
         raise ValueError('saved 1D initial energy_drift_j must be zero')
+    from .conservative_forces import UniformGravity
+    local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
     r0 = rows[0]
     for row in rows:
         dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
         deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
-        dgu = _safe_fsum((row['gravitational_potential_energy_j'], -r0['gravitational_potential_energy_j']))
+        dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
         exp_drift = _safe_fsum((dk, deu, dgu))
         d_scale = max(
             abs(row['kinetic_energy_j']), abs(r0['kinetic_energy_j']),
             abs(row['electric_interaction_energy_j']), abs(r0['electric_interaction_energy_j']),
-            abs(row['gravitational_potential_energy_j']), abs(r0['gravitational_potential_energy_j']),
+            abs(dgu),
         )
         if not isfinite(exp_drift) or not isclose(
                 row['energy_drift_j'], exp_drift,

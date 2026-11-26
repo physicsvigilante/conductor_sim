@@ -338,12 +338,13 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     )
     energy0=.5*spec.mass_kg*v*v
     total_j0 = fsum((energy0, ref.total_j, ref_u_grav)) if gravity is not None else (energy0 + ref.total_j)
-    peak_energy_exchange = energy0
+    peak_grav_exchange = 0.0
+    peak_disp = 0.0
     samples=[]
     events=[]
     max_drift=0.
     def record(t,s,v):
-        nonlocal max_drift, peak_energy_exchange
+        nonlocal max_drift, peak_grav_exchange, peak_disp
         force, elec_force, energy, u_grav = observe(s)
         kinetic=.5*spec.mass_kg*v*v
         position = _add(original.position_m, spec.axis, s)
@@ -361,21 +362,18 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
             assert local_gravity is not None
             interaction_j = fsum((energy.total_j, u_grav))
             total_j = fsum((kinetic, energy.total_j, u_grav))
-            # Compare exact displacement delta against both the saved world-position
-            # delta and the gauge-shifted U_g / total_energy_j delta so neither
-            # coordinate roundoff nor a remote energy gauge can hide an energy jump.
+            # Check world-position displacement and gravitational delta strictly
+            # against trajectory displacement / gravitational exchange (never
+            # masking precision loss with constant launch kinetic energy).
+            peak_disp = max(peak_disp, abs(s))
+            world_s = _dot(_minus(position, original.position_m), spec.axis)
+            if abs(world_s - s) > max(1e-24, 1e-6 * peak_disp, 256.0 * ulp(peak_disp)):
+                raise MotionIntegrationError('world position roundoff lost displacement resolution')
             delta_u_grav = -grav_force_along * s
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
             saved_du_grav = u_grav - ref_u_grav
-            peak_energy_exchange = max(
-                peak_energy_exchange,
-                kinetic,
-                abs(kinetic - energy0),
-                abs(energy.total_j - ref.total_j),
-                abs(delta_u_grav),
-                abs(world_du_grav),
-            )
-            du_tol = max(1e-24, 1e-6 * peak_energy_exchange, 256.0 * ulp(peak_energy_exchange))
+            peak_grav_exchange = max(peak_grav_exchange, abs(delta_u_grav), abs(world_du_grav))
+            du_tol = max(1e-24, 1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
             if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             if abs(saved_du_grav - delta_u_grav) > du_tol:
@@ -385,8 +383,8 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j,
                          world_du_grav))
-            total_scale = max(peak_energy_exchange, abs(energy.total_j), abs(ref.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-24, 1e-6 * total_scale, 256.0 * ulp(total_scale)):
+            total_scale = max(peak_grav_exchange, abs(kinetic - energy0), abs(energy.total_j), abs(ref.total_j))
+            if abs((total_j - total_j0) - drift) > max(1e-24, 1e-6 * total_scale, 256.0 * ulp(max(total_scale, energy0, kinetic))):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,

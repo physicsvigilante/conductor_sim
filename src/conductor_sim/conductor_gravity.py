@@ -226,7 +226,13 @@ def find_1d_equilibria(
         # large fraction of f_scale) never erase genuine sign-changing brackets.
         return min(64.0 * ulp(f_scale), 1e-12 * f_scale)
 
-    grid = [s_lo + (s_hi - s_lo) * i / (scan_samples - 1) for i in range(scan_samples)]
+    grid = [
+        s_lo if i == 0 else (
+            s_hi if i == scan_samples - 1
+            else ((scan_samples - 1 - i) / (scan_samples - 1)) * s_lo + (i / (scan_samples - 1)) * s_hi
+        )
+        for i in range(scan_samples)
+    ]
     values: list[float] = []
     scales: list[float] = []
     for s in grid:
