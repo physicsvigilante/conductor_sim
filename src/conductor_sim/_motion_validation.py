@@ -134,18 +134,26 @@ def validate_planar_motion(motion, *, frames=None):
             any(not _close(x,y) for x,y in zip(rows[0]['velocity_m_s'],v0))):
         raise ValueError('motion initial state must match its metadata')
     if stationary is not None:
+        from fractions import Fraction
+        from .motion_2d import _exact_out_of_plane, _exact_sub
+        exact_n = tuple(Fraction(x) for x in normal)
         for fixed in stationary:
             point = fixed['position_m']
-            transverse = _dot(_sub(point,origin),normal)
             if gravity_obj is not None:
-                point_ulp = max(ulp(abs(v)) for v in point)
-                rel = _sub(point, p0)
-                rel_dist = hypot(*rel)
-                if (abs(transverse) > 64 * ulp(1.0) * hypot(*_sub(point, origin)) + 16 * point_ulp
-                        or (rel_dist > 0.0 and abs(_dot(rel, normal)) > 64 * ulp(1.0) * rel_dist + 16 * point_ulp)):
+                src_sin_out, _ = _exact_out_of_plane(_exact_sub(point, origin), exact_n)
+                rel_sin_out, _ = _exact_out_of_plane(_exact_sub(point, p0), exact_n)
+                if src_sin_out > 64.0 * ulp(1.0) or rel_sin_out > 64.0 * ulp(1.0):
                     raise ValueError('fixed charge lies outside the proven physical plane')
-            elif abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
-                raise ValueError('fixed charge lies outside the proven physical plane')
+            else:
+                transverse = _dot(_sub(point,origin),normal)
+                if abs(transverse)>2e-9*max(scale,hypot(*_sub(point,origin)))+16*max(ulp(abs(v)) for v in point):
+                    raise ValueError('fixed charge lies outside the proven physical plane')
+    v_cancel_scale = 0.0
+    if gravity_obj is not None:
+        v_traj_scale = max((hypot(*r['velocity_m_s']) for r in rows), default=0.0)
+        a_traj_scale = max((hypot(*r['acceleration_m_s2']) for r in rows), default=0.0)
+        dt_span = rows[-1]['time_s'] - rows[0]['time_s']
+        v_cancel_scale = max(v_traj_scale, a_traj_scale * dt_span) if isfinite(a_traj_scale * dt_span) else v_traj_scale
     for row in rows:
         position, velocity, force = (row[k] for k in ('position_m', 'velocity_m_s', 'force_n'))
         if stationary is not None and any(
@@ -173,7 +181,8 @@ def validate_planar_motion(motion, *, frames=None):
                 hypot(*e_force),
                 hypot(*g_force),
             )
-            if (abs(_dot(velocity, normal)) > 5e-9 * hypot(*velocity)
+            v_tol_row = 5e-9 * hypot(*velocity) + (512.0 * ulp(v_cancel_scale) if v_cancel_scale > 0.0 else 0.0)
+            if (abs(_dot(velocity, normal)) > v_tol_row
                     or abs(_dot(force, normal)) > 5e-9 * f_scale_row
                     or abs(_dot(e_force, normal)) > 5e-9 * hypot(*e_force)):
                 raise ValueError('motion velocity/force disagrees with physical planar symmetry')

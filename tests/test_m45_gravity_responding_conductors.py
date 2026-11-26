@@ -1732,3 +1732,59 @@ def test_m45_sol_v20_out_of_plane_held_charge_and_floorless_transverse_force():
     tampered_v["motion_2d"]["samples"][1]["velocity_m_s"] = [0.0, 1e-12, -1e-15]
     with pytest.raises(ValueError, match="planar symmetry"):
         render_html(tampered_v, title="Tampered tiny transverse velocity")
+
+
+def test_m45_sol_v21_turning_point_velocity_and_saved_held_charge_parity():
+    """Regression suite for both Sol v21 findings: turning-point roundoff & exact viewer held-charge check."""
+    import copy
+
+    shell = SphericalShell(inner_radius_m=2.0, outer_radius_m=3.0, constraint=Grounded(), center_m=(0.0, 0.0, 0.0))
+
+    # 1. Exact coplanar turning-point trajectory completes, samples, and renders cleanly
+    prob_tp = ElectrostaticProblem((PointCharge(1e-30, (1.0, 0.0, 0.0)),), (shell,))
+    spec_tp = Motion2DSpec(
+        prob_tp, 0, 1e-20, (0.0, 1e-8, 3e-8), 1.0, 0.5,
+        gravity=UniformGravity((0.0, -1e-8, -3e-8)),
+    )
+    b_tp = sample_motion_2d(spec_tp, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert b_tp["motion_2d"]["termination"] == "duration"
+    assert "<canvas" in render_html(b_tp, title="Sol v21 turning point")
+
+    # 2. Saved viewer rejects held charge at (1, 5e-9, 1e-16) matching native Motion2DSpec refusal
+    prob_held_bad = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 5e-9, 1e-16)),
+        ),
+        (shell,),
+    )
+    with pytest.raises(UnsupportedProblem, match="invariant plane"):
+        Motion2DSpec(
+            prob_held_bad, 0, 1e-20, (0.0, 1e-12, 0.0), 0.01, 0.005,
+            charge_guard_m=1e-12,
+            gravity=UniformGravity((0.0, 1e-8, 0.0)),
+        )
+
+    prob_held_ok = ElectrostaticProblem(
+        (
+            PointCharge(1e-27, (1.0, 0.0, 0.0)),
+            PointCharge(1e-27, (1.0, 5e-9, 0.0)),
+        ),
+        (shell,),
+    )
+    spec_held_ok = Motion2DSpec(
+        prob_held_ok, 0, 1e-20, (0.0, 1e-12, 0.0), 0.01, 0.005,
+        charge_guard_m=1e-12,
+        gravity=UniformGravity((0.0, 1e-8, 0.0)),
+    )
+    b_held_ok = sample_motion_2d(spec_held_ok, MultiImageShellBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_held_ok, title="Valid coplanar held charge")
+
+    tampered_held = copy.deepcopy(b_held_ok)
+    tampered_held["motion_2d"]["stationary_charges"][0]["position_m"] = [1.0, 5e-9, 1e-16]
+    for frame in tampered_held["frames"]:
+        for ch in frame["charges"]:
+            if ch["position_m"] == [1.0, 5e-9, 0.0]:
+                ch["position_m"] = [1.0, 5e-9, 1e-16]
+    with pytest.raises(ValueError, match="fixed charge lies outside"):
+        render_html(tampered_held, title="Tampered held charge 1e-16 z offset")
