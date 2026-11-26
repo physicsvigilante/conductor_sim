@@ -323,7 +323,7 @@ def test_reproducible_offline_export_and_detached_audit(tmp_path,case):
     text=out.read_text(encoding='utf-8')
     assert 'gravity-presentation' in text and 'fetch(' not in text
     assert 'F_total = qE + mg' in text
-    assert audit==json.loads(out.with_suffix('.json').read_text())
+    assert audit==json.loads(out.with_suffix('.json').read_text(encoding="utf-8"))
 
 @pytest.mark.parametrize('g,m',[(1e308,1e308),(1e-300,1e-100)])
 def test_gravity_overflow_underflow_fail_explicitly(g,m):

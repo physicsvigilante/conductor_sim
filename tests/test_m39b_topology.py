@@ -37,7 +37,7 @@ def test_genuine_teacher_example_and_real_standalone_oracle(tmp_path):
     assert result["source_identities_checked"] == 4
     assert result["original_workbook_items_newly_solved"] == 0
     for case in ("isolated", "grounded"):
-        saved = json.loads((tmp_path / ("m39b-" + case + "-native-gauss.json")).read_text())
+        saved = json.loads((tmp_path / ("m39b-" + case + "-native-gauss.json")).read_text(encoding="utf-8"))
         assert saved == manifest["states"][case]
     check = subprocess.run(
         [sys.executable, "-m", "tools.m39b_topology_reference",

@@ -24,7 +24,7 @@ def test_original_static_conductor_apparatus_and_grouping(actual):
     assert len(manifest["historical_anchors_used"])==8
     assert len(manifest["non_success_controls"])==2
     assert all(row["native"] is True for row in manifest["native_source_apparatus"].values())
-    assert json.loads((folder/"native-conductors.json").read_text())==manifest
+    assert json.loads((folder/"native-conductors.json").read_text(encoding="utf-8"))==manifest
     assert len([x for x in manifest["historical_anchors_used"]
                 if x.startswith("p10-linked-")])==2
     assert "p10-linked-13+p10-linked-14" in manifest["native_source_apparatus"]

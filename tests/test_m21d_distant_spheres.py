@@ -186,7 +186,7 @@ def test_small_energy_release_survives_large_absolute_energy():
 def test_offline_viewer_and_verified_data(tmp_path,case):
     r,source=make_case(case)
     path=write_distant_spheres(r,tmp_path/(case+'.html'),title='M21d '+case,provenance=source)
-    text=path.read_text();record=json.loads(path.with_suffix('.json').read_text())
+    text=path.read_text(encoding="utf-8");record=json.loads(path.with_suffix('.json').read_text(encoding="utf-8"))
     assert 'Leading self-capacitance approximation' in text
     assert 'not a discharge animation' in text
     assert 'hasTimeEvolution:false' in text

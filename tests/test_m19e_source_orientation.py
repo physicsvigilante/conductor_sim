@@ -190,8 +190,8 @@ def test_readable_teacher_example_two_cases_export_html_and_json(tmp_path):
               env=dict(os.environ,PYTHONPATH=str(ROOT/'src')+os.pathsep+str(ROOT)),
               text=True,capture_output=True,timeout=45)
         assert proc.returncode==0,proc.stderr
-        sidecar=json.loads(output.with_suffix('.json').read_text())
-        html=output.read_text()
+        sidecar=json.loads(output.with_suffix('.json').read_text(encoding="utf-8"))
+        html=output.read_text(encoding="utf-8")
         embedded=html.split('<script id="simulation-data" type="application/json">',1)[1].split('</script>',1)[0]
         assert json.loads(embedded)==sidecar
         assert sidecar['prescribed_motion']['axis_display']=='horizontal'

@@ -199,8 +199,8 @@ def test_cli_standalone_html_and_json_match_exactly(tmp_path):
     r=subprocess.run(cmd,cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=50)
     assert r.returncode==0,r.stderr+r.stdout
     assert out.exists() and out.with_suffix('.json').exists()
-    data=json.loads(out.with_suffix('.json').read_text())
-    html=out.read_text()
+    data=json.loads(out.with_suffix('.json').read_text(encoding="utf-8"))
+    html=out.read_text(encoding="utf-8")
     assert data['motion_1d']['example']=='plane'
     assert len(data['frames'])==len(data['motion_1d']['frame_sample_indices'])==6
     assert html.count('id="motion-panel"')==1

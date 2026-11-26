@@ -129,7 +129,7 @@ def test_corrupt_source_inventory_is_rejected_without_overwriting_file(plane_bun
     elif bad=='mixed':bundle['motion_1d']={}
     out=tmp_path/'kept.html';out.write_text('previous accepted file')
     with pytest.raises(ValueError):write_visualization(bundle,out)
-    assert out.read_text()=='previous accepted file'
+    assert out.read_text(encoding="utf-8")=='previous accepted file'
 
 
 def test_matching_backend_capability_is_checked_before_acquiring_fields():
@@ -175,7 +175,7 @@ def test_round_trip_html_and_cli(tmp_path):
         '--resolution','9','--line-steps','8','--visual-frames','3','--output',str(target)],
         text=True,capture_output=True,timeout=30)
     assert proc.returncode==0,proc.stderr
-    meta=json.loads(target.with_suffix('.json').read_text())
-    text=target.read_text();embedded=text.split('<script id="simulation-data" type="application/json">')[1].split('</script>')[0]
+    meta=json.loads(target.with_suffix('.json').read_text(encoding="utf-8"))
+    text=target.read_text(encoding="utf-8");embedded=text.split('<script id="simulation-data" type="application/json">')[1].split('</script>')[0]
     assert json.loads(embedded)==meta
     assert 'held-source' in text.lower() and len(meta['frames'])==3

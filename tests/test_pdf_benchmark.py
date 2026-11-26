@@ -110,7 +110,7 @@ def test_cli_check_and_unsupported_render(tmp_path):
     proc=subprocess.run(base+['check','--output',str(checked)],cwd=ROOT,
                         capture_output=True,text=True,timeout=30)
     assert proc.returncode==0,proc.stderr
-    assert json.loads(checked.read_text())['failures']==0
+    assert json.loads(checked.read_text(encoding="utf-8"))['failures']==0
     rendered=tmp_path/'blocked.html'
     proc=subprocess.run(base+['render','p61-external-grounded-sphere','--output',str(rendered)],
                         cwd=ROOT,capture_output=True,text=True,timeout=30)

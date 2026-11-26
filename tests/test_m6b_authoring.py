@@ -115,7 +115,7 @@ def test_cli_grades_and_renders_and_rejects_invalid_request(tmp_path):
     out=subprocess.run(cmd+['grade','--output',str(report)],cwd=working,
                        capture_output=True,text=True,timeout=25)
     assert out.returncode==0,out.stderr
-    assert json.loads(report.read_text())['passed']==15
+    assert json.loads(report.read_text(encoding="utf-8"))['passed']==15
     blocked=tmp_path/'blocked.html'
     bad=subprocess.run(cmd+['render','charge-between-conductors',
                             '--output',str(blocked)],cwd=working,
