@@ -445,3 +445,87 @@ def test_dielectric_and_quasistatic_refusals():
         quasistatic_stack_transition(sol0, replace(p0, groups=(_group("a", FixedPotential(20.0)), _group("b", Grounded()))))
     with pytest.raises(UnsupportedProblem, match="unchanged electrical connections"):
         quasistatic_stack_transition(sol0, replace(p0, groups=(ConductorGroup(("a", "b"), Grounded()),)))
+    # Malformed group object raises UnsupportedProblem (never raw AttributeError)
+    with pytest.raises(UnsupportedProblem, match="ConductorGroup"):
+        quasistatic_stack_transition(sol0, replace(p0, groups=(None,)))
+
+
+def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matching_media():
+    g = (_group("a", FixedPotential(1.0)), _group("b", Grounded()))
+    L = DielectricLayer
+
+    # Repro A: snapped interior boundary must never create a negative-width final slab
+    s_a = solve_planar_stack(PlanarStackProblem(
+        ("a", "b"), (0.1, nextafter(0.8, 1.0)), 1.0, g,
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+        gap_layers=((L(0.7, 1e18), L(1.4e-16, 1e18), L(5.4e-17, 1.0)),),
+    ))
+    assert s_a.capacitance_matrix_f[0][0] > 0.0
+    assert s_a.field_energy_j > 0.0
+    assert all(lf.x_start_m <= lf.x_end_m for lf in s_a.gap_layer_fields)
+
+    # Repro B1: 1-ULP spherical gap potential with single vacuum layer must match M42b exactly
+    a = nextafter(1.0, 0.0)
+    s_b1_m42b = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, a), ConcentricConductor("b", 1.0, 2.0)), g,
+    ))
+    s_b1_m43 = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, a), ConcentricConductor("b", 1.0, 2.0)), g,
+        gap_layers=((L(1.0 - a, 1.0),),),
+    ))
+    _approx(s_b1_m43.potential_at((a, 1e-8, 0.0)), s_b1_m42b.potential_at((a, 1e-8, 0.0)), rel=1e-12)
+    _approx(s_b1_m43.potential_at((a, 1e-8, 0.0)), 0.5496400373, rel=1e-9)
+
+    # Repro B2: sub-ULP spherical dielectric interface must not round onto inner conductor
+    b2 = nextafter(1.0, 2.0)
+    s_b2 = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 1.0), ConcentricConductor("b", b2, 2.0)), g,
+        gap_layers=((L(2**-53, 1.0), L(2**-53, 4.0)),),
+    ))
+    # Point (1, 1e-8, 0) has r^2 = 1 + 1e-16 < (1 + 2^-53)^2 = 1 + 2.22e-16, so it is in layer 0 (k=1)
+    # Effective elastance ~ (2^-53/1 + 2^-53/4) / (4*pi*eps0) = (5/4)*2^-53 / (4*pi*eps0) -> E_layer0 = 1 / ((5/4)*2^-53)
+    e_b2 = s_b2.electric_field_at((1.0, 1e-8, 0.0))[0]
+    _approx(e_b2, 1.0 / (1.25 * 2**-53), rel=1e-10)
+
+    # Repro C: extreme-scale homogeneous M42b planar problem must not overflow layer metadata
+    s_c = solve_planar_stack(PlanarStackProblem(
+        ("a", "b"), (0.0, 1.0), 1e-299, g,
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0, permittivity_f_per_m=1e299,
+    ))
+    _approx(s_c.capacitance_matrix_f[0][0], 1.0, rel=1e-12)
+    _approx(s_c.field_energy_j, 0.5, rel=1e-12)
+    assert s_c.gap_layer_fields == ()
+
+    # Repro D3: coating with kappa=1.1 matching background 1.1*EPSILON_0 is continuous at outer radius
+    s_d3 = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 1.0),),
+        (_group("a", FixedNetCharge(1e-9)),),
+        permittivity_f_per_m=1.1 * EPSILON_0,
+        exterior_layers=(L(1.0, 1.1),),
+    ))
+    e_d3 = s_d3.electric_field_at((2.0, 0.0, 0.0))[0]
+    _approx(e_d3, 1e-9 / (4.0 * pi * 1.1 * EPSILON_0 * 4.0), rel=1e-12)
+    outer_if = [i for i in s_d3.dielectric_interfaces if i.region == "exterior"][-1]
+    assert outer_if.total_bound_charge_c == 0.0
+
+    # Repro D4: exterior coating radius overflow raises UnsupportedProblem (never raw OverflowError)
+    with pytest.raises(UnsupportedProblem, match="binary64 range"):
+        SphericalStackProblem(
+            (ConcentricConductor("a", 0.0, 1e308),),
+            (_group("a", FixedNetCharge(1e-9)),),
+            exterior_layers=(L(1e308, 2.0),),
+        )
+
+    # Planar voltage-offset invariance for quasistatic_stack_transition
+    p_base = PlanarStackProblem(
+        ("a", "b"), (0.0, 0.002), 0.05,
+        (_group("a", FixedPotential(0.0)), _group("b", FixedPotential(100.0))),
+        d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+        gap_layers=((L(0.002, 4.0),),),
+    )
+    p_shift = replace(p_base, groups=(_group("a", FixedPotential(37.5)), _group("b", FixedPotential(137.5))))
+    t_base = quasistatic_stack_transition(solve_planar_stack(p_base), replace(p_base, gap_layers=((L(0.002, 1.0),),)))
+    t_shift = quasistatic_stack_transition(solve_planar_stack(p_shift), replace(p_shift, gap_layers=((L(0.002, 1.0),),)))
+    _approx(t_shift.supply_work_j, t_base.supply_work_j, rel=1e-13)
+    _approx(t_shift.external_work_j, t_base.external_work_j, rel=1e-13)
+    _approx(t_shift.delta_field_energy_j, t_base.delta_field_energy_j, rel=1e-13)

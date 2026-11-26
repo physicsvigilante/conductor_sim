@@ -153,6 +153,10 @@ def _same_reversible_topology(
     after_groups: tuple[ConductorGroup, ...],
 ) -> bool:
     """Verify identical wire partitions and constant terminal voltages across a quasi-static transition."""
+    if any(type(g) is not ConductorGroup for g in before_groups) or any(
+        type(g) is not ConductorGroup for g in after_groups
+    ):
+        raise UnsupportedProblem("conductor groups must be ConductorGroup objects")
     before_map = {frozenset(g.members): g.constraint for g in before_groups}
     after_map = {frozenset(g.members): g.constraint for g in after_groups}
     if set(before_map) != set(after_map):

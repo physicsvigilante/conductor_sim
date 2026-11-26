@@ -205,14 +205,18 @@ def _solve_planar_stack(
         for idx, (lo, hi, kappa) in enumerate(layers):
             eps_layer = (Fraction(problem.permittivity_f_per_m) if problem.gap_layers is None else eps0 * kappa)
             e_layer = d_gap / eps_layer
-            p_layer = (1 - eps0 / eps_layer) * d_gap
             sub.append((lo, hi, kappa, e_layer))
-            layer_fields.append(DielectricLayerField(
-                g, idx, float(lo), float(hi), float(kappa),
-                _representable(d_gap, "gap displacement"),
-                _representable(e_layer, "layer electric field"),
-                _representable(p_layer, "layer polarization"),
-            ))
+            if problem.gap_layers is not None:
+                p_layer = (1 - eps0 / eps_layer) * d_gap
+                layer_fields.append(DielectricLayerField(
+                    g, idx,
+                    _representable(lo, "layer start"),
+                    _representable(hi, "layer end"),
+                    _representable(kappa, "relative permittivity"),
+                    _representable(d_gap, "gap displacement"),
+                    _representable(e_layer, "layer electric field"),
+                    _representable(p_layer, "layer polarization"),
+                ))
         gap_sublayers.append(tuple(sub))
         if len(kappas) == 1:
             gap_fields_out.append(_representable(sub[0][3], "gap field"))

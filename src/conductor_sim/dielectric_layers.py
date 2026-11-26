@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from math import ulp
+from math import isfinite, ulp
 from typing import Literal
 
 from .solver import UnsupportedProblem
-from .spherical_conductor import _finite_si
+from .spherical_conductor import _finite_si, _representable
 
 __all__ = ["DielectricLayer", "DielectricInterfaceCharge", "DielectricLayerField"]
 
@@ -101,23 +101,41 @@ def _validated_gap_layers(
                     )
         if any(w <= 0 for w in widths):
             raise UnsupportedProblem(f"{label} gap {gap_index} has non-positive reconciled layer thickness")
-        bounds = []
+        # Build strictly increasing unsnapped boundaries first so snapping can never drift past `end`.
+        raw_points = [start]
         cursor = start
+        for idx, width in enumerate(widths):
+            cursor = end if idx == len(widths) - 1 else cursor + width
+            raw_points.append(cursor)
+
+        points = [start]
         cursor_dec = Fraction(str(float(start)))
-        for idx, (width, layer) in enumerate(zip(widths, layers)):
+        for idx, layer in enumerate(layers):
             cursor_dec += Fraction(str(layer.thickness_m))
             if idx == len(layers) - 1:
                 nxt = end
             else:
-                nxt_raw = cursor + width
-                nxt_dec = Fraction(float(cursor_dec))
-                if cursor < nxt_dec < end and abs(nxt_dec - nxt_raw) <= Fraction(4 * ulp(max(abs(float(cursor)), abs(float(nxt_raw))))):
-                    nxt = nxt_dec
-                else:
-                    nxt = nxt_raw
-            bounds.append((cursor, nxt, Fraction(layer.relative_permittivity)))
-            cursor = nxt
-        validated.append(tuple(bounds))
+                nxt_raw = raw_points[idx + 1]
+                upper = raw_points[idx + 2]
+                nxt = nxt_raw
+                try:
+                    dec_f = float(cursor_dec)
+                except OverflowError:
+                    dec_f = float("inf")
+                if isfinite(dec_f):
+                    nxt_dec = Fraction(dec_f)
+                    tol = Fraction(4 * ulp(max(abs(float(points[-1])), abs(float(nxt_raw)))))
+                    if points[-1] < nxt_dec < upper and abs(nxt_dec - nxt_raw) <= tol:
+                        nxt = nxt_dec
+            points.append(nxt)
+
+        bounds = tuple(
+            (points[idx], points[idx + 1], Fraction(layer.relative_permittivity))
+            for idx, layer in enumerate(layers)
+        )
+        if bounds[0][0] != start or bounds[-1][1] != end or any(lo >= hi for lo, hi, _ in bounds):
+            raise UnsupportedProblem(f"{label} gap {gap_index} has invalid layer boundary ordering")
+        validated.append(bounds)
     return tuple(validated)
 
 
@@ -136,11 +154,19 @@ def _validated_exterior_layers(
     for layer in exterior_layers:
         cursor_dec += Fraction(str(layer.thickness_m))
         nxt_raw = cursor + Fraction(layer.thickness_m)
-        nxt_dec = Fraction(float(cursor_dec))
-        if nxt_dec > cursor and abs(nxt_dec - nxt_raw) <= Fraction(4 * ulp(max(abs(float(cursor)), abs(float(nxt_raw))))):
-            nxt = nxt_dec
-        else:
-            nxt = nxt_raw
+        nxt_raw_f = _representable(nxt_raw, "exterior dielectric radius")
+        nxt = nxt_raw
+        try:
+            dec_f = float(cursor_dec)
+        except OverflowError:
+            dec_f = float("inf")
+        if isfinite(dec_f):
+            nxt_dec = Fraction(dec_f)
+            tol = Fraction(4 * ulp(max(abs(float(cursor)), abs(nxt_raw_f))))
+            if nxt_dec > cursor and abs(nxt_dec - nxt_raw) <= tol:
+                nxt = nxt_dec
+        if nxt <= cursor:
+            raise UnsupportedProblem("exterior dielectric layer thickness is not positive")
         bounds.append((cursor, nxt, Fraction(layer.relative_permittivity)))
         cursor = nxt
     return tuple(bounds)
