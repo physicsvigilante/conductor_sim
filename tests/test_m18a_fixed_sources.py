@@ -367,7 +367,7 @@ def test_standalone_M18a_cli_cases_retain_stationary_inventory(tmp_path):
         run=subprocess.run([sys.executable,'examples/particle_motion_fixed_charges.py',
             '--case',case,'--output',str(path)],cwd=root,text=True,capture_output=True,timeout=30)
         assert run.returncode==0,run.stderr+run.stdout
-        data=json.loads(path.read_text())
+        data=json.loads(path.read_text(encoding="utf-8"))
         assert data['example']==case
         assert len(data['stationary_charges'])==1
         assert data['moving_charge_index'] in (0,1)

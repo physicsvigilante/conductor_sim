@@ -156,7 +156,7 @@ def test_source_authentic_real_viewer_and_three_actual_native_worlds(native):
         "teacher_grounded_no_external_sources",
     ]
     import json
-    assert json.loads((folder/"native-solid-sphere.json").read_text())==data
+    assert json.loads((folder/"native-solid-sphere.json").read_text(encoding="utf-8"))==data
     html=(folder/data["viewer_file"]).read_text(encoding="utf-8")
     assert '<section id="m36d-source-authentic-solid"' in html
     assert "genuinely SOLID conducting sphere" in html

@@ -41,8 +41,8 @@ def test_actual_teacher_line_si_viewer_and_html_agree_at_every_frame(generated):
     assert doc["readouts"][0]["current_label"].startswith("8.944")
     assert doc["readouts"][20]["current_label"]=="0 A"
     assert doc["trace"]["samples"][40]["wire_current_sphere_to_ground_a"]<0
-    assert json.loads((folder/"m38b-line-physics.json").read_text())==doc["trace"]
-    assert json.loads((folder/"m38b-line-viewer.json").read_text())==doc
+    assert json.loads((folder/"m38b-line-physics.json").read_text(encoding="utf-8"))==doc["trace"]
+    assert json.loads((folder/"m38b-line-viewer.json").read_text(encoding="utf-8"))==doc
     html=(folder/"m38b-line.html").read_text(encoding="utf-8")
     for token in (
         '<svg id="m38b-scene"', '<svg id="m38b-current-chart"',

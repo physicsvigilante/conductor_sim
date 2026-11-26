@@ -300,13 +300,13 @@ def test_corrupt_time_and_guard_metadata_rejected(runs):
 def test_self_contained_saved_time_viewer_not_static_angle_interpolation(tmp_path,runs,case):
     r=runs[case]
     p=write_dipole_motion(r,tmp_path/(case+'.html'))
-    text=p.read_text()
+    text=p.read_text(encoding="utf-8")
     assert 'id="play"' in text and 'id="time"' in text
     assert 'physical seconds / wall second' in text
     assert 'orthographic projection' in text and 'ideal frictionless hinge' in text.lower()
     assert 'No browser physics' in text
     assert 'fetch(' not in text and 'src="http' not in text
-    audit=json.loads(p.with_suffix('.json').read_text())
+    audit=json.loads(p.with_suffix('.json').read_text(encoding="utf-8"))
     assert audit['spec']['model_digest']==r.spec.model.digest
     assert len(audit['samples'])==len(r.samples)
     if case=='source-guard':

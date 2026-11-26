@@ -318,7 +318,7 @@ def test_public_cli_json_is_finite_and_has_no_conductor_inventory(case,tmp_path)
     process=subprocess.run([sys.executable,'examples/test_charge_motion.py','--case',case,
                             '--output',str(path)],capture_output=True,text=True,timeout=30)
     assert process.returncode==0,process.stdout+process.stderr
-    data=json.loads(path.read_text())
+    data=json.loads(path.read_text(encoding="utf-8"))
     assert data['example']==case and data['schema']=='conductor_sim.test_charge_motion.v1'
     assert 'conductors' not in data and 'frames' not in data
     assert data['samples'][0]['time_s']==0

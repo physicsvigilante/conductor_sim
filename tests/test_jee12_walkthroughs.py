@@ -27,8 +27,8 @@ def test_native_original_two_case_source_physics_and_standalone_reference(genera
     assert result["frozen_jee12_original_answer_count_changed"] is False
     import json
     from math import isclose
-    work = json.loads((out / "p1-external-work.json").read_text())
-    energy = json.loads((out / "p3-solid-shell-energy.json").read_text())
+    work = json.loads((out / "p1-external-work.json").read_text(encoding="utf-8"))
+    energy = json.loads((out / "p3-solid-shell-energy.json").read_text(encoding="utf-8"))
     assert isclose(work["native"]["external_work_j"]/1.602176634e-19, 40., rel_tol=1e-12)
     assert isclose(work["native"]["field_work_j"]/1.602176634e-19, -40., rel_tol=1e-12)
     assert isclose(work["teacher_hypothetical"]["native_external_work_j"]/1.602176634e-19,
@@ -101,10 +101,10 @@ def test_no_misleading_time_or_fake_browser_computation(generated):
         assert "Original requested answer" in text
         assert "not cryptographically authenticated" in text
         assert "<output" in text
-    p1 = (out/"p1-external-work.html").read_text()
+    p1 = (out/"p1-external-work.html").read_text(encoding="utf-8")
     assert "5-3-4" in p1 and "Work by external agent (+)" in p1
     assert "Work by electric field" in p1
-    p3 = (out/"p3-solid-shell-energy.html").read_text()
+    p3 = (out/"p3-solid-shell-energy.html").read_text(encoding="utf-8")
     assert p3.count('r="55"') == 2
     assert p3.count('r="110"') == 2
     assert "filled solid" in p3

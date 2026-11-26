@@ -25,7 +25,7 @@ def test_seven_real_source_apparatus_and_separate_3d_refusal(native):
     assert data["explicit_refusal"]["native"] is False
     assert data["explicit_refusal"]["viewer_file"] is None
     assert len(data["source_apparatus"])==7
-    assert json.loads((directory/"native-replays.json").read_text())==data
+    assert json.loads((directory/"native-replays.json").read_text(encoding="utf-8"))==data
 
 
 def test_independent_reference_checks_every_actual_native_case(native):

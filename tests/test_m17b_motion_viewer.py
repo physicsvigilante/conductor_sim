@@ -206,8 +206,8 @@ def test_cli_standalone_json_has_exact_html_physics(tmp_path):
                           capture_output=True,text=True,timeout=90)
     assert result.returncode==0,result.stderr+result.stdout
     assert path.exists() and path.with_suffix('.json').exists()
-    json_data=json.loads(path.with_suffix('.json').read_text())
-    html=path.read_text()
+    json_data=json.loads(path.with_suffix('.json').read_text(encoding="utf-8"))
+    html=path.read_text(encoding="utf-8")
     assert json_data['motion_2d']['example']=='plane'
     assert len(json_data['motion_2d']['frame_sample_indices'])==len(json_data['frames'])==6
     embedded=html.split('<script id="simulation-data" type="application/json">',1)[1].split('</script>',1)[0]

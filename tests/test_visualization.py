@@ -169,7 +169,7 @@ def test_sweep_uses_shared_color_scale_and_actual_distinct_states():
 def test_failed_export_leaves_existing_file_unchanged(tmp_path):
     path=tmp_path/'view.html';path.write_text('old')
     with pytest.raises(ValueError):write_visualization({'schema':'bad'},path)
-    assert path.read_text()=='old'
+    assert path.read_text(encoding="utf-8")=='old'
 
 
 def test_solver_surface_tolerance_terminates_trace_not_export():

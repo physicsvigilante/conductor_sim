@@ -297,7 +297,7 @@ def test_preserved_tilted_sources_are_not_reconstructed():
 
 
 def test_legacy_scenario_records_and_digests_match_preimplementation_fixture():
-    expected = json.loads((Path(__file__).parent/"fixtures/m22a_legacy_scenarios.json").read_text())
+    expected = json.loads((Path(__file__).parent/"fixtures/m22a_legacy_scenarios.json").read_text(encoding="utf-8"))
     actual = []
     for with_g in (False, True):
         spec = MotionSpec(

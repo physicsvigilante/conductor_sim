@@ -287,3 +287,45 @@ No new physics solver, time integrator, scene graph or scenario database.
 Four original teacher revisions: axial field, doubled mass, shifted ring B,
 voltage-gauge shift. See [M20a](m20a.md); acceptance requires exact-head
 Python/Chromium and all retained real FEMM/nonregression gates.
+
+## Status after M20a (updated during Phase 0, November 2026)
+
+The milestone entries above stop at M20a; they are preserved as written. Later
+milestones (M21a through M41a) each have their own document in this
+directory (`m21a.md` … `m41a.md`, with charters alongside), and the
+[current capability map](current_capabilities.md) is the up-to-date index of
+what is qualified today. `main` at `953af40` includes the workbook-driven
+additions and audit corrections merged as PRs #136–#147 (for example Q52–Q56,
+Q61 and Q63, and the post-audit fixes in #145–#147).
+
+**Collaborative assessment (M01, accepted by the owner).** A read-only,
+three-model assessment found no correctness defect at the P1 level in an ordinary
+JEE-scale admitted arrangement. It found that responding conductors are solved
+by a set of separate exact-case backends rather than composed: common, exactly
+solvable arrangements such as a hollow shell with an exterior charge, charges
+on both sides of a shell, or a charge between concentric shells are refused by
+every backend. The owner recorded this as a **P1 architectural priority**,
+distinct from numerical-correctness severity. M01 also confirmed a small set
+of numerical and API defects.
+
+**Phase 0 — corrective stabilisation (in progress).** Five separately reviewed
+PRs fix only the confirmed defects, with no new physics:
+0a cavity charge, potential and field cancellation; 0b parallel-plate local
+accuracy guard and geometry admission; 0c exterior-sphere scale and
+near-surface density; 0d FEMM capability query, force-index policy and
+single-shell grounding through a connection plan; 0e Windows UTF-8 test
+portability and this roadmap.
+
+**Next, each separately authorised.**
+
+1. **M42a — one connected spherical conductor with a single conductor state.**
+   Sealed spherical cavities, sources inside and outside, grounded or fixed net
+   charge, region potentials and fields from one shared model. Existing
+   single-conductor routes become thin compatibility adapters.
+2. **M42b — radial multi-conductor coupling.** A capacitance/elastance matrix
+   for two or more conductors, fixed-potential conductors, wiring, and
+   homogeneous spherical and planar capacitors as acceptance cases (no separate
+   capacitor family; lumped circuit networks are out of scope).
+3. **M43 — layered linear dielectrics** on the same region and constraint
+   contract, then a conductor in a uniform background field, then gravity with
+   responding conductors.

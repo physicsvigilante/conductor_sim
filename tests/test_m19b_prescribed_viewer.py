@@ -247,8 +247,8 @@ def test_cli_generated_html_embeds_identical_json_and_all_real_samples(case,tmp_
         cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=40)
     assert result.returncode==0,result.stderr+result.stdout
     assert out.exists() and out.with_suffix('.json').exists()
-    data=json.loads(out.with_suffix('.json').read_text())
-    html=out.read_text()
+    data=json.loads(out.with_suffix('.json').read_text(encoding="utf-8"))
+    html=out.read_text(encoding="utf-8")
     embedded=html.split('<script id="simulation-data" type="application/json">',1)[1].split('</script>',1)[0]
     assert json.loads(embedded)==data
     assert data['prescribed_motion']['example']==case

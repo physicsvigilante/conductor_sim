@@ -57,14 +57,14 @@ def test_2021_official_crosswalk_preserves_actually_printed_workbook_caption(evi
 
 def test_p61_static_source_givens_are_not_teacher_numbers(evidence):
     directory,r=evidence
-    x=json.loads((directory/'p61/p61-native.json').read_text())
+    x=json.loads((directory/'p61/p61-native.json').read_text(encoding="utf-8"))
     out=check_p61(x)
     assert out['qualified_static_grounded_sphere'] is True
     assert out['independent_teacher_final_charge_c']==pytest.approx(-3.125e-10,rel=1e-14)
     assert x['native_sphere_net_charge_c']==pytest.approx(-3.125e-10,rel=1e-14)
     assert x['source_symbolic_final_charge']=='-Q*R/r'
     assert x['not_physical_time_evolution'] is True
-    page=(directory/'p61/p61-static-teacher.html').read_text()
+    page=(directory/'p61/p61-static-teacher.html').read_text(encoding="utf-8")
     assert 'Teacher-authored example, NOT source numbers' in page
     assert 'no physical switch current' in page
     assert "default-src 'none'" in page
@@ -147,7 +147,7 @@ def test_substituted_artifact_digest_and_removed_artifact_refused(evidence):
 ])
 def test_forged_p61_source_and_si_refused(evidence,mutation):
     directory,_=evidence
-    p=json.loads((directory/'p61/p61-native.json').read_text())
+    p=json.loads((directory/'p61/p61-native.json').read_text(encoding="utf-8"))
     field,value=mutation
     p[field]=value
     with pytest.raises(ValueError): check_p61(p)
@@ -155,7 +155,7 @@ def test_forged_p61_source_and_si_refused(evidence,mutation):
 
 def test_p61_forged_signed_density_and_bool_q_refused(evidence):
     directory,_=evidence
-    native=json.loads((directory/'p61/p61-native.json').read_text())
+    native=json.loads((directory/'p61/p61-native.json').read_text(encoding="utf-8"))
     for case in ['charge','sigma','angle','source-position','boolean-coordinate']:
         data=deepcopy(native)
         if case=='boolean-coordinate': data['teacher_numeric_values_not_printed']['sphere_center_m'][2]=False
