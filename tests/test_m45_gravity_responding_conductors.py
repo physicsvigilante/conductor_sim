@@ -1656,3 +1656,18 @@ def test_m45_sol_v18_exact_displacement_before_plane_cross_product():
     )
     n_cav = _m2d_geometry(spec_cav).normal
     assert abs(sum(a * b for a, b in zip(n_cav, expected))) > 1.0 - 1e-12
+
+
+def test_m45_sol_v19_exact_launch_coplanarity_check_for_tiny_offset_sphere():
+    """Regression suite for Sol v19: exact rational launch/source coplanarity matches certified normal."""
+    sphere = SolidSphere(radius_m=1e-9, constraint=Grounded(), center_m=(-1.0, -1.0, -1.0))
+    launch = (-5.0 * (2.0 ** -55), -6.0 * (2.0 ** -55), -3.0 * (2.0 ** -55))
+    prob = ElectrostaticProblem((PointCharge(1e-12, launch),), (sphere,))
+    spec = Motion2DSpec(
+        prob, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.0, 1.0, 0.0), reference_position_m=launch),
+    )
+    bundle = sample_motion_2d(spec, ExternalGroundedSphereBackend(), visual_frames=2, resolution=9)
+    assert bundle["motion_2d"]["termination"] == "duration"
+    assert len(bundle["motion_2d"]["samples"]) == 3
+    assert "<canvas" in render_html(bundle, title="Sol v19 tiny sphere exact coplanarity")

@@ -515,10 +515,12 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
                        stationary, charge_guard)
     if domain.clearance(initial) <= 0:
         raise ValueError('initial point is within the surface-approach guard')
-    if abs(_dot(_sub(initial, origin), normal)) > 1e-9*scale or abs(_dot(velocity, normal)) > max(1e-12, 1e-9*_norm(velocity)):
+    _, init_out_exact = _exact_out_of_plane(_exact_sub(initial, origin), exact_normal)
+    v_sin_out, v_out_exact = _exact_out_of_plane(velocity, exact_normal)
+    if (init_out_exact > Fraction(1, 10**9) * Fraction(scale)
+            or (v_out_exact > Fraction(1, 10**12) and v_sin_out > 1e-9)):
         raise UnsupportedProblem('an invariant planar motion cannot be established')
     if spec.gravity is not None and _norm(velocity) > 0.:
-        v_sin_out, v_out_exact = _exact_out_of_plane(velocity, exact_normal)
         if v_sin_out > 64.0 * ulp(1.0) or _exceeds_vel_disp(v_out_exact, spec.duration_s, 1e-9 * scale):
             raise UnsupportedProblem('an invariant planar motion cannot be established')
     if g_raw is not None and g_scale > 0.:
@@ -530,8 +532,8 @@ def _geometry(spec: Motion2DSpec) -> _Geometry:
     for source in stationary:
         if domain.clearance(source.position_m) <= 0:
             raise UnsupportedProblem('fixed point charge must occupy the same valid vacuum region')
-        if abs(_dot(_sub(source.position_m, origin), normal)) > max(
-                1e-12*scale, 1e-9*_norm(_sub(source.position_m, origin))):
+        src_sin_out, src_out_exact = _exact_out_of_plane(_exact_sub(source.position_m, origin), exact_normal)
+        if src_out_exact > Fraction(1, 10**12) * Fraction(scale) and src_sin_out > 1e-9:
             raise UnsupportedProblem('fixed point charges must share the physically invariant plane')
     return domain
 
