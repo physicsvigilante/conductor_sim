@@ -74,7 +74,10 @@ class _RootSum:
             upper += c * b
         return lower, upper
 
-    def rounded(self, label: str, *, square_over: Fraction | None = None) -> float:
+    def _rounded_flag(
+        self, label: str, *, square_over: Fraction | None = None,
+        allow_underflow: bool = False,
+    ) -> tuple[float, bool]:
         terms = self
         for bits in (96, 192, 384, 768, 1536, 3072, 6144, 12288):
             if bits == 192:
@@ -88,15 +91,37 @@ class _RootSum:
                     low = Fraction() if a <= 0 <= b else min(a * a, b * b)
                     a, b = low / square_over, max(a * a, b * b) / square_over
             if a == b == 0:
-                return 0.0
+                return 0.0, False
             if a <= 0 <= b:
                 continue
             lo, hi = _float_or_infinity(a), _float_or_infinity(b)
             if lo == hi:
-                if not isfinite(lo) or lo == 0:
+                if not isfinite(lo):
                     raise UnsupportedProblem(f"{label} outside the binary64 range")
-                return lo
+                if lo == 0:
+                    if allow_underflow:
+                        return 0.0, True
+                    raise UnsupportedProblem(f"{label} outside the binary64 range")
+                return lo, True
         raise UnsupportedProblem(f"{label} cannot be resolved to binary64 precision")
+
+    def rounded(self, label: str, *, square_over: Fraction | None = None) -> float:
+        value, _ = self._rounded_flag(label, square_over=square_over)
+        return value
+
+
+def _round_vector(components: tuple[_RootSum, ...], label: str) -> tuple[float, float, float]:
+    """Round a 3D exact vector, allowing tiny orthogonal underflow if the vector stays nonzero."""
+    values: list[float] = []
+    any_nonzero = False
+    for term in components:
+        value, exact_nonzero = term._rounded_flag(f"{label} component", allow_underflow=True)
+        values.append(value)
+        any_nonzero |= exact_nonzero
+    result = (values[0], values[1], values[2])
+    if any_nonzero and result == (0.0, 0.0, 0.0):
+        raise UnsupportedProblem(f"{label} outside the binary64 range")
+    return result
 
 
 def _float_or_infinity(value: Fraction) -> float:

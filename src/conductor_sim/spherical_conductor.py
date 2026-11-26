@@ -10,7 +10,7 @@ from math import copysign, fsum, hypot, isfinite, pi, ulp
 from types import MappingProxyType
 from typing import Literal
 
-from ._spherical_precision import _RootSum
+from ._spherical_precision import _RootSum, _round_vector
 from .model import (
     EPSILON_0, ORIGIN, ElectricalConstraint, FixedNetCharge, FixedPotential,
     Grounded, Vector3, _position,
@@ -60,7 +60,10 @@ def _squared_distance(a: Vector3, b: Vector3) -> Fraction:
 
 def _checked_position(value: Vector3, label: str) -> Vector3:
     try:
-        return _position(value, label)
+        point = _position(value, label)
+        for coord in value:
+            _finite_si(coord, label)
+        return point
     except (ValueError, TypeError, OverflowError) as exc:
         raise UnsupportedProblem(str(exc)) from exc
 
@@ -461,14 +464,14 @@ class SphericalConductorSolution:
             for total, delta in zip(components, separation):
                 total.add(q * delta / (self._inverse_k * separation_sq),
                           1 / (separation_sq * charge_root))
-        return tuple(total.rounded("electric field component") for total in components)
+        return _round_vector(components, "electric field")
 
     @property
     def background_induced_dipole_c_m(self) -> Vector3:
         """Dipole moment about the sphere center induced by the uniform field alone."""
         radius = self._kernels[_EXTERIOR].radius_m
-        return tuple(_representable(self._inverse_k * radius**3 * e, "induced dipole component")
-                     for e in self._field)
+        components = tuple(_RootSum(self._inverse_k * radius**3 * e) for e in self._field)
+        return _round_vector(components, "induced dipole")
 
     def _outer_wall_density(self, point_m: Vector3) -> tuple[_RootSum, _ExactVector]:
         point = _checked_position(point_m, "outer wall point")
@@ -501,8 +504,8 @@ class SphericalConductorSolution:
         for n in normal:
             component = _RootSum()
             component.add_scaled(density, n / epsilon)
-            components.append(component.rounded("outer wall electric field component"))
-        return tuple(components)
+            components.append(component)
+        return _round_vector(tuple(components), "outer wall electric field")
 
     def outer_wall_pressure_at(self, point_m: Vector3) -> float:
         """Outward electrostatic traction magnitude sigma²/(2*eps), in pascals."""
@@ -519,8 +522,8 @@ class SphericalConductorSolution:
         for e in self._field:
             component = _RootSum()
             component.add_scaled(self._outer_charge, e)
-            components.append(component.rounded("outer wall force component"))
-        return tuple(components)
+            components.append(component)
+        return _round_vector(tuple(components), "outer wall force")
 
 
 def _dot(a: _ExactVector, b: _ExactVector) -> Fraction:

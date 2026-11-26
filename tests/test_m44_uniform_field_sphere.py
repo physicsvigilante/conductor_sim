@@ -279,3 +279,26 @@ def test_zero_field_is_explicit_opt_in_for_nonzero_fixed_potential():
     with pytest.raises(UnsupportedProblem, match="nonzero FixedPotential"):
         solve_spherical_conductor(plain)
     assert solve_spherical_conductor(replace(plain, background_field=UniformBackgroundField(ZERO))).potential_v == 2.
+
+
+def test_review_regressions_vector_orthogonal_underflow_and_bool_rejection():
+    # Far-field off-axis probe: E_x = 1.0 V/m while orthogonal dipole component E_y ~ 3e-400 underflows to 0.0
+    s_far = solve(1., E=(1., 0., 0.))
+    assert s_far.electric_field_at((1e100, 1., 0.)) == (1., 0., 0.)
+    # Legacy M42a far-field probe retains finite radial component when orthogonal component underflows
+    s_leg = solve_spherical_conductor(SphericalConductorProblem(1., FixedNetCharge(1e-9)))
+    e_leg = s_leg.electric_field_at((1e100, 1e-150, 0.))
+    assert e_leg[0] == pytest.approx(1e-9 / (4 * pi * EPSILON_0 * 1e200), rel=1e-14)
+    assert e_leg[1] == 0. and e_leg[2] == 0.
+    # Force and dipole keep dominant finite component when orthogonal component underflows
+    s_force = solve(1., FixedNetCharge(1e-200), E=(1., 1e-200, 0.))
+    assert s_force.outer_wall_force_n == (1e-200, 0., 0.)
+    s_dip = solve(1e-100, E=(1., 1e-50, 0.))
+    assert s_dip.background_induced_dipole_c_m[0] > 0. and s_dip.background_induced_dipole_c_m[1] == 0.
+    # Bool coordinates in UniformBackgroundField or wall/sample probes are refused explicitly
+    with pytest.raises(UnsupportedProblem, match="finite"):
+        UniformBackgroundField((True, 0., 0.))
+    with pytest.raises(UnsupportedProblem, match="finite"):
+        UniformBackgroundField(ZERO, (False, 0., 0.))
+    with pytest.raises(UnsupportedProblem, match="finite"):
+        s_far.outer_surface_charge_density_at((True, 0., 0.))
