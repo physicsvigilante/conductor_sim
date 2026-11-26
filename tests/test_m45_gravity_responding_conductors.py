@@ -1278,5 +1278,98 @@ def test_m45_sol_v11_tilted_normal_2d_exact_cross_cancel_acc_and_unchanged_pos_u
         s1["electric_interaction_energy_j"] = nextafter(-float(2**45), float("inf"))
         s1["energy_drift_j"] = 0.125
         b_u[key]["max_abs_energy_drift_j"] = 0.125
-        with pytest.raises(ValueError, match="unchanged particle position|interaction energy"):
+        with pytest.raises(ValueError, match="repeated particle position|interaction energy"):
             render_html(b_u, title=f"Forged 1-ULP rest edit {key}")
+
+
+def test_m45_sol_v12_collinear_1d_eq_velocity_exact_cross_1ulp_gforce_and_repeated_pos():
+    """Regression suite for all 4 Sol v12 findings."""
+    import copy
+    from math import nextafter
+
+    # 1. Exactly collinear (1, 2, 2) plane/axis/gravity with a=2^40/3 finds the unstable equilibrium near s=0
+    plane_122 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 2.0, 2.0), Grounded())
+    a_big = float(2**40) / 3.0
+    spec_122 = Motion1DSpec(
+        ElectrostaticProblem(
+            (PointCharge(float(2**22), (2.0 / 3.0, 4.0 / 3.0, 4.0 / 3.0)),),
+            (plane_122,),
+            permittivity_f_per_m=1.0 / (4.0 * pi),
+        ),
+        0, 1.0, (1.0, 2.0, 2.0), 0.0, 0.125, 0.025,
+        gravity=UniformGravity((a_big, 2.0 * a_big, 2.0 * a_big)),
+    )
+    eq_122 = find_1d_equilibria(
+        spec_122, GroundedPlaneBackend(), displacement_bounds_m=(-0.001, 0.001), scan_samples=17,
+    )
+    assert len(eq_122) == 1
+    assert abs(eq_122[0].displacement_m) < 1e-12
+    assert eq_122[0].stability == "unstable"
+
+    # 2. Valid 2D plane selected by nearly-parallel launch velocity (1, 2, 3) vs (1.0000000001, 2, 2.9999999998)
+    plane_123 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 2.0, 3.0), Grounded())
+    vec_123 = (1.0000000001, 2.0, 2.9999999998)
+    spec_123 = Motion2DSpec(
+        ElectrostaticProblem((PointCharge(1e-6, (2.0, 2.0, 2.0)),), (plane_123,)),
+        0, 1.0, vec_123, 0.001, 0.0005,
+        gravity=UniformGravity(vec_123),
+    )
+    b_123 = sample_motion_2d(spec_123, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert "<canvas" in render_html(b_123, title="Valid 123 velocity-selected 2D plane")
+
+    # 3. Both viewers reject 1-ULP gravitational_force_n edit (2^40 -> nextafter) + 2^-12 total force/acc
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_c = ElectrostaticProblem(
+        (PointCharge(float(2**22), (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_c = UniformGravity((0.0, 0.0, float(2**40)), reference_position_m=(0.0, 0.0, 2.0))
+    b1_c = sample_motion_1d(
+        Motion1DSpec(prob_c, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 0.1, 0.025, gravity=g_c),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2_c = sample_motion_2d(
+        Motion2DSpec(prob_c, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.025, gravity=g_c),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b1_c["motion_1d"]["samples"][1]["gravitational_force_n"] = nextafter(float(2**40), float("inf"))
+    b1_c["motion_1d"]["samples"][1]["force_n"] = float(2**-12)
+    b1_c["motion_1d"]["samples"][1]["acceleration_m_s2"] = float(2**-12)
+    with pytest.raises(ValueError, match="gravitational force"):
+        render_html(b1_c, title="Forged 1D 1-ULP g_force")
+    b2_c["motion_2d"]["samples"][1]["gravitational_force_n"] = [0.0, 0.0, nextafter(float(2**40), float("inf"))]
+    b2_c["motion_2d"]["samples"][1]["force_n"] = [0.0, 0.0, float(2**-12)]
+    b2_c["motion_2d"]["samples"][1]["acceleration_m_s2"] = [0.0, 0.0, float(2**-12)]
+    with pytest.raises(ValueError, match="gravitational force"):
+        render_html(b2_c, title="Forged 2D 1-ULP g_force")
+
+    # 4. Both viewers reject 1-ULP electric energy forgery at a repeated NON-INITIAL position
+    q_big = float(2**24)
+    m_big = float(2**44)
+    prob_u = ElectrostaticProblem(
+        (PointCharge(q_big, (0.0, 0.0, 2.0)),),
+        (plane0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    g_u = UniformGravity((0.0, 0.0, 1.0), reference_position_m=(0.0, 0.0, 2.0))
+    b1_m = sample_motion_1d(
+        Motion1DSpec(prob_u, 0, m_big, (0.0, 0.0, 1.0), 0.01, 0.1, 0.025, gravity=g_u),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    b2_m = sample_motion_2d(
+        Motion2DSpec(prob_u, 0, m_big, (0.0, 0.0, 0.01), 0.1, 0.025, gravity=g_u),
+        GroundedPlaneBackend(), visual_frames=2, resolution=9,
+    )
+    for b_m, key in ((copy.deepcopy(b1_m), "motion_1d"), (copy.deepcopy(b2_m), "motion_2d")):
+        t2 = b_m[key]["samples"][2]["time_s"]
+        dup = copy.deepcopy(b_m[key]["samples"][1])
+        dup["time_s"] = t2
+        dup["electric_interaction_energy_j"] = nextafter(dup["electric_interaction_energy_j"], float("inf"))
+        dup["interaction_energy_j"] = dup["electric_interaction_energy_j"] + dup["gravitational_potential_energy_j"]
+        dup["total_energy_j"] = dup["kinetic_energy_j"] + dup["interaction_energy_j"]
+        dup["energy_drift_j"] += 0.125
+        b_m[key]["samples"][2] = dup
+        b_m[key]["max_abs_energy_drift_j"] = max(abs(r["energy_drift_j"]) for r in b_m[key]["samples"])
+        with pytest.raises(ValueError, match="repeated particle position"):
+            render_html(b_m, title=f"Forged repeated noninitial pos {key}")

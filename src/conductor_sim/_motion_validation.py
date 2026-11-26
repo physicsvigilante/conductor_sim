@@ -188,20 +188,19 @@ def validate_planar_motion(motion, *, frames=None):
                 raise ValueError('gravity-coupled motion samples require separated force and energy contributions')
             exp_gf = gravity_obj.force_at(position, mass_kg=mass)
             exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
-            if any(not isclose(a, b, rel_tol=0.0, abs_tol=8 * ulp(abs(b)))
-                   for a, b in zip(g_force, exp_gf)):
+            if any(a != b for a, b in zip(g_force, exp_gf)):
                 raise ValueError('saved gravitational force disagrees with UniformGravity')
-            for a, b, c in zip(force, e_force, g_force):
+            for a, b, c in zip(force, e_force, exp_gf):
                 exp_f = _safe_fsum((b, c))
                 if not isfinite(exp_f) or not isclose(a, exp_f, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_f))):
                     raise ValueError('saved total force disagrees with electric + gravitational sum')
-            if not isclose(g_u, exp_gu, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gu))):
+            if g_u != exp_gu:
                 raise ValueError('saved gravitational energy disagrees with UniformGravity')
-            exp_u = _safe_fsum((e_u, g_u))
+            exp_u = _safe_fsum((e_u, exp_gu))
             if not isfinite(exp_u) or not isclose(row['interaction_energy_j'], exp_u,
                                                   rel_tol=0.0, abs_tol=8 * ulp(abs(exp_u))):
                 raise ValueError('saved interaction energy disagrees with electric + gravitational sum')
-            exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, g_u))
+            exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, exp_gu))
             if not isfinite(exp_e) or not isclose(row['total_energy_j'], exp_e,
                                                   rel_tol=0.0, abs_tol=8 * ulp(abs(exp_e))):
                 raise ValueError('motion total energy disagrees with K+U_elec+U_grav')
@@ -211,13 +210,25 @@ def validate_planar_motion(motion, *, frames=None):
         from .conservative_forces import UniformGravity
         local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
         r0 = rows[0]
+        seen_positions = {}
         for row in rows:
-            same_pos = list(row['position_m']) == list(r0['position_m'])
-            if same_pos and (
-                row['electric_interaction_energy_j'] != r0['electric_interaction_energy_j']
-                or list(row['electric_force_n']) != list(r0['electric_force_n'])
-            ):
-                raise ValueError('saved electrostatic force/energy changed at an unchanged particle position')
+            pos_key = tuple(row['position_m'])
+            ef_key = tuple(row['electric_force_n'])
+            if pos_key in seen_positions:
+                prev_eu, prev_ef, prev_k, prev_drift = seen_positions[pos_key]
+                if row['electric_interaction_energy_j'] != prev_eu or ef_key != prev_ef:
+                    raise ValueError('saved electrostatic force/energy changed at a repeated particle position')
+                dk_rep = _safe_fsum((row['kinetic_energy_j'], -prev_k))
+                k_rep_err = 0.0 if row['kinetic_energy_j'] == prev_k else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(prev_k)))
+                if not isclose(_safe_fsum((row['energy_drift_j'], -prev_drift)), dk_rep,
+                               rel_tol=1e-6, abs_tol=k_rep_err):
+                    raise ValueError('saved planar energy_drift_j disagrees at a repeated particle position')
+            else:
+                seen_positions[pos_key] = (
+                    row['electric_interaction_energy_j'], ef_key,
+                    row['kinetic_energy_j'], row['energy_drift_j'],
+                )
+            same_pos = pos_key == tuple(r0['position_m'])
             dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
             deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
             dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)
@@ -407,9 +418,9 @@ def validate_motion_1d_gravity(motion):
             raise ValueError('gravity-coupled 1D motion samples require separated force and energy contributions')
         exp_gf = _safe_fsum(x * y for x, y in zip(gravity_obj.force_at(position, mass_kg=mass), axis))
         exp_gu = gravity_obj.potential_energy_at(position, mass_kg=mass)
-        if not isfinite(exp_gf) or not isclose(g_force, exp_gf, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gf))):
+        if not isfinite(exp_gf) or g_force != exp_gf:
             raise ValueError('saved 1D gravitational force disagrees with UniformGravity')
-        exp_f = _safe_fsum((e_force, g_force))
+        exp_f = _safe_fsum((e_force, exp_gf))
         if not isfinite(exp_f) or not isclose(row['force_n'], exp_f, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_f))):
             raise ValueError('saved 1D total force disagrees with electric + gravitational sum')
         exp_acc = row['force_n'] / mass
@@ -417,9 +428,9 @@ def validate_motion_1d_gravity(motion):
                 not isclose(row['acceleration_m_s2'], exp_acc,
                             rel_tol=0.0, abs_tol=8 * ulp(abs(exp_acc)))):
             raise ValueError('saved 1D acceleration disagrees with force and mass')
-        if not isclose(g_u, exp_gu, rel_tol=0.0, abs_tol=8 * ulp(abs(exp_gu))):
+        if g_u != exp_gu:
             raise ValueError('saved 1D gravitational energy disagrees with UniformGravity')
-        exp_u = _safe_fsum((e_u, g_u))
+        exp_u = _safe_fsum((e_u, exp_gu))
         if not isfinite(exp_u) or not isclose(row['interaction_energy_j'], exp_u,
                                               rel_tol=0.0, abs_tol=8 * ulp(abs(exp_u))):
             raise ValueError('saved 1D interaction energy disagrees with electric + gravitational sum')
@@ -432,7 +443,7 @@ def validate_motion_1d_gravity(motion):
                 not isclose(row['kinetic_energy_j'], kinetic,
                             rel_tol=2e-9, abs_tol=128 * ulp(abs(kinetic)))):
             raise ValueError('saved 1D kinetic energy disagrees with velocity and mass')
-        exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, g_u))
+        exp_e = _safe_fsum((row['kinetic_energy_j'], e_u, exp_gu))
         if not isfinite(exp_e) or not isclose(row['total_energy_j'], exp_e,
                                               rel_tol=0.0, abs_tol=8 * ulp(abs(exp_e))):
             raise ValueError('saved 1D total energy disagrees with K+U_elec+U_grav')
@@ -441,13 +452,24 @@ def validate_motion_1d_gravity(motion):
     from .conservative_forces import UniformGravity
     local_gravity = UniformGravity(gravity_obj.acceleration_m_s2, reference_position_m=p0)
     r0 = rows[0]
+    seen_positions = {}
     for row in rows:
-        same_pos = list(row['position_m']) == list(r0['position_m'])
-        if same_pos and (
-            row['electric_interaction_energy_j'] != r0['electric_interaction_energy_j']
-            or row['electric_force_n'] != r0['electric_force_n']
-        ):
-            raise ValueError('saved 1D electrostatic force/energy changed at an unchanged particle position')
+        pos_key = tuple(row['position_m'])
+        if pos_key in seen_positions:
+            prev_eu, prev_ef, prev_k, prev_drift = seen_positions[pos_key]
+            if row['electric_interaction_energy_j'] != prev_eu or row['electric_force_n'] != prev_ef:
+                raise ValueError('saved 1D electrostatic force/energy changed at a repeated particle position')
+            dk_rep = _safe_fsum((row['kinetic_energy_j'], -prev_k))
+            k_rep_err = 0.0 if row['kinetic_energy_j'] == prev_k else 32 * ulp(max(abs(row['kinetic_energy_j']), abs(prev_k)))
+            if not isclose(_safe_fsum((row['energy_drift_j'], -prev_drift)), dk_rep,
+                           rel_tol=1e-6, abs_tol=k_rep_err):
+                raise ValueError('saved 1D energy_drift_j disagrees at a repeated particle position')
+        else:
+            seen_positions[pos_key] = (
+                row['electric_interaction_energy_j'], row['electric_force_n'],
+                row['kinetic_energy_j'], row['energy_drift_j'],
+            )
+        same_pos = pos_key == tuple(r0['position_m'])
         dk = _safe_fsum((row['kinetic_energy_j'], -r0['kinetic_energy_j']))
         deu = _safe_fsum((row['electric_interaction_energy_j'], -r0['electric_interaction_energy_j']))
         dgu = local_gravity.potential_energy_at(row['position_m'], mass_kg=mass)

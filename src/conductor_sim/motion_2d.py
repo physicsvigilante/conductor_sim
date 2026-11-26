@@ -90,9 +90,9 @@ def _certified_normal(primary, velocity, anchors, *, gravity_anchor=None, gravit
     Returns ``(normal, selected_by_gravity)``.
     """
     for candidate in (velocity, *anchors):
-        cross = _cross(primary, candidate)
-        if _norm(cross) > 1e-12*_norm(primary)*_norm(candidate):
-            return _unit(cross), False
+        scaled_cross, sin_ratio = _exact_cross(primary, candidate)
+        if sin_ratio > 1e-12 and _norm(scaled_cross) > 0.0:
+            return _unit(scaled_cross), False
     if gravity_anchor is not None:
         scaled_cross, sin_ratio = _exact_cross(primary, gravity_anchor)
         if sin_ratio > gravity_sin_tol and _norm(scaled_cross) > 0.0:
