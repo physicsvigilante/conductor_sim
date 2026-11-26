@@ -63,6 +63,17 @@ class DielectricInterfaceCharge:
     total_bound_charge_c: float
 
 
+def _width_ulp(expected_width: Fraction, layers: tuple[DielectricLayer, ...]) -> Fraction:
+    """One ULP at the scale of the gap width, safe even when expected_width > DBL_MAX."""
+    try:
+        scale = max(float(expected_width), *(layer.thickness_m for layer in layers))
+        return Fraction(ulp(scale))
+    except OverflowError:
+        # start and end are finite floats, so (end - start) / 2 <= DBL_MAX always fits in binary64.
+        half_scale = max(float(expected_width / 2), *(layer.thickness_m for layer in layers))
+        return 2 * Fraction(ulp(half_scale))
+
+
 def _validated_gap_layers(
     gap_layers: tuple[tuple[DielectricLayer, ...], ...],
     spans: tuple[tuple[Fraction, Fraction], ...],
@@ -85,14 +96,18 @@ def _validated_gap_layers(
             widths = widths_bin
         else:
             # Accept authored decimal spellings summing to the gap width (e.g. 0.001 + 0.002 == 0.003)
-            # or binary64 input rounding of the exact span.
-            max_scale = max(abs(float(start)), abs(float(end)), *(layer.thickness_m for layer in layers))
+            # or binary64 input rounding of the exact span, without ever inflating a thin layer.
+            w_ulp = _width_ulp(expected_width, layers)
+            end_ulp = Fraction(ulp(max(abs(float(start)), abs(float(end)))))
             widths_dec = tuple(Fraction(str(layer.thickness_m)) for layer in layers)
             span_dec = Fraction(str(float(end))) - Fraction(str(float(start)))
-            if sum(widths_dec, _ZERO) == span_dec and abs(expected_width - span_dec) <= Fraction(8 * ulp(max_scale)):
-                # Reconcile final boundary exactly to `end` (at most a few ULPs) so geometry stays watertight.
+            if (
+                sum(widths_dec, _ZERO) == span_dec
+                and abs(expected_width - span_dec) <= 4 * max(w_ulp, end_ulp)
+                and abs(expected_width - span_dec) * 10**12 <= min(expected_width, widths_dec[-1])
+            ):
                 widths = widths_dec[:-1] + (expected_width - sum(widths_dec[:-1], _ZERO),)
-            elif abs(total_bin - expected_width) <= Fraction((len(layers) + 4) * ulp(max_scale)):
+            elif abs(total_bin - expected_width) <= (len(layers) + 2) * w_ulp:
                 widths = widths_bin[:-1] + (expected_width - sum(widths_bin[:-1], _ZERO),)
             else:
                 raise UnsupportedProblem(

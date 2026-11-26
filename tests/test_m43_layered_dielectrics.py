@@ -574,3 +574,30 @@ def test_sol_review_regressions_boundary_snapping_precision_overflow_and_matchin
     e_mag = float(F(q_sub) / (F(4 * pi) * F(EPSILON_0) * F(25) * F(r_sub) ** 2))
     _approx(e_subnorm[0], e_mag * (3.0 / 5.0), rel=1e-14)
     _approx(e_subnorm[1], e_mag * (4.0 / 5.0), rel=1e-14)
+
+    # Sol v3 Finding 1: tiny layers filling 1/128 of a 1-ULP gap must be rejected (never inflated 255x!)
+    with pytest.raises(UnsupportedProblem, match="sum exactly to the gap width"):
+        PlanarStackProblem(
+            ("a", "b"), (1.0, nextafter(1.0, 2.0)), 1.0, g,
+            d_left_c_per_m2=0.0, d_right_c_per_m2=0.0,
+            gap_layers=((L(2.0**-60, 1.0), L(2.0**-60, 2.0)),),
+        )
+
+    # Sol v3 Finding 2: representable tiny transverse field component (y = 5e-324) must not underflow to 0
+    s_tiny_y = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 1.0),),
+        (_group("a", FixedNetCharge(1e-6)),),
+        exterior_layers=(L(2.0, 2.0),),
+    ))
+    e_tiny_y = s_tiny_y.electric_field_at((2.0, 5e-324, 0.0))
+    expected_ey = float(F(1e-6) * F(5e-324) / (F(4 * pi) * F(EPSILON_0) * F(2) * F(8)))
+    _approx(e_tiny_y[1], expected_ey, rel=1e-12)
+    assert e_tiny_y[1] > 0.0
+
+    # Sol v3 Finding 3: exact Pythagorean radius (2, 3, 6) -> r = 7 in 4..28 gap (+1 V / -1 V) gives exact 0.0 V
+    s_pyth = solve_spherical_stack(SphericalStackProblem(
+        (ConcentricConductor("a", 0.0, 4.0), ConcentricConductor("b", 28.0, 30.0)),
+        (_group("a", FixedPotential(1.0)), _group("b", FixedPotential(-1.0))),
+        gap_layers=((L(24.0, 1.0),),),
+    ))
+    assert s_pyth.potential_at((2.0, 3.0, 6.0)) == 0.0
