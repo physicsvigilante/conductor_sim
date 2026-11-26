@@ -1,7 +1,7 @@
 """M45 acceptance suite: UniformGravity coupled with responding-conductor dynamics & equilibria."""
 from __future__ import annotations
 
-from math import isclose, pi, sqrt
+from math import inf, isclose, nextafter, pi, sqrt
 
 import pytest
 
@@ -1535,12 +1535,24 @@ def test_m45_sol_v16_tiny_yz_velocity_and_exact_rational_displacement_bounds():
             prob_sub_t, 0, 1.0, (1e-154, 0.0, 0.0), 1e154, 1e154,
             gravity=UniformGravity((1e-308, 5e-324, 0.0), reference_position_m=(0.0, 0.0, 1e-8)),
         )
-    # Same subnormal-times-t^2 loss in 1D is also refused cleanly
+    # Same subnormal-times-t^2 check in 1D on a tilted (all-nonzero) axis so
+    # it bypasses both the zero-axis and sine checks and exercises _exceeds_accel_disp directly.
+    plane_tilted = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), Grounded())
+    d_tilt = 1e-8 / sqrt(3.0)
+    p_tilt = (d_tilt, d_tilt, d_tilt)
+    prob_sub_1d = ElectrostaticProblem((PointCharge(1e-30, p_tilt),), (plane_tilted,))
+    g_sub_1d = (1e-308, 1e-308, nextafter(1e-308, inf))
     with pytest.raises(UnsupportedProblem, match="collinear"):
         Motion1DSpec(
-            prob_sub_t, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1e154, 1e154,
-            gravity=UniformGravity((0.0, 5e-324, 1e-308), reference_position_m=(0.0, 0.0, 1e-8)),
+            prob_sub_1d, 0, 1.0, plane_tilted.normal, 0.0, 1e154, 1e154,
+            gravity=UniformGravity(g_sub_1d, reference_position_m=p_tilt),
         )
+    # Shorter duration (1e153 s -> 0.5*a_trans*t^2 ~ 2e-18 m <= 1e-17 m) is accepted.
+    spec_sub_1d_ok = Motion1DSpec(
+        prob_sub_1d, 0, 1.0, plane_tilted.normal, 0.0, 1e153, 1e153,
+        gravity=UniformGravity(g_sub_1d, reference_position_m=p_tilt),
+    )
+    assert spec_sub_1d_ok.gravity is not None
 
     # 2b. Huge duration t=1e160 s does NOT disable gravity-based plane selection via t^2 overflow
     spec_1e160 = Motion2DSpec(
@@ -1548,3 +1560,40 @@ def test_m45_sol_v16_tiny_yz_velocity_and_exact_rational_displacement_bounds():
         gravity=UniformGravity((0.0, 1e-322, 1e-306)),
     )
     assert spec_1e160.gravity is not None
+
+
+def test_m45_sol_v17_nearly_axial_held_charge_selects_exact_plane():
+    """Regression suite for Sol v17: nearly axial held charge selects its exact invariant plane."""
+    plane0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+
+    # 1. Exact Sol v17 reproducer: held charge at (0, 5e-13, 2) determines the yz plane
+    prob = ElectrostaticProblem(
+        (
+            PointCharge(1e-6, (0.0, 0.0, 1.0)),
+            PointCharge(-9e-6 / 40.0, (0.0, 5e-13, 2.0)),
+        ),
+        (plane0,),
+    )
+    spec = Motion2DSpec(
+        prob, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.0, 0.0, -0.1), reference_position_m=(0.0, 0.0, 1.0)),
+    )
+    bundle = sample_motion_2d(spec, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert abs(bundle["motion_2d"]["plane_normal"][0]) > 1.0 - 1e-12
+    assert "<canvas" in render_html(bundle, title="Nearly axial held charge yz plane")
+
+    # 2. Sub-4*ulp held-charge offset (5e-17 m) also selects the exact yz plane via fallback
+    prob_tiny = ElectrostaticProblem(
+        (
+            PointCharge(1e-6, (0.0, 0.0, 1.0)),
+            PointCharge(-9e-6 / 40.0, (0.0, 5e-17, 2.0)),
+        ),
+        (plane0,),
+    )
+    spec_tiny = Motion2DSpec(
+        prob_tiny, 0, 1.0, (0.0, 0.0, 0.0), 0.1, 0.05,
+        gravity=UniformGravity((0.0, 0.0, -0.1), reference_position_m=(0.0, 0.0, 1.0)),
+    )
+    bundle_tiny = sample_motion_2d(spec_tiny, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert abs(bundle_tiny["motion_2d"]["plane_normal"][0]) > 1.0 - 1e-12
+    assert "<canvas" in render_html(bundle_tiny, title="Tiny held charge yz plane")

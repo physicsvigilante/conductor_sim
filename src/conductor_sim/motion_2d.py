@@ -142,16 +142,25 @@ def _certified_normal(
     Returns ``(unit_normal, exact_rational_normal)``.
     """
     vel_sin_tol = 4.0 * ulp(1.0) if has_gravity else 1e-12
+    anchor_sin_tol = 4.0 * ulp(1.0) if has_gravity else 1e-12
     v_scaled, v_sin, v_perp, v_fc = _exact_cross(primary, velocity)
     if _norm(v_scaled) > 0.0 and (
         v_sin > vel_sin_tol
         or (has_gravity and _exceeds_vel_disp(v_perp, duration_s, 1e-9 * scale))
     ):
         return _unit(v_scaled), v_fc
+    best_anchor_scaled = None
+    best_anchor_fc = None
+    best_anchor_sin = -1.0
     for candidate in anchors:
         scaled_cross, sin_ratio, _, fc = _exact_cross(primary, candidate)
-        if sin_ratio > 1e-12 and _norm(scaled_cross) > 0.0:
-            return _unit(scaled_cross), fc
+        if _norm(scaled_cross) > 0.0:
+            if sin_ratio > anchor_sin_tol:
+                return _unit(scaled_cross), fc
+            if has_gravity and (best_anchor_scaled is None or sin_ratio > best_anchor_sin):
+                best_anchor_scaled = scaled_cross
+                best_anchor_fc = fc
+                best_anchor_sin = sin_ratio
     g_scaled = (0.0, 0.0, 0.0)
     g_fc = (Fraction(), Fraction(), Fraction())
     if gravity_anchor is not None:
@@ -162,9 +171,11 @@ def _certified_normal(
         ):
             return _unit(g_scaled), g_fc
     # When no candidate exceeded the primary threshold, still prefer any exact
-    # nonzero velocity or gravity cross product over an arbitrary fallback axis.
+    # nonzero velocity, anchor, or gravity cross product over an arbitrary fallback axis.
     if has_gravity and _norm(v_scaled) > 0.0:
         return _unit(v_scaled), v_fc
+    if has_gravity and best_anchor_scaled is not None:
+        return _unit(best_anchor_scaled), best_anchor_fc
     if gravity_anchor is not None and _norm(g_scaled) > 0.0:
         return _unit(g_scaled), g_fc
     base = primary if _norm(primary) else (velocity if _norm(velocity) else (1., 0., 0.))
