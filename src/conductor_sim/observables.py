@@ -7,6 +7,7 @@ fail explicitly. Fixed-voltage energies are mechanical interaction potentials
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, localcontext
 from math import copysign, frexp, fsum, hypot, isfinite, ldexp
 from typing import Protocol
 
@@ -14,6 +15,10 @@ from .model import FixedNetCharge, PointCharge, Vector3, _position
 from .solver import UnsupportedProblem
 
 _ZERO: Vector3 = (0., 0., 0.)
+_PI_120 = (
+    "3.141592653589793238462643383279502884197169399375105820974944"
+    "592307816406286208998628034825342117067982148086513282306647"
+)
 
 
 def _sum_vectors(*vectors: Vector3) -> Vector3:
@@ -232,78 +237,79 @@ def _sphere_observables(solution) -> ForceEnergyResult:
     a = reference.sphere.radius_m
     center = reference.sphere.center_m
     charges = []
-    if fixed:
-        site_deltas = [difference(s.position_m, center) for s in sources]
-        site_norms = [norm(d) for d in site_deltas]
-        site_hats = [tuple(x / dn for x in d) for d, dn in zip(site_deltas, site_norms)]
-        site_ratios = [a / dn for dn in site_norms]
-        for i, site in enumerate(sources):
-            dc = site_norms[i]
-            r0_hat = site_hats[i]
-            dip = [[], [], []]
-            rem = [[], [], []]
-            for j, other in enumerate(sources):
-                dj = site_norms[j]
-                rj_hat = site_hats[j]
-                ratio_j = site_ratios[j]
-                cos_th = 1.0 if j == i else fsum(r0_hat[c] * rj_hat[c] for c in range(3))
-                # Exact leading dipole contribution of image_j + compensator S_j:
-                #   k * q_i * q_j * (a^3 / (d_j^2 * d_i^3)) * (rj_hat - 3*(rj_hat.r0_hat)*r0_hat)
-                dip_pref = _scaled_ratio_product((k, site.charge_c, other.charge_c, ratio_j, ratio_j, a), (dc, dc, dc))
-                for c in range(3):
-                    dip[c].append(dip_pref * (rj_hat[c] - 3.0 * cos_th * r0_hat[c]))
-                if j == i:
-                    # Exact self quadrupole+ remainder:
-                    #   -k * q_i^2 * (a^3 / d_i^5) * (ratio^2 * (3 - 2*ratio^2) / (1 - ratio^2)^2) * r0_hat
-                    u_denom = ((dc - a) / dc) * (1.0 + ratio_j)
-                    rem_mag = _scaled_ratio_product(
-                        (-k, site.charge_c, site.charge_c, ratio_j, ratio_j, ratio_j, ratio_j, ratio_j, 3.0 - 2.0 * ratio_j * ratio_j),
-                        (dc, dc, u_denom, u_denom),
-                    )
-                    for c in range(3):
-                        rem[c].append(rem_mag * r0_hat[c])
-                else:
-                    # Exact cross-site quadrupole+ remainder (zero dipole cancellation):
-                    #   rp = |p|/d_i = a^2 / (d_j * d_i), w = r_i - p, u = |w|/d_i,
-                    #   t = u - 1 = rp * (rp - 2*cos_th) / (1 + u) = rp * tr.
-                    rp = _scaled_ratio_product((a, ratio_j), (dc,))
-                    u = norm(tuple(r0_hat[c] - rp * rj_hat[c] for c in range(3)))
-                    tr = (rp - 2.0 * cos_th) / (1.0 + u)
-                    t = rp * tr
-                    u3 = u * u * u
-                    poly = 3.0 + t * (3.0 + t)
-                    rem_pref = _scaled_ratio_product((k, site.charge_c, other.charge_c, ratio_j, rp, rp), (dc, dc, u3))
-                    c_p = -tr * poly
-                    c_r = 3.0 * (1.0 + cos_th * tr) / (2.0 + t) + tr * tr * (3.0 + t) + 3.0 * cos_th * tr * poly
-                    for c in range(3):
-                        rem[c].append(rem_pref * (c_p * rj_hat[c] + c_r * r0_hat[c]))
-            induced_vec = tuple(fsum((fsum(dip[c]), fsum(rem[c]))) for c in range(3))
-            background = tuple(_scaled_ratio_product((k, site.charge_c, Q, r0_hat[c]), (dc, dc)) for c in range(3))
-            charges.append(ChargeForce(site, direct[i], induced_vec, background))
-        u_dip = []
-        u_rem = []
-        for i, site in enumerate(sources):
-            dc = site_norms[i]
-            r0_hat = site_hats[i]
-            for j, other in enumerate(sources):
-                ratio_j = site_ratios[j]
-                if j == i:
-                    u_denom = ((dc - a) / dc) * (1.0 + ratio_j)
-                    u_dip.append(_scaled_ratio_product((-0.5, k, site.charge_c, site.charge_c, a, ratio_j, ratio_j), (dc, dc)))
-                    u_rem.append(_scaled_ratio_product((-0.5, k, site.charge_c, site.charge_c, a, ratio_j, ratio_j, ratio_j, ratio_j), (dc, dc, u_denom)))
-                else:
-                    rj_hat = site_hats[j]
-                    cos_th = fsum(r0_hat[c] * rj_hat[c] for c in range(3))
-                    rp = _scaled_ratio_product((a, ratio_j), (dc,))
-                    u = norm(tuple(r0_hat[c] - rp * rj_hat[c] for c in range(3)))
-                    tr = (rp - 2.0 * cos_th) / (1.0 + u)
-                    t = rp * tr
-                    u_dip.append(_scaled_ratio_product((-0.5, k, site.charge_c, other.charge_c, ratio_j, rp, cos_th), (dc,)))
-                    u_rem.append(_scaled_ratio_product(
-                        (0.5, k, site.charge_c, other.charge_c, ratio_j, rp, rp, (1.0 + cos_th * tr) / (2.0 + t) + cos_th * tr),
-                        (dc, u),
-                    ))
-        induced_energy = fsum((fsum(u_dip), fsum(u_rem)))
+    if fixed and len(sources) == 1:
+        site = sources[0]
+        delta_c = difference(site.position_m, center)
+        dc = norm(delta_c)
+        r0_hat = tuple(x / dc for x in delta_c)
+        ratio = a / dc
+        u_denom = ((dc - a) / dc) * (1.0 + ratio)
+        # Exact cancellation-, overflow-, and underflow-free single-source polarization:
+        #   F_ind = -k * q^2 * (a/d)^3 * (2 - (a/d)^2) / (d^2 * (1 - (a/d)^2)^2) * r_hat
+        #   U_ind = -0.5 * k * q^2 * a * (a/d)^2 / (d^2 * (1 - (a/d)^2))
+        self_mag = _scaled_ratio_product(
+            (-k, site.charge_c, site.charge_c, ratio, ratio, ratio, 2.0 - ratio * ratio),
+            (dc, dc, u_denom, u_denom),
+        )
+        induced_vec = tuple(self_mag * r0_hat[c] for c in range(3))
+        background = tuple(_scaled_ratio_product((k, site.charge_c, Q, r0_hat[c]), (dc, dc)) for c in range(3))
+        charges.append(ChargeForce(site, direct[0], induced_vec, background))
+        induced_energy = _scaled_ratio_product(
+            (-0.5, k, site.charge_c, site.charge_c, a, ratio, ratio),
+            (dc, dc, u_denom),
+        )
+        bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
+    elif fixed:
+        # Multi-source fixed-net-charge exterior sphere: evaluate Kelvin images
+        # and the shared central compensator in high-precision Decimal so exact
+        # multipole cancellations (dipole/quadrupole), near-contact image
+        # separations, and extreme scale ratios all retain full binary64 accuracy.
+        site_norms = [norm(difference(s.position_m, center)) for s in sources]
+        e_ratio = max(0, max(frexp(d)[1] for d in site_norms) - frexp(a)[1])
+        prec = max(90, min(800, 90 + 4 * int(0.31 * e_ratio)))
+        with localcontext() as ctx:
+            ctx.prec = prec
+            ctx.Emax = 999999999
+            ctx.Emin = -999999999
+            da = Decimal.from_float(a)
+            dc_vec = tuple(Decimal.from_float(x) for x in center)
+            dQ = Decimal.from_float(Q)
+            dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(reference.permittivity_f_per_m))
+            dqs = [Decimal.from_float(s.charge_c) for s in sources]
+            drs = [
+                tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3))
+                for s in sources
+            ]
+            dds = [sum(x * x for x in r).sqrt() for r in drs]
+            dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
+            dS = sum(-qi for qi in dq_imgs)
+            dr_imgs = [
+                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
+                for j in range(len(sources))
+            ]
+            for i, site in enumerate(sources):
+                ri, di, qi = drs[i], dds[i], dqs[i]
+                di3 = di * di * di
+                f_ind = [Decimal(0), Decimal(0), Decimal(0)]
+                for j in range(len(sources)):
+                    w = tuple(ri[m] - dr_imgs[j][m] for m in range(3))
+                    wn = sum(x * x for x in w).sqrt()
+                    wn3 = wn * wn * wn
+                    for m in range(3):
+                        f_ind[m] += qi * dq_imgs[j] * w[m] / wn3
+                for m in range(3):
+                    f_ind[m] += qi * dS * ri[m] / di3
+                induced_vec = tuple(float(dk * x) for x in f_ind)
+                background = tuple(float(dk * qi * dQ * ri[m] / di3) for m in range(3))
+                charges.append(ChargeForce(site, direct[i], induced_vec, background))
+            kelvin_u = Decimal(0)
+            for i in range(len(sources)):
+                for j in range(len(sources)):
+                    w = tuple(drs[i][m] - dr_imgs[j][m] for m in range(3))
+                    wn = sum(x * x for x in w).sqrt()
+                    kelvin_u += Decimal("0.5") * dqs[i] * dq_imgs[j] / wn
+            induced_energy = float(dk * (kelvin_u + Decimal("0.5") * dS * dS / da))
+            bg_energy = float(dk * dQ * dS / da)
     else:
         for i, site in enumerate(sources):
             terms = [[], [], []]
@@ -320,7 +326,8 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             site.charge_c * image.charge_c / norm(difference(site.position_m, image.position_m))
             for site in sources for image in images
         )
-    energy = EnergyBreakdown(pair_energy, induced_energy, k*Q*S/a,
+        bg_energy = k * Q * S / a
+    energy = EnergyBreakdown(pair_energy, induced_energy, bg_energy,
         ('Fixed-Q exterior sphere: mechanical interaction energy; constant sphere Q^2/(2C) '
          'and point self energies omitted; zero at infinite separation.' if fixed else
          'Grounded exterior sphere: mechanical interaction energy; point self energies '

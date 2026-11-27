@@ -125,9 +125,13 @@ class GroundedPlaneSolution:
         point = _position(point_m, "surface point")
         if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=1e-12):
             raise ValueError("surface-density point must lie on conducting plane")
-        return -fsum(q.charge_c * self.plane.signed_distance_m(q.position_m) /
-                     (2*pi*hypot(*_minus(point, q.position_m))**3)
-                     for q in self.sources)
+        from .observables import _scaled_ratio_product
+        terms = []
+        for q in self.sources:
+            r = hypot(*_minus(point, q.position_m))
+            hq = self.plane.signed_distance_m(q.position_m)
+            terms.append(_scaled_ratio_product((q.charge_c, hq), (2.0 * pi, r, r, r)))
+        return -fsum(terms)
 
     def surface_charge_density(self, surface: str, radial_distance_m: float) -> float:
         """One-source radial sigma about the point's projection on the plane.

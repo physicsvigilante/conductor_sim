@@ -4,6 +4,7 @@ from math import acos, fsum, hypot, pi
 
 from .model import ConductingPlane, _plane_raw_normal
 from .geometry import _scaled_norm_fraction
+from .observables import _scaled_ratio_product
 from .grounded_plane import GroundedPlaneSolution
 from .parallel_plates import ParallelPlateSolution
 from .analytical import ConcentricShellSolution
@@ -162,11 +163,31 @@ def context_for_solution(problem, solution):
                 terms = []
                 for q in solution.sources:
                     hq = solution.plane.signed_distance_m(q.position_m)
-                    delta = tuple(
-                        float((Fraction(origin_m[i]) - Fraction(q.position_m[i])) + pos_offset[i] - h_off * fn[i])
+                    delta_f = tuple(
+                        (Fraction(origin_m[i]) - Fraction(q.position_m[i])) + pos_offset[i] - h_off * fn[i]
                         for i in range(3)
                     )
-                    terms.append(q.charge_c * hq / (2.0 * pi * hypot(*delta) ** 3))
+                    d_max = max(abs(x) for x in delta_f)
+                    if d_max == 0:
+                        raise ZeroDivisionError("surface-density point coincides with point source")
+                    r_scaled = hypot(*(float(x / d_max) for x in delta_f))
+                    try:
+                        d_max_f = float(d_max)
+                    except OverflowError:
+                        d_max_f = float("inf")
+                    if d_max_f > 0.0 and d_max_f < float("inf"):
+                        r_val = d_max_f * r_scaled
+                        if r_val < float("inf"):
+                            terms.append(_scaled_ratio_product((q.charge_c, hq), (2.0 * pi, r_val, r_val, r_val)))
+                            continue
+                    exact_term = (
+                        Fraction(q.charge_c) * Fraction(hq)
+                        / (Fraction(2.0 * pi) * (d_max ** 3) * Fraction(r_scaled) ** 3)
+                    )
+                    try:
+                        terms.append(float(exact_term))
+                    except OverflowError:
+                        terms.append(float("inf") if exact_term > 0 else float("-inf"))
                 return -fsum(terms)
             method = 'exact grounded infinite-plane mirror-charge density'
         elif isinstance(solution,ExternalMultiSphereSolution):

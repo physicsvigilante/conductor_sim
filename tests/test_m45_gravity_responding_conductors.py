@@ -2676,3 +2676,41 @@ def test_m45_sol_v40_boundary_root_profile_tilt_sphere_extremes_multi_quadrupole
     assert hash(sp_rt) == hash(sp_c)
     assert slice_geometry(p_orig_31, sp_rt)["visible"] is False
     assert slice_geometry(p_orig_31, sp_rt)["fills_metal"] is True
+
+
+def test_m45_sol_v41_multi_sphere_dipole_cancel_near_contact_and_shallow_profile_overflow():
+    """Regression suite for all three Sol v41 findings."""
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+    from conductor_sim.visual_adapters import context_for_solution
+    from conductor_sim.visualization import SliceSpec, sample_frame
+
+    # 1. Multi-source fixed-Q sphere with exact asymmetric dipole cancellation
+    s1 = SolidSphere(0.125, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    p1 = ElectrostaticProblem(
+        (PointCharge(2.0**-24, (0.0, 0.0, float(2**24))), PointCharge(25.0 * 2.0**-24, (0.0, 0.0, float(-5 * 2**24)))),
+        (s1,),
+    )
+    obs1 = force_energy(ExternalMultiSphereBackend().solve(p1))
+    pos1 = next(c for c in obs1.charges if c.source.position_m[2] > 0)
+    assert isclose(pos1.induced_force_n[2], -9.375941921477878e-60, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs1.energy.induced_j, -3.1460440564017875e-53, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Multi-source fixed-Q sphere near contact retains full binary64 accuracy
+    s2 = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    p2 = ElectrostaticProblem(
+        (PointCharge(1e-8, (0.0, 0.0, 1.0000000000000002)), PointCharge(1e-8, (0.0, 0.0, 1.0000000000000004))),
+        (s2,),
+    )
+    obs2 = force_energy(ExternalMultiSphereBackend().solve(p2))
+    outer2 = max(obs2.charges, key=lambda c: c.source.position_m[2])
+    assert isclose(outer2.induced_force_n[2], -3.164743173345048e24, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Shallow grounded-plane slice with y=-1e110 intercept avoids r**3 overflow in sample_frame
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_sh = ElectrostaticProblem((PointCharge(1e20, (0.0, 0.0, 2.0)),), (p_z0,))
+    sol_sh = GroundedPlaneBackend().solve(prob_sh)
+    sp_sh = SliceSpec(origin_m=(0.0, 0.0, 1.0), u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 1e-110), resolution=9)
+    frame_sh = sample_frame(context_for_solution(prob_sh, sol_sh), sp_sh, seeds=[])
+    assert len(frame_sh["profiles"]) == 1
+    assert isclose(frame_sh["profiles"][0]["sigma_c_per_m2"][45], -3.183098861838e-311, rel_tol=1e-9, abs_tol=0.0)
