@@ -1,5 +1,5 @@
 """Optional visual metadata adapters; the sampling/tracing engine knows no solver."""
-from math import acos, fsum, hypot, pi
+from math import acos, fsum, hypot, pi, ulp
 
 from .model import ConductingPlane
 from .grounded_plane import GroundedPlaneSolution
@@ -120,7 +120,22 @@ def context_for_solution(problem, solution):
             notes.append('Image-charge fields are truncated approximations; test convergence by increasing image_order.')
             notes.append('Infinite plates at different potentials have unbounded total charge, not a finite plate Q.')
         elif isinstance(solution,GroundedPlaneSolution):
-            density = lambda name,face,point: solution.surface_charge_density_at(face,point)
+            def density(name,face,point):
+                if face == 'outer':
+                    h_pt = abs(solution.plane.signed_distance_m(point))
+                    n = solution.plane.normal
+                    if h_pt > 1e-12 and sum(x != 0.0 for x in n) >= 2 and h_pt <= 16.0 * ulp(max(abs(c) for c in point)):
+                        # Exact orthogonal projection onto the plane avoids float64 coordinate
+                        # quantization on translated oblique planes while evaluating the exact formula.
+                        terms = []
+                        for q in solution.sources:
+                            hq = solution.plane.signed_distance_m(q.position_m)
+                            delta = sub(point, q.position_m)
+                            dn = dot(delta, n)
+                            tang = tuple(delta[i] - dn * n[i] for i in range(3))
+                            terms.append(q.charge_c * hq / (2.0 * pi * hypot(*tang, hq) ** 3))
+                        return -fsum(terms)
+                return solution.surface_charge_density_at(face,point)
             method = 'exact grounded infinite-plane mirror-charge density'
         elif isinstance(solution,ExternalMultiSphereSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)

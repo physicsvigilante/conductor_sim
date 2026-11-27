@@ -2236,3 +2236,39 @@ def test_m45_sol_v33_normal_projection_rejects_off_plane_within_local_limit():
     )
     with pytest.raises(ValueError, match="conducting plane"):
         sol_od.surface_charge_density_at("outer", (1.25e-6, 0.0, 0.0))
+
+
+def test_m45_sol_v34_cancelling_coincident_charges_and_strict_surface_density():
+    """Regression suite for both Sol v34 findings."""
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Adding exact cancelling coincident charges (+1 uC, -1 uC) at (1e7+1e-6, 1e7, 0) does not break sweep
+    p_far = ConductingPlane((1e7, 1e7, 0.0), (1.0, 0.01, 0.0), Grounded())
+    q_far = (1e7 + 0.002, 1e7, 0.0)
+    prob_cancel = ElectrostaticProblem(
+        (
+            PointCharge(1e-6, q_far),
+            PointCharge(1e-6, (1e7 + 1e-6, 1e7, 0.0)),
+            PointCharge(-1e-6, (1e7 + 1e-6, 1e7, 0.0)),
+        ),
+        (p_far,),
+    )
+    sp_far = SliceSpec(
+        origin_m=(1e7, 1e7, 0.0), u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-0.001, 0.001), y_range_m=(-0.001, 0.001), resolution=9,
+    )
+    bundle_c = sample_sweep([("cancel", prob_cancel)], GroundedPlaneBackend(), plane=sp_far, resolution=9)
+    prof_c = bundle_c["frames"][0]["profiles"][0]
+    assert len(prof_c["sigma_c_per_m2"]) == 91
+    h_f = p_far.signed_distance_m(q_far)
+    dist_center = sqrt(sum((p_far.point_m[i] - q_far[i]) ** 2 for i in range(3)))
+    expected_center = -1e-6 * h_f / (2.0 * pi * (dist_center ** 3))
+    assert isclose(prof_c["sigma_c_per_m2"][45], expected_center, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Multi-axis ULP off-plane query (1000000.0000000001, 999999.9999999999, 1e6) is strictly rejected
+    p_3d = ConductingPlane((1e6, 1e6, 1e6), (1.0, 0.9, 0.3), Grounded())
+    sol_3d = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-6, (1e6 + 1.0, 1e6, 1e6)),), (p_3d,))
+    )
+    with pytest.raises(ValueError, match="conducting plane"):
+        sol_3d.surface_charge_density_at("outer", (1000000.0000000001, 999999.9999999999, 1000000.0))

@@ -7,7 +7,7 @@ are masked. Field lines stop at physical faces, source masks and domain bounds.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from math import acos, cos, fsum, hypot, inf, isfinite, nextafter, pi, sin, sqrt, ulp
+from math import acos, cos, fsum, hypot, isfinite, pi, sin, sqrt
 from pathlib import Path
 from typing import Callable, Iterable
 import json
@@ -416,44 +416,6 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                         cand_n = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
                         if abs(conductor.signed_distance_m(cand_n)) < abs(h_off):
                             point = cand_n
-                        d_min = min(
-                            (hypot(*(point[i] - q.position_m[i] for i in range(3))) for q in context.problem.charges),
-                            default=span,
-                        )
-                        snap_limit = 1e-6 * max(d_min, 1e-12)
-                        for _ in range(3):
-                            h_rem = conductor.signed_distance_m(point)
-                            if abs(h_rem) <= 1e-13:
-                                break
-                            best_pt = point
-                            best_h = abs(h_rem)
-                            cand_proj = tuple(point[i] - h_rem * conductor.normal[i] for i in range(3))
-                            h_proj = abs(conductor.signed_distance_m(cand_proj))
-                            if h_proj < best_h:
-                                best_h = h_proj
-                                best_pt = cand_proj
-                            for i in range(3):
-                                ni = conductor.normal[i]
-                                if ni == 0.0 or abs(h_rem) > snap_limit * abs(ni):
-                                    continue
-                                snap_val = point[i] - h_rem / ni
-                                cands = [snap_val]
-                                nbr_val = nextafter(point[i], -inf if h_rem * ni > 0.0 else inf)
-                                if abs(nbr_val - point[i]) <= snap_limit:
-                                    cands.append(nbr_val)
-                                for val in cands:
-                                    if abs(val - point[i]) > snap_limit:
-                                        continue
-                                    adj = list(point)
-                                    adj[i] = val
-                                    cand = tuple(adj)
-                                    h_cand = abs(conductor.signed_distance_m(cand))
-                                    if h_cand < best_h:
-                                        best_h = h_cand
-                                        best_pt = cand
-                            if best_pt is point:
-                                break
-                            point = best_pt
                     values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,
