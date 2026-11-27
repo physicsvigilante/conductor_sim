@@ -47,28 +47,28 @@ def _mirror_displacement_scaled(
     """Return ``(unit_dir, dist_mantissa, dist_exp)`` for ``target - mirror(source, plane)``.
 
     The true displacement vector equals ``unit_dir * ldexp(dist_mantissa, dist_exp)``,
-    avoiding ``2*h`` overflow and ``0*inf = nan`` tangential contamination at extreme scales.
+    avoiding ``2*h`` overflow, ``0*inf = nan`` tangential contamination, and
+    translation-dependent scaling loss when ``|target|, |source| >> |target - source|``.
     """
     h = plane.signed_distance_m(source)
-    scale = max(
-        abs(h),
-        max(abs(x) for x in target),
-        max(abs(x) for x in source),
-    )
-    if scale == 0.0:
-        return (0.0, 0.0, 0.0), 0.0, 0
-    if 1e-150 <= scale <= 1e150:
-        vec = _mirror_displacement(target, source, plane)
-        d = hypot(*vec)
-        if isfinite(d) and d > 0.0:
-            dm, de = frexp(d)
-            return tuple(x / d for x in vec), dm, de
-    if isfinite(scale):
+    delta_ts = _minus(target, source)
+    if isfinite(h) and all(isfinite(d) for d in delta_ts):
+        scale = max(abs(h), max(abs(d) for d in delta_ts))
+        if scale == 0.0:
+            return (0.0, 0.0, 0.0), 0.0, 0
+        if 1e-150 <= scale <= 1e150:
+            vec = tuple(
+                delta_ts[i] + (2.0 * h * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
+                for i in range(3)
+            )
+            d = hypot(*vec)
+            if isfinite(d) and d > 0.0:
+                dm, de = frexp(d)
+                return tuple(x / d for x in vec), dm, de
         _, s_exp = frexp(scale)
         sh = ldexp(h, -s_exp)
         vec_s = tuple(
-            (ldexp(target[i], -s_exp) - ldexp(source[i], -s_exp))
-            + (2.0 * sh * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
+            ldexp(delta_ts[i], -s_exp) + (2.0 * sh * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
             for i in range(3)
         )
         d_s = hypot(*vec_s)
@@ -88,7 +88,6 @@ def _mirror_displacement_scaled(
     v_max = max(abs(x) for x in v_f)
     if v_max == 0:
         return (0.0, 0.0, 0.0), 0.0, 0
-    # Normalize by exact power-of-two shift of v_max
     s_exp = v_max.numerator.bit_length() - v_max.denominator.bit_length()
     v_s = tuple(float(x * Fraction(1, 1 << s_exp) if s_exp >= 0 else x * (1 << (-s_exp))) for x in v_f)
     d_s = hypot(*v_s)
@@ -265,16 +264,15 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
-        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _displacement_scaled, _scaled_ratio_parts, _sum_scaled_ratios
         source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
         k = self._k
         for j, other in enumerate(self.sources):
             if include_direct and j != index:
-                v = _minus(source.position_m, other.position_m)
-                d = hypot(*v)
+                u_dir, d_m, d_e = _displacement_scaled(source.position_m, other.position_m)
                 for i in range(3):
-                    items[i].append(_scaled_ratio_parts((k, source.charge_c, other.charge_c, v[i]), (d, d, d)))
+                    items[i].append(_scaled_ratio_parts((k, source.charge_c, other.charge_c, u_dir[i]), (d_m, d_m), -2 * d_e))
             u_ref, dm, de = _mirror_displacement_scaled(source.position_m, other.position_m, self.plane)
             for i in range(3):
                 items[i].append(_scaled_ratio_parts((-k, source.charge_c, other.charge_c, u_ref[i]), (dm, dm), -2 * de))
@@ -289,13 +287,13 @@ class GroundedPlaneSolution:
     @property
     def interaction_energy_j(self) -> float:
         """External real-real Coulomb energy plus half the image interaction."""
-        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _displacement_scaled, _scaled_ratio_parts, _sum_scaled_ratios
         k = self._k
         parts = []
         for i in range(len(self.sources)):
             for j in range(i + 1, len(self.sources)):
-                d = hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m))
-                parts.append(_scaled_ratio_parts((k, self.sources[i].charge_c, self.sources[j].charge_c), (d,)))
+                _, d_m, d_e = _displacement_scaled(self.sources[i].position_m, self.sources[j].position_m)
+                parts.append(_scaled_ratio_parts((k, self.sources[i].charge_c, self.sources[j].charge_c), (d_m,), -d_e))
         for q in self.sources:
             for other in self.sources:
                 _, dm, de = _mirror_displacement_scaled(q.position_m, other.position_m, self.plane)

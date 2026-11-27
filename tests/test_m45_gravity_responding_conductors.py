@@ -3018,3 +3018,71 @@ def test_m45_sol_v46_fsum_intermediate_overflow_direct_underflow_plane_force_and
     obs_ovf = force_energy(sol_ovf)
     assert isclose(obs_ovf.charges[0].induced_force_n[2], -0.25 * k_c * 1e-308, rel_tol=1e-12, abs_tol=0.0)
     assert isclose(obs_ovf.energy.induced_j, -0.25 * k_c, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_m45_sol_v47_plane_translation_wide_sum_direct_overflow_and_sphere_cancel():
+    """Regression suite for all four Sol v47 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalGroundedSphereBackend
+    from conductor_sim.observables import force_energy
+
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+
+    # 1. Parallel translation by x=1e308 leaves grounded-plane force, energy, and equilibrium invariant
+    prob_x0 = ElectrostaticProblem((PointCharge(1e-20, (0.0, 0.0, 5e-16)),), (p_z0,))
+    prob_xbig = ElectrostaticProblem((PointCharge(1e-20, (1e308, 0.0, 5e-16)),), (p_z0,))
+    sol_x0 = GroundedPlaneBackend().solve(prob_x0)
+    sol_xbig = GroundedPlaneBackend().solve(prob_xbig)
+    assert isclose(sol_xbig.induced_force_on_charge_n[2], sol_x0.induced_force_on_charge_n[2], rel_tol=1e-14)
+    assert isclose(sol_xbig.interaction_energy_j, sol_x0.interaction_energy_j, rel_tol=1e-14)
+    g_eq = UniformGravity((0.0, 0.0, 0.8987551792261169))
+    eq_x0 = find_1d_equilibria(
+        Motion1DSpec(prob_x0, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1e-12, 1e-13, gravity=g_eq),
+        GroundedPlaneBackend(), displacement_bounds_m=(-1e-16, 1e-16),
+    )
+    eq_xbig = find_1d_equilibria(
+        Motion1DSpec(prob_xbig, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1e-12, 1e-13, gravity=g_eq),
+        GroundedPlaneBackend(), displacement_bounds_m=(-1e-16, 1e-16),
+    )
+    assert len(eq_x0) == len(eq_xbig) == 1
+    assert eq_xbig[0].stability == eq_x0[0].stability == "unstable"
+    assert isclose(eq_xbig[0].displacement_m, eq_x0[0].displacement_m, rel_tol=1e-12, abs_tol=1e-28)
+
+    # 2. Wide exponent spread (>1000 bits) preserves weak residual after symmetric cancellation
+    prob_wide = ElectrostaticProblem(
+        (
+            PointCharge(1e298, (-1.0, 0.0, 1.0)),
+            PointCharge(1.0, (0.0, 0.0, 1.0)),
+            PointCharge(1e298, (1.0, 0.0, 1.0)),
+            PointCharge(1e-30, (2.0, 0.0, 1.0)),
+        ),
+        (p_z0,),
+    )
+    sol_wide = GroundedPlaneBackend().solve(prob_wide)
+    idx_center = next(i for i, q in enumerate(sol_wide.sources) if q.position_m[0] == 0.0)
+    assert isclose(sol_wide.force_on_charge_n(idx_center)[0], -1.452493095743645e-21, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Direct displacement overflow at (±1e308, 0, 1e307) keeps finite force, energy, and force_energy
+    prob_d = ElectrostaticProblem(
+        (PointCharge(1e150, (-1e308, 0.0, 1e307)), PointCharge(1e150, (1e308, 0.0, 1e307))),
+        (p_z0,),
+    )
+    sol_d = GroundedPlaneBackend().solve(prob_d)
+    idx_left = next(i for i, q in enumerate(sol_d.sources) if q.position_m[0] < 0.0)
+    assert isclose(sol_d.force_on_charge_n(idx_left)[0], -3.328688810531564e-309, rel_tol=1e-10, abs_tol=0.0)
+    assert isclose(sol_d.interaction_energy_j, -449.1545720629442, rel_tol=1e-12)
+    obs_d = force_energy(sol_d)
+    left_c = next(c for c in obs_d.charges if c.source.position_m[0] < 0.0)
+    assert isclose(left_c.total_force_n[0], -3.328688810531564e-309, rel_tol=1e-10, abs_tol=0.0)
+    assert isclose(obs_d.energy.total_j, -449.1545720629442, rel_tol=1e-12)
+
+    # 4. Grounded-sphere potential & field resist real+image overflow & deep cancellation
+    s_u = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_p = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(3e298, (0.0, 0.0, 2.0)),), (s_u,))
+    )
+    assert isclose(sol_p.potential_at((0.0, 0.0, nextafter(1.0, inf))), 1.7960736482602996e293, rel_tol=1e-12)
+    sol_e = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 4.0)),), (s_u,))
+    )
+    assert isclose(sol_e.electric_field_at((0.0, 0.0, nextafter(-3.5, inf)))[2], 1.892159892817436e300, rel_tol=1e-12)

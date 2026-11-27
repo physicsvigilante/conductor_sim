@@ -213,18 +213,63 @@ def _scaled_ratio_product(nums: tuple[float, ...], denoms: tuple[float, ...] = (
         return copysign(float('inf'), mantissa)
 
 
+def _displacement_scaled(a: Vector3, b: Vector3) -> tuple[Vector3, float, int]:
+    """Return ``(unit_dir, dist_mantissa, dist_exp)`` for ``a - b`` without overflow/underflow."""
+    delta = tuple(a[i] - b[i] for i in range(3))
+    if all(isfinite(x) for x in delta):
+        d = hypot(*delta)
+        if isfinite(d) and d >= 1e-290:
+            dm, de = frexp(d)
+            return tuple(x / d for x in delta), dm, de
+        d_scale = max(abs(x) for x in delta)
+        if d_scale == 0.0:
+            return (0.0, 0.0, 0.0), 0.0, 0
+        _, s_exp = frexp(d_scale)
+        delta_s = tuple(ldexp(x, -s_exp) for x in delta)
+        d_s = hypot(*delta_s)
+        dm, de = frexp(d_s)
+        return tuple(x / d_s for x in delta_s), dm, s_exp + de
+    scale = max(max(abs(x) for x in a), max(abs(x) for x in b))
+    if scale == 0.0:
+        return (0.0, 0.0, 0.0), 0.0, 0
+    _, s_exp = frexp(scale)
+    delta_s = tuple(ldexp(a[i], -s_exp) - ldexp(b[i], -s_exp) for i in range(3))
+    d_s = hypot(*delta_s)
+    if d_s == 0.0:
+        return (0.0, 0.0, 0.0), 0.0, 0
+    dm, de = frexp(d_s)
+    return tuple(x / d_s for x in delta_s), dm, s_exp + de
+
+
 def _sum_scaled_ratios(parts: list[tuple[float, int]]) -> float:
     """Sum (mantissa, exponent) terms without intermediate overflow or underflow."""
     nonzero = [(m, e) for m, e in parts if m != 0.0]
     if not nonzero:
         return 0.0
     max_e = max(e for _, e in nonzero)
-    total = fsum(ldexp(m, e - max_e) for m, e in nonzero)
-    if total == 0.0:
+    min_e = min(e for _, e in nonzero)
+    if max_e - min_e <= 950:
+        total = fsum(ldexp(m, e - max_e) for m, e in nonzero)
+        if total == 0.0:
+            return 0.0
+        m_tot, e_tot = frexp(total)
+        try:
+            return ldexp(m_tot, max_e + e_tot)
+        except OverflowError:
+            return copysign(float('inf'), m_tot)
+    # Wide exponent spread (>950 bits): exact shifted rational sum so weak terms
+    # never underflow when large opposing terms cancel.
+    exact = sum(Fraction(m) * (1 << (e - min_e)) for m, e in nonzero)
+    if exact == 0:
         return 0.0
-    m_tot, e_tot = frexp(total)
+    neg = exact < 0
+    mag = -exact if neg else exact
+    bit_shift = mag.numerator.bit_length() - mag.denominator.bit_length()
+    shifted = mag * Fraction(1, 1 << bit_shift) if bit_shift >= 0 else mag * (1 << (-bit_shift))
+    val = -float(shifted) if neg else float(shifted)
+    m_tot, e_tot = frexp(val)
     try:
-        return ldexp(m_tot, max_e + e_tot)
+        return ldexp(m_tot, min_e + bit_shift + e_tot)
     except OverflowError:
         return copysign(float('inf'), m_tot)
 
@@ -236,13 +281,12 @@ def _direct(sources: tuple[PointCharge, ...], k: float):
     for i, a in enumerate(sources):
         for j in range(i+1, len(sources)):
             b = sources[j]
-            delta = tuple(a.position_m[c]-b.position_m[c] for c in range(3))
-            distance = hypot(*delta)
-            if distance == 0:
+            u_dir, dm, de = _displacement_scaled(a.position_m, b.position_m)
+            if dm == 0.0:
                 raise ValueError('coincident force sites must be grouped before observation')
-            energies.append(_scaled_ratio_parts((k, a.charge_c, b.charge_c), (distance,)))
+            energies.append(_scaled_ratio_parts((k, a.charge_c, b.charge_c), (dm,), -de))
             for c in range(3):
-                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, delta[c]), (distance, distance, distance))
+                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, u_dir[c]), (dm, dm), -2 * de)
                 forces[i][c].append((m_f, e_f))
                 forces[j][c].append((-m_f, e_f))
     return tuple(tuple(_sum_scaled_ratios(c) for c in f) for f in forces), _sum_scaled_ratios(energies)
