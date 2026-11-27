@@ -635,7 +635,50 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                     break
                 prec = min(3200, max(2 * prec, max_lost + 60))
         for i, site in enumerate(sources):
-            charges.append(ChargeForce(site, direct[i], induced_vecs[i], backgrounds[i]))
+            cond_ov = None
+            tot_ov = None
+            cond_cancel = any(
+                (induced_vecs[i][c] != 0.0 or backgrounds[i][c] != 0.0)
+                and (
+                    not (isfinite(induced_vecs[i][c]) and isfinite(backgrounds[i][c]))
+                    or (
+                        induced_vecs[i][c] != 0.0
+                        and backgrounds[i][c] != 0.0
+                        and abs(fsum((induced_vecs[i][c], backgrounds[i][c])))
+                        < 0.01 * max(abs(induced_vecs[i][c]), abs(backgrounds[i][c]))
+                    )
+                )
+                for c in range(3)
+            )
+            tot_cancel = any(
+                sum(x != 0.0 for x in (direct[i][c], induced_vecs[i][c], backgrounds[i][c])) >= 2
+                and (
+                    not all(isfinite(x) for x in (direct[i][c], induced_vecs[i][c], backgrounds[i][c]))
+                    or abs(fsum((direct[i][c], induced_vecs[i][c], backgrounds[i][c])))
+                    < 0.01 * max(abs(direct[i][c]), abs(induced_vecs[i][c]), abs(backgrounds[i][c]))
+                )
+                for c in range(3)
+            )
+            if cond_cancel:
+                cond_ov = _sphere_force_only(reference, i, include_direct=False)
+            if tot_cancel:
+                tot_ov = _sphere_force_only(reference, i, include_direct=True)
+            charges.append(
+                ChargeForce(
+                    site,
+                    direct[i],
+                    induced_vecs[i],
+                    backgrounds[i],
+                    _total_override_n=tot_ov,
+                    _conductor_override_n=cond_ov,
+                )
+            )
+        if sum(x != 0.0 for x in (pair_energy, induced_energy, bg_energy)) >= 2 and (
+            not all(isfinite(x) for x in (pair_energy, induced_energy, bg_energy))
+            or abs(fsum((pair_energy, induced_energy, bg_energy)))
+            < 0.01 * max(abs(pair_energy), abs(induced_energy), abs(bg_energy))
+        ):
+            total_energy_override = _sphere_energy_only(reference)
     energy = EnergyBreakdown(pair_energy, induced_energy, bg_energy,
         ('Fixed-Q exterior sphere: mechanical interaction energy; constant sphere Q^2/(2C) '
          'and point self energies omitted; zero at infinite separation.' if fixed else
@@ -643,6 +686,29 @@ def _sphere_observables(solution) -> ForceEnergyResult:
          'omitted; zero at infinite separation.'),
         _total_override_j=total_energy_override)
     return ForceEnergyResult(tuple(charges), energy, 'analytical exterior-sphere Kelvin images')
+
+
+def _sphere_geom_spread_digits(sphere, sources: tuple[PointCharge, ...]) -> int:
+    exps = [frexp(abs(sphere.radius_m))[1]]
+    for x in sphere.center_m:
+        if x != 0.0:
+            exps.append(frexp(abs(x))[1])
+    for s in sources:
+        for c in range(3):
+            if s.position_m[c] != 0.0:
+                exps.append(frexp(abs(s.position_m[c]))[1])
+            d = s.position_m[c] - sphere.center_m[c]
+            if isfinite(d) and d != 0.0:
+                exps.append(frexp(abs(d))[1])
+    for i in range(len(sources)):
+        for j in range(i + 1, len(sources)):
+            for c in range(3):
+                d = sources[i].position_m[c] - sources[j].position_m[c]
+                if isfinite(d) and d != 0.0:
+                    exps.append(frexp(abs(d))[1])
+    if len(exps) < 2:
+        return 0
+    return ((max(exps) - min(exps)) * 302) // 1000 + 20
 
 
 def _sphere_force_only(reference, index: int, *, include_direct: bool) -> Vector3:
@@ -666,57 +732,68 @@ def _sphere_force_only(reference, index: int, *, include_direct: bool) -> Vector
             reference.sphere, site, eps, reference.conductor_results
         )
         return sol.induced_force_on_charge_n
-    a = reference.sphere.radius_m
-    center = reference.sphere.center_m
-    da = Decimal.from_float(a)
-    dc_vec = tuple(Decimal.from_float(x) for x in center)
+
+    def _fdec(val: Fraction) -> Decimal:
+        return Decimal(val.numerator) / Decimal(val.denominator)
+
+    fa = Fraction(reference.sphere.radius_m)
+    fa2 = fa * fa
+    fc = tuple(Fraction(x) for x in reference.sphere.center_m)
+    f_pos = [tuple(Fraction(x) for x in s.position_m) for s in sources]
+    f_drs = [tuple(f_pos[k][m] - fc[m] for m in range(3)) for k in range(len(sources))]
+    f_d2 = [sum(x * x for x in r) for r in f_drs]
+    f_img_off = [tuple((fa2 / f_d2[j]) * f_drs[j][m] for m in range(3)) for j in range(len(sources))]
+    f_ws = [
+        tuple(f_drs[index][m] - f_img_off[j][m] for m in range(3))
+        for j in range(len(sources))
+    ]
+    f_wn2 = [sum(x * x for x in w) for w in f_ws]
+    f_vds = [
+        tuple(f_pos[index][m] - f_pos[j][m] for m in range(3)) if (include_direct and j != index) else None
+        for j in range(len(sources))
+    ]
+    f_dn2 = [sum(x * x for x in vd) if vd is not None else None for vd in f_vds]
+
+    da = Decimal.from_float(reference.sphere.radius_m)
     dQ = Decimal.from_float(Q)
     dqs = [Decimal.from_float(s.charge_c) for s in sources]
     max_digits = 5000
-    digits = 120
+    geom_spread = _sphere_geom_spread_digits(reference.sphere, sources)
+    zero_req_base = min(max_digits, max(480, 4 * geom_spread + 120))
+    digits = min(max_digits, max(120, 2 * geom_spread + 80))
     while True:
         ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
         with localcontext(ctx):
             dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(eps))
-            drs = [tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3)) for s in sources]
-            dds = [sum(x * x for x in r).sqrt() for r in drs]
+            dds = [_fdec(d2).sqrt() for d2 in f_d2]
             dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
-            dS = sum((-qi for qi in dq_imgs), Decimal(0)) if fixed else Decimal(0)
-            dr_imgs = [
-                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
-                for j in range(len(sources))
-            ]
-            ri, di, qi = drs[index], dds[index], dqs[index]
+            di = dds[index]
             di3 = di * di * di
+            qi = dqs[index]
             term_lists = ([], [], [])
             for j in range(len(sources)):
-                w = tuple(ri[m] - dr_imgs[j][m] for m in range(3))
-                wn = sum(x * x for x in w).sqrt()
+                wn = _fdec(f_wn2[j]).sqrt()
                 wn3 = wn * wn * wn
                 for m in range(3):
-                    if w[m] != 0:
-                        term_lists[m].append(dk * qi * dq_imgs[j] * w[m] / wn3)
+                    if f_ws[j][m] != 0:
+                        term_lists[m].append(dk * qi * dq_imgs[j] * _fdec(f_ws[j][m]) / wn3)
                 if include_direct and j != index:
-                    vd = tuple(ri[m] - drs[j][m] for m in range(3))
-                    dn = sum(x * x for x in vd).sqrt()
+                    vd = f_vds[j]
+                    dn = _fdec(f_dn2[j]).sqrt()
                     dn3 = dn * dn * dn
                     for m in range(3):
                         if vd[m] != 0:
-                            term_lists[m].append(dk * qi * dqs[j] * vd[m] / dn3)
+                            term_lists[m].append(dk * qi * dqs[j] * _fdec(vd[m]) / dn3)
             if fixed:
-                q_cen = dQ + dS
                 for m in range(3):
-                    if ri[m] != 0 and q_cen != 0:
-                        term_lists[m].append(dk * qi * q_cen * ri[m] / di3)
+                    if f_drs[index][m] != 0:
+                        rm_dec = _fdec(f_drs[index][m])
+                        if Q != 0.0:
+                            term_lists[m].append(dk * qi * dQ * rm_dec / di3)
+                        for qi_img in dq_imgs:
+                            term_lists[m].append(-dk * qi * qi_img * rm_dec / di3)
             need_more = False
             next_digits = digits
-            if fixed and dq_imgs:
-                s_nz = [abs(x) for x in (*dq_imgs, dQ) if x != 0]
-                if len(s_nz) >= 2:
-                    s_span = max(s_nz).adjusted() - min(s_nz).adjusted() + 80
-                    if s_span > digits and digits < max_digits:
-                        need_more = True
-                        next_digits = max(next_digits, s_span)
             totals = [Decimal(0), Decimal(0), Decimal(0)]
             for m in range(3):
                 nz = [abs(t) for t in term_lists[m] if t != 0]
@@ -731,7 +808,7 @@ def _sphere_force_only(reference, index: int, *, include_direct: bool) -> Vector
                 tot = sum(term_lists[m], Decimal(0))
                 totals[m] = tot
                 if tot == 0:
-                    req = max(480, span_need)
+                    req = max(zero_req_base, span_need)
                     if digits < req and digits < max_digits:
                         need_more = True
                         next_digits = max(next_digits, max(req, 2 * digits))
@@ -766,41 +843,51 @@ def _sphere_energy_only(reference) -> float:
             reference.sphere, site, eps, reference.conductor_results
         )
         return sol.interaction_energy_j
-    a = reference.sphere.radius_m
-    center = reference.sphere.center_m
-    da = Decimal.from_float(a)
-    dc_vec = tuple(Decimal.from_float(x) for x in center)
+
+    def _fdec(val: Fraction) -> Decimal:
+        return Decimal(val.numerator) / Decimal(val.denominator)
+
+    fa = Fraction(reference.sphere.radius_m)
+    fa2 = fa * fa
+    fc = tuple(Fraction(x) for x in reference.sphere.center_m)
+    f_pos = [tuple(Fraction(x) for x in s.position_m) for s in sources]
+    f_drs = [tuple(f_pos[k][m] - fc[m] for m in range(3)) for k in range(len(sources))]
+    f_d2 = [sum(x * x for x in r) for r in f_drs]
+    f_img_off = [tuple((fa2 / f_d2[j]) * f_drs[j][m] for m in range(3)) for j in range(len(sources))]
+    f_dn2_pairs = [
+        (i, j, sum((f_pos[i][m] - f_pos[j][m]) ** 2 for m in range(3)))
+        for i in range(len(sources))
+        for j in range(i + 1, len(sources))
+    ]
+    f_wn2_pairs = [
+        (i, j, sum((f_drs[i][m] - f_img_off[j][m]) ** 2 for m in range(3)))
+        for i in range(len(sources))
+        for j in range(len(sources))
+    ]
+
+    da = Decimal.from_float(reference.sphere.radius_m)
     dQ = Decimal.from_float(Q)
     dqs = [Decimal.from_float(s.charge_c) for s in sources]
     max_digits = 5000
-    digits = 120
+    geom_spread = _sphere_geom_spread_digits(reference.sphere, sources)
+    zero_req_base = min(max_digits, max(480, 4 * geom_spread + 120))
+    digits = min(max_digits, max(120, 2 * geom_spread + 80))
     while True:
         ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
         with localcontext(ctx):
             dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(eps))
-            drs = [tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3)) for s in sources]
-            dds = [sum(x * x for x in r).sqrt() for r in drs]
+            dds = [_fdec(d2).sqrt() for d2 in f_d2]
             dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
             dS = sum((-qi for qi in dq_imgs), Decimal(0)) if fixed else Decimal(0)
-            dr_imgs = [
-                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
-                for j in range(len(sources))
-            ]
             terms = []
-            for i in range(len(sources)):
-                for j in range(i + 1, len(sources)):
-                    vd = tuple(drs[i][m] - drs[j][m] for m in range(3))
-                    dn = sum(x * x for x in vd).sqrt()
-                    terms.append(dk * dqs[i] * dqs[j] / dn)
-            for i in range(len(sources)):
-                for j in range(len(sources)):
-                    w = tuple(drs[i][m] - dr_imgs[j][m] for m in range(3))
-                    wn = sum(x * x for x in w).sqrt()
-                    terms.append(Decimal("0.5") * dk * dqs[i] * dq_imgs[j] / wn)
+            for i, j, dn2 in f_dn2_pairs:
+                terms.append(dk * dqs[i] * dqs[j] / _fdec(dn2).sqrt())
+            for i, j, wn2 in f_wn2_pairs:
+                terms.append(Decimal("0.5") * dk * dqs[i] * dq_imgs[j] / _fdec(wn2).sqrt())
             if fixed:
                 if dS != 0:
                     terms.append(Decimal("0.5") * dk * dS * dS / da)
-                if dQ != 0 and dS != 0:
+                if Q != 0.0 and dS != 0:
                     terms.append(dk * dQ * dS / da)
             nz = [abs(t) for t in terms if t != 0]
             if not nz:
@@ -812,9 +899,10 @@ def _sphere_energy_only(reference) -> float:
                 continue
             tot = sum(terms, Decimal(0))
             if tot == 0:
-                if digits >= max(480, span_need) or digits >= max_digits:
+                req = max(zero_req_base, span_need)
+                if digits >= req or digits >= max_digits:
                     return 0.0
-                digits = min(max_digits, max(480, span_need, 2 * digits))
+                digits = min(max_digits, max(req, 2 * digits))
                 continue
             lost = max(0, max_t.adjusted() - tot.adjusted())
             if digits - lost >= 40 or digits >= max_digits:

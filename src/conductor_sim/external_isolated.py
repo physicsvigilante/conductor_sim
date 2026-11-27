@@ -294,8 +294,8 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             out.append(tot_i)
         return tuple(out)
 
-    def _isolated_density_from_chord(self, chord: float) -> float:
-        """Cancellation-free isolated-sphere surface charge density at chord |u-n|."""
+    def _isolated_density_from_chord_sq(self, chord_sq_fn) -> float:
+        """Cancellation-free isolated-sphere surface charge density given exact chord^2(ctx)."""
         from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
         from fractions import Fraction
         from .observables import _PI_120
@@ -320,8 +320,8 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                 d = _fdec(fd2).sqrt()
                 gap_sq = _fdec(fd2_minus_a2)
                 L0 = gap_sq / (d + da)
-                dc = Decimal.from_float(chord)
-                t = da * d * dc * dc
+                c2 = chord_sq_fn(_fdec, d)
+                t = da * d * c2
                 L02 = L0 * L0
                 L2 = L02 + t
                 L = L2.sqrt()
@@ -346,6 +346,35 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                 if (tot != 0 and digits - lost >= 40) or digits >= max_digits or (tot == 0 and digits >= 480):
                     return float(tot)
                 digits = min(max_digits, max(2 * digits, lost + 80))
+
+    def _isolated_density_from_chord(self, chord: float) -> float:
+        from decimal import Decimal
+        dc = Decimal.from_float(chord)
+        return self._isolated_density_from_chord_sq(lambda _fdec, _d: dc * dc)
+
+    def _isolated_density_at_point(self, point: Vector3) -> float:
+        """Cancellation-free surface density at an authored 3D surface point (exact Cartesian chord^2)."""
+        from decimal import Decimal
+        from fractions import Fraction
+        c = tuple(Fraction(x) for x in self.sphere.center_m)
+        f_rp = tuple(Fraction(point[i]) - c[i] for i in range(3))
+        f_rs = tuple(Fraction(self.source.position_m[i]) - c[i] for i in range(3))
+        f_rp2 = sum(x * x for x in f_rp)
+        f_d2 = sum(x * x for x in f_rs)
+        f_dot = sum(f_rp[i] * f_rs[i] for i in range(3))
+        f_cross2 = f_rp2 * f_d2 - f_dot * f_dot
+
+        def _chord_sq(_fdec, d_dec):
+            if f_dot == 0:
+                return Decimal(2)
+            rp_norm = _fdec(f_rp2).sqrt()
+            prod = rp_norm * d_dec
+            if f_dot > 0:
+                # 2*(1 - cos) = 2*sin^2/(1 + cos) = 2*|rp x rs|^2 / (|rp|*d*(|rp|*d + rp.rs))
+                return Decimal(2) * _fdec(f_cross2) / (prod * (prod + _fdec(f_dot)))
+            return Decimal(2) + Decimal(2) * _fdec(-f_dot) / prod
+
+        return self._isolated_density_from_chord_sq(_chord_sq)
 
     def surface_charge_density(self, surface: str, theta_rad: float) -> float:
         # super() validates face and angle before adding the constant term.
@@ -372,7 +401,6 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         # The grounded part is evaluated at the intended surface point; the
         # central image adds a uniform density.
         from math import frexp
-        from .external_sphere import _chord
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         grounded_density = super().surface_charge_density_at(surface, point_m)
         a = self.sphere.radius_m
@@ -388,11 +416,7 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                 total == 0.0 or frexp(abs(total))[1] < max(frexp(abs(grounded_density))[1], frexp(abs(central))[1]) - 10
             ))
         ):
-            point = _position(point_m, 'surface point')
-            delta = _diff(point, self.sphere.center_m)
-            radius = _norm(delta)
-            unit = tuple(x / radius for x in delta)
-            return self._isolated_density_from_chord(_chord(unit, self.symmetry_axis))
+            return self._isolated_density_at_point(_position(point_m, 'surface point'))
         return total
 
     @property

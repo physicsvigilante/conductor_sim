@@ -82,7 +82,7 @@ def _multi_conductor_potential_v(
     if len(nonzero) >= 2 and (not isfinite(val) or val == 0.0 or frexp(abs(val))[1] < max(e for _, e in nonzero) - 10):
         from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
         from fractions import Fraction
-        from .observables import _PI_120
+        from .observables import _PI_120, _sphere_geom_spread_digits
 
         def _fdec(v: Fraction) -> Decimal:
             return Decimal(v.numerator) / Decimal(v.denominator)
@@ -90,7 +90,9 @@ def _multi_conductor_potential_v(
         c = tuple(Fraction(x) for x in sphere.center_m)
         d2s = [sum((Fraction(site.position_m[i]) - c[i]) ** 2 for i in range(3)) for site in sites]
         max_digits = 5000
-        digits = 120
+        geom_spread = _sphere_geom_spread_digits(sphere, sites)
+        zero_req_base = min(max_digits, max(480, 4 * geom_spread + 120))
+        digits = min(max_digits, max(120, 2 * geom_spread + 80))
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
             with localcontext(ctx):
@@ -108,9 +110,10 @@ def _multi_conductor_potential_v(
                     continue
                 tot = sum(terms, Decimal(0))
                 if tot == 0:
-                    if digits >= max(480, span_need) or digits >= max_digits:
+                    req = max(zero_req_base, span_need)
+                    if digits >= req or digits >= max_digits:
                         return 0.0
-                    digits = min(max_digits, max(480, span_need, 2 * digits))
+                    digits = min(max_digits, max(req, 2 * digits))
                     continue
                 lost = max(0, max_t.adjusted() - tot.adjusted())
                 if digits - lost >= 40 or digits >= max_digits:

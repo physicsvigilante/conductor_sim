@@ -3427,3 +3427,66 @@ def test_m45_sol_v52_wide_symmetry_residuals_isolated_sign_underflow_decoupled_m
     )
     assert isclose(sol_sig.surface_charge_density("outer", 0.0), -0.238732414637843, rel_tol=1e-12)
     assert isclose(sol_sig.surface_charge_density_at("outer", (0.0, 0.0, a_sig)), -0.238732414637843, rel_tol=1e-12)
+
+
+def test_m45_sol_v53_translated_sphere_geom_zero_checks_equator_density_and_multisite_total():
+    """Regression suite for all four Sol v53 findings."""
+    from fractions import Fraction
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Translated grounded sphere preserves 1 m direct charge separation (no pos-center erasure)
+    s_tr = SolidSphere(5e199, Grounded(), (1e200, 0.0, 0.0), "big")
+    sol_tr = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1e100, (1.0, 0.0, 0.0)), PointCharge(1e100, (2.0, 0.0, 0.0))),
+            (s_tr,),
+            permittivity_f_per_m=1.0,
+        )
+    )
+    assert isclose(sol_tr.force_on_charge_n(0)[0], -7.957747154594767e198, rel_tol=1e-12)
+    assert isclose(sol_tr.interaction_energy_j, 7.957747154594767e198, rel_tol=1e-12)
+
+    # 2. Geometric-spread-aware zero checks resolve >480-digit image/distance residuals
+    s_u0 = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    d = 1e245
+    q = 1e307
+    sol_z1 = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(-q, (0.0, 0.0, -d)), PointCharge(q, (0.0, 0.0, d))),
+            (s_u0,),
+            permittivity_f_per_m=1e-320,
+        )
+    )
+    idx_pos = next(i for i, site in enumerate(sol_z1.sites) if site.position_m[2] > 0)
+    assert isclose(sol_z1.conductor_force_on_charge_n(idx_pos)[2], -3.183134299090553e-292, rel_tol=1e-11, abs_tol=0.0)
+
+    sol_z2 = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(q, (0.0, 0.0, d)), PointCharge(-q, (1.0, 0.0, d))),
+            (s_u0,),
+            permittivity_f_per_m=1e-320,
+        )
+    )
+    assert isclose(sol_z2.conductor_potential_v, 3.978917873863192e-110, rel_tol=1e-11, abs_tol=0.0)
+
+    # 3. Isolated-sphere exact Cartesian equatorial density avoids rounded sqrt(2) chord bias
+    a_eq = 2.0**-30
+    s_eq = SolidSphere(a_eq, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    sol_eq = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(2.0**60, (0.0, 0.0, 2.0**30)),), (s_eq,))
+    )
+    assert isclose(sol_eq.surface_charge_density_at("outer", (a_eq, 0.0, 0.0)), 1.7255613506203974e-19, rel_tol=1e-12, abs_tol=0.0)
+
+    # 4. Multi-site force_energy total_force_n agrees with native force_on_charge_n under deep cancellation
+    s_mc = SolidSphere(1.0, FixedNetCharge(float(Fraction(2041, 450))), (0.0, 0.0, 0.0), "sphere")
+    sol_mc = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1.0, (0.0, 0.0, 2.0)), PointCharge(1.0, (0.0, 0.0, 3.0))),
+            (s_mc,),
+            permittivity_f_per_m=1.0,
+        )
+    )
+    assert isclose(sol_mc.force_on_charge_n(0)[2], 4.554868432713184e-18, rel_tol=1e-11, abs_tol=0.0)
+    obs_mc = force_energy(sol_mc)
+    assert isclose(obs_mc.charges[0].total_force_n[2], 4.554868432713184e-18, rel_tol=1e-11, abs_tol=0.0)
