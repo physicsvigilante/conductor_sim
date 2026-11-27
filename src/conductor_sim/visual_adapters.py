@@ -126,12 +126,26 @@ def context_for_solution(problem, solution):
             def plane_profile_at(name,face,origin_m,u_vec,v_vec,x0,y0,tangent,d):
                 if face != 'outer':
                     raise ValueError("the ideal plane has one exposed conducting surface")
-                n = solution.plane.normal
-                fn = tuple(Fraction(x) for x in n)
+                raw_n = getattr(solution.plane, "_raw_normal", solution.plane.normal)
+                fn = tuple(Fraction(x) for x in raw_n)
                 n_sq = sum(x * x for x in fn)
-                fx = Fraction(x0) + Fraction(d) * Fraction(tangent[0])
-                fy = Fraction(y0) + Fraction(d) * Fraction(tangent[1])
-                pos_offset = tuple(fx * Fraction(u_vec[i]) + fy * Fraction(v_vec[i]) for i in range(3))
+                fu = tuple(Fraction(x) for x in u_vec)
+                fv = tuple(Fraction(x) for x in v_vec)
+                fnx = sum(fn[i] * fu[i] for i in range(3))
+                fny = sum(fn[i] * fv[i] for i in range(3))
+                fdenom = fnx * fnx + fny * fny
+                if fdenom > 0:
+                    fd0 = sum(
+                        (Fraction(origin_m[i]) - Fraction(solution.plane.point_m[i])) * fn[i]
+                        for i in range(3)
+                    )
+                    fx0 = -fd0 * fnx / fdenom
+                    fy0 = -fd0 * fny / fdenom
+                else:
+                    fx0, fy0 = Fraction(x0), Fraction(y0)
+                fx = fx0 + Fraction(d) * Fraction(tangent[0])
+                fy = fy0 + Fraction(d) * Fraction(tangent[1])
+                pos_offset = tuple(fx * fu[i] + fy * fv[i] for i in range(3))
                 h_off = sum(
                     ((Fraction(origin_m[i]) - Fraction(solution.plane.point_m[i])) + pos_offset[i]) * fn[i]
                     for i in range(3)

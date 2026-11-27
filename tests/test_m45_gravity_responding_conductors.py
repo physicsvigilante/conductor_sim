@@ -2367,3 +2367,52 @@ def test_m45_sol_v36_rotated_slice_profile_and_tangential_anchor_region_mask():
     b_reanch = sample_sweep([("reanch", ElectrostaticProblem((q_m,), (p_reanch,)))], GroundedPlaneBackend(), plane=sp_mask, resolution=9)
     assert b_orig["frames"][0]["grid"]["region"][4][4] == "vacuum"
     assert b_reanch["frames"][0]["grid"]["region"][4][4] == "vacuum"
+
+
+def test_m45_sol_v37_exact_slice_intercept_authored_normal_and_boundary_extremes():
+    """Regression suite for all three Sol v37 findings."""
+    from math import ulp
+    from conductor_sim.geometry import PlaneBoundary, contains_metal, physical_boundaries
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Exact rational slice intercept on rotated slice through origin for x=1e6 plane
+    u_1e6 = ulp(1e6)
+    p_x1e6 = ConductingPlane((1e6, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    q_1ulp = (1e6 + u_1e6, 1e6, 0.0)
+    sp_orig_rot = SliceSpec(
+        origin_m=(0.0, 0.0, 0.0), u=(1.0, 1.0, 0.0), v=(0.0, 0.0, 1.0),
+        x_range_m=(-1.0, 1.0), y_range_m=(-1.0, 1.0), resolution=9,
+    )
+    bundle_1e6 = sample_sweep(
+        [("rot-x1e6", ElectrostaticProblem((PointCharge(1e-12, q_1ulp),), (p_x1e6,)))],
+        GroundedPlaneBackend(), plane=sp_orig_rot, resolution=9,
+    )
+    prof_1e6 = bundle_1e6["frames"][0]["profiles"][0]
+    expected_center = -1e-12 / (2.0 * pi * (u_1e6 ** 2))
+    assert isclose(prof_1e6["sigma_c_per_m2"][45], expected_center, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Authored (3, 1, 0) normal ratio preserved under tangential re-anchoring (-1e6, 3e6, 0)
+    p31_orig = ConductingPlane((0.0, 0.0, 0.0), (3.0, 1.0, 0.0), Grounded())
+    p31_shift = ConductingPlane((-1e6, 3e6, 0.0), (3.0, 1.0, 0.0), Grounded())
+    pt_pos = (1e-11, 0.0, 0.0)
+    pt_neg = (-1e-11, 0.0, 0.0)
+    assert contains_metal(p31_orig, pt_pos) is False
+    assert contains_metal(p31_shift, pt_pos) is False
+    hit_orig = physical_boundaries(p31_orig)[0].first_hit(pt_pos, pt_neg)
+    hit_shift = physical_boundaries(p31_shift)[0].first_hit(pt_pos, pt_neg)
+    assert isclose(hit_orig, 0.5, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(hit_shift, 0.5, rel_tol=1e-12, abs_tol=0.0)
+    sp31 = SliceSpec(
+        origin_m=pt_pos, u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-1e-10, 1e-10), y_range_m=(-1e-10, 1e-10), resolution=9,
+    )
+    q31 = PointCharge(1e-12, (2e-10, 0.0, 0.0))
+    b31_o = sample_sweep([("o", ElectrostaticProblem((q31,), (p31_orig,)))], GroundedPlaneBackend(), plane=sp31, resolution=9)
+    b31_s = sample_sweep([("s", ElectrostaticProblem((q31,), (p31_shift,)))], GroundedPlaneBackend(), plane=sp31, resolution=9)
+    assert b31_o["frames"][0]["grid"]["region"][4][4] == "vacuum"
+    assert b31_s["frames"][0]["grid"]["region"][4][4] == "vacuum"
+
+    # 3. PlaneBoundary.first_hit avoids underflow and overflow at finite extremes
+    pb_x0 = PlaneBoundary((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
+    assert pb_x0.first_hit((1e-160, 0.0, 0.0), (1e-200, 0.0, 0.0)) is None
+    assert pb_x0.first_hit((1e308, 0.0, 0.0), (-1e308, 0.0, 0.0)) == 0.5

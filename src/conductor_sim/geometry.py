@@ -6,6 +6,7 @@ and cross-section metadata. It never computes an electrostatic solution.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from math import copysign, hypot, sqrt, isfinite
 
 from .model import ConductingPlane, SphericalShell, SolidSphere, Vector3, _plane_signed_distance
@@ -54,13 +55,20 @@ class PlaneBoundary:
     point_m: Vector3
     normal: Vector3
     kind: str = "surface"
+    raw_normal: Vector3 | None = None
 
     def first_hit(self,a: Vector3,b: Vector3):
-        h0 = _plane_signed_distance(a, self.point_m, self.normal)
-        h1 = _plane_signed_distance(b, self.point_m, self.normal)
-        if h0 == h1 or h0*h1 > 0:
+        h0 = _plane_signed_distance(a, self.point_m, self.normal, self.raw_normal)
+        h1 = _plane_signed_distance(b, self.point_m, self.normal, self.raw_normal)
+        if h0 == 0.0 or (h0 > 0.0 and h1 > 0.0) or (h0 < 0.0 and h1 < 0.0):
             return None
-        t = h0/(h0-h1)
+        if h1 == 0.0:
+            return 1.0
+        scale = max(abs(h0), abs(h1))
+        sh0, sh1 = h0 / scale, h1 / scale
+        t = sh0 / (sh0 - sh1)
+        if t == 0.0:
+            t = float(Fraction(h0) / (Fraction(h0) - Fraction(h1)))
         return t if 0 < t <= 1 else None
 
 
@@ -109,7 +117,7 @@ def contains_metal(shape, point: Vector3) -> bool:
 
 def physical_boundaries(shape):
     if isinstance(shape,ConductingPlane):
-        return (PlaneBoundary(shape.point_m,shape.normal),)
+        return (PlaneBoundary(shape.point_m, shape.normal, raw_normal=getattr(shape, "_raw_normal", None)),)
     if isinstance(shape,(SphericalShell,SolidSphere)):
         return tuple(SphereBoundary(shape.center_m,r) for r in
                      (shape.inner_radius_m,shape.outer_radius_m) if r>0)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from fractions import Fraction
-from math import fsum, isfinite
+from math import fsum, hypot, isfinite
 from numbers import Integral
 from sys import float_info
 from typing import TypeAlias
@@ -112,7 +112,12 @@ class SolidSphere:
 
 
 
-def _plane_signed_distance(point: Vector3, point_m: Vector3, normal: Vector3) -> float:
+def _plane_signed_distance(
+    point: Vector3,
+    point_m: Vector3,
+    normal: Vector3,
+    raw_normal: Vector3 | None = None,
+) -> float:
     """Cancellation-, overflow-, and subnormal-safe signed distance to a plane."""
     max_coord = max(
         (max(abs(point[i]), abs(point_m[i])) for i in range(3) if normal[i] != 0.0),
@@ -130,17 +135,26 @@ def _plane_signed_distance(point: Vector3, point_m: Vector3, normal: Vector3) ->
             )
             if isfinite(raw) and abs(raw) >= 0.01 * bound and abs(raw) >= _MIN_NORMAL * 1e4:
                 return raw
-    exact = sum(
-        (Fraction(point[i]) - Fraction(point_m[i])) * Fraction(normal[i])
+    rn = raw_normal if raw_normal is not None else normal
+    exact_num = sum(
+        (Fraction(point[i]) - Fraction(point_m[i])) * Fraction(rn[i])
         for i in range(3)
     )
+    if exact_num == 0:
+        return 0.0
+    if raw_normal is None:
+        exact = exact_num
+    else:
+        r_max = max(abs(Fraction(x)) for x in rn)
+        r_norm_scaled = hypot(*(float(Fraction(x) / r_max) for x in rn))
+        exact = exact_num / (r_max * Fraction(r_norm_scaled))
     try:
         return float(exact)
     except OverflowError:
         return float('inf') if exact > 0 else float('-inf')
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ConductingPlane:
     """Ideal infinite conductor occupying the negative-normal half-space.
 
@@ -159,6 +173,7 @@ class ConductingPlane:
     def __post_init__(self) -> None:
         object.__setattr__(self, "point_m", _position(self.point_m, "plane point"))
         vector = _position(self.normal, "plane normal")
+        object.__setattr__(self, "_raw_normal", vector)
         object.__setattr__(self, "normal", unit_direction(
             vector, "plane normal must be finite and nonzero"))
         if not isinstance(self.constraint, (Grounded, FixedPotential)):
@@ -170,7 +185,12 @@ class ConductingPlane:
 
     def signed_distance_m(self, point_m: Vector3) -> float:
         """Positive in vacuum; zero at metal surface; negative inside metal."""
-        return _plane_signed_distance(_position(point_m, "point"), self.point_m, self.normal)
+        return _plane_signed_distance(
+            _position(point_m, "point"),
+            self.point_m,
+            self.normal,
+            getattr(self, "_raw_normal", None),
+        )
 
 Conductor: TypeAlias = SphericalShell | SolidSphere | ConductingPlane
 
