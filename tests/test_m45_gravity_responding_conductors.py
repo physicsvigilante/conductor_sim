@@ -2714,3 +2714,51 @@ def test_m45_sol_v41_multi_sphere_dipole_cancel_near_contact_and_shallow_profile
     frame_sh = sample_frame(context_for_solution(prob_sh, sol_sh), sp_sh, seeds=[])
     assert len(frame_sh["profiles"]) == 1
     assert isclose(frame_sh["profiles"][0]["sigma_c_per_m2"][45], -3.183098861838e-311, rel_tol=1e-9, abs_tol=0.0)
+
+
+def test_m45_sol_v42_off_axis_contact_reflection_symmetry_decimal_traps_and_plane_density_overflow():
+    """Regression suite for all four Sol v42 findings."""
+    import decimal
+    from math import isfinite
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Single-source sphere force & energy near off-axis contact use exact (d^2 - a^2) / d^2
+    s1 = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    p1 = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0000000000000002)),), (s1,))
+    obs1 = force_energy(ExternalIsolatedSphereBackend().solve(p1))
+    assert isclose(obs1.charges[0].induced_force_n[2], -2.025435630940831e24, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs1.energy.induced_j, -6.74605581710007e8, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Multi-source sphere near reflection symmetry preserves 1e-100 transverse offset precision
+    p2 = ElectrostaticProblem(
+        (
+            PointCharge(1e-8, (-2.0, 0.0, 0.0)),
+            PointCharge(1e-8, (2.0, 0.0, 0.0)),
+            PointCharge(1e-8, (1e-100, 0.0, 2.0)),
+        ),
+        (s1,),
+    )
+    obs2 = force_energy(ExternalMultiSphereBackend().solve(p2))
+    top2 = next(c for c in obs2.charges if c.source.position_m[2] > 0)
+    assert isclose(top2.induced_force_n[0], -1.582182647787183e-108, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Multi-source sphere isolates its Decimal Context from caller traps (e.g. Inexact)
+    p3 = ElectrostaticProblem(
+        (PointCharge(1e-8, (-2.0, 0.0, 0.0)), PointCharge(1e-8, (2.0, 0.0, 0.0))),
+        (s1,),
+    )
+    sol3 = ExternalMultiSphereBackend().solve(p3)
+    with decimal.localcontext() as caller_ctx:
+        caller_ctx.traps[decimal.Inexact] = True
+        obs3 = force_energy(sol3)
+    assert all(isfinite(v) for c in obs3.charges for v in c.induced_force_n)
+    assert isfinite(obs3.energy.induced_j)
+
+    # 4. Grounded-plane point density resists displacement overflow before scaled division
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    sol_ovf = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (1e308, 0.0, 8e307)),), (p_z0,))
+    )
+    sigma_ovf = sol_ovf.surface_charge_density_at("outer", (-1e308, 0.0, 0.0))
+    assert isclose(sigma_ovf, -1.2738935767241e-310, rel_tol=1e-10, abs_tol=0.0)

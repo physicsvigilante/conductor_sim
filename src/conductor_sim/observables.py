@@ -7,7 +7,8 @@ fail explicitly. Fixed-voltage energies are mechanical interaction potentials
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, localcontext
+from decimal import Context, Decimal, localcontext
+from fractions import Fraction
 from math import copysign, frexp, fsum, hypot, isfinite, ldexp
 from typing import Protocol
 
@@ -243,7 +244,16 @@ def _sphere_observables(solution) -> ForceEnergyResult:
         dc = norm(delta_c)
         r0_hat = tuple(x / dc for x in delta_c)
         ratio = a / dc
-        u_denom = ((dc - a) / dc) * (1.0 + ratio)
+        if dc - a < 0.01 * a:
+            # Near contact, binary64 hypot rounds sqrt(r^2) before subtracting a,
+            # losing precision in d^2 - a^2 for off-axis positions; evaluate
+            # (d^2 - a^2) / d^2 exactly in Fraction from the authored coordinates.
+            f_delta = tuple(Fraction(site.position_m[c]) - Fraction(center[c]) for c in range(3))
+            f_d2 = sum(x * x for x in f_delta)
+            f_a2 = Fraction(a) * Fraction(a)
+            u_denom = float((f_d2 - f_a2) / f_d2)
+        else:
+            u_denom = ((dc - a) / dc) * (1.0 + ratio)
         # Exact cancellation-, overflow-, and underflow-free single-source polarization:
         #   F_ind = -k * q^2 * (a/d)^3 * (2 - (a/d)^2) / (d^2 * (1 - (a/d)^2)^2) * r_hat
         #   U_ind = -0.5 * k * q^2 * a * (a/d)^2 / (d^2 * (1 - (a/d)^2))
@@ -261,55 +271,99 @@ def _sphere_observables(solution) -> ForceEnergyResult:
         bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
     elif fixed:
         # Multi-source fixed-net-charge exterior sphere: evaluate Kelvin images
-        # and the shared central compensator in high-precision Decimal so exact
-        # multipole cancellations (dipole/quadrupole), near-contact image
-        # separations, and extreme scale ratios all retain full binary64 accuracy.
-        site_norms = [norm(difference(s.position_m, center)) for s in sources]
-        e_ratio = max(0, max(frexp(d)[1] for d in site_norms) - frexp(a)[1])
-        prec = max(90, min(800, 90 + 4 * int(0.31 * e_ratio)))
-        with localcontext() as ctx:
-            ctx.prec = prec
-            ctx.Emax = 999999999
-            ctx.Emin = -999999999
-            da = Decimal.from_float(a)
-            dc_vec = tuple(Decimal.from_float(x) for x in center)
-            dQ = Decimal.from_float(Q)
+        # and the shared central compensator in a clean, trap-isolated Decimal
+        # Context whose precision adapts to coordinate/charge spreads and any
+        # runtime multipole or reflection-symmetry cancellation.
+        da = Decimal.from_float(a)
+        dc_vec = tuple(Decimal.from_float(x) for x in center)
+        dQ = Decimal.from_float(Q)
+        dqs = [Decimal.from_float(s.charge_c) for s in sources]
+        with localcontext(Context(prec=60, Emax=999999999, Emin=-999999999)):
             dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(reference.permittivity_f_per_m))
-            dqs = [Decimal.from_float(s.charge_c) for s in sources]
-            drs = [
-                tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3))
-                for s in sources
-            ]
-            dds = [sum(x * x for x in r).sqrt() for r in drs]
-            dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
-            dS = sum(-qi for qi in dq_imgs)
-            dr_imgs = [
-                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
-                for j in range(len(sources))
-            ]
-            for i, site in enumerate(sources):
-                ri, di, qi = drs[i], dds[i], dqs[i]
-                di3 = di * di * di
-                f_ind = [Decimal(0), Decimal(0), Decimal(0)]
-                for j in range(len(sources)):
-                    w = tuple(ri[m] - dr_imgs[j][m] for m in range(3))
-                    wn = sum(x * x for x in w).sqrt()
-                    wn3 = wn * wn * wn
-                    for m in range(3):
-                        f_ind[m] += qi * dq_imgs[j] * w[m] / wn3
+        with localcontext(Context(prec=100, Emax=999999999, Emin=-999999999)):
+            geom_exps = [da.adjusted()]
+            for s in sources:
                 for m in range(3):
-                    f_ind[m] += qi * dS * ri[m] / di3
-                induced_vec = tuple(float(dk * x) for x in f_ind)
-                background = tuple(float(dk * qi * dQ * ri[m] / di3) for m in range(3))
-                charges.append(ChargeForce(site, direct[i], induced_vec, background))
-            kelvin_u = Decimal(0)
-            for i in range(len(sources)):
-                for j in range(len(sources)):
-                    w = tuple(drs[i][m] - dr_imgs[j][m] for m in range(3))
-                    wn = sum(x * x for x in w).sqrt()
-                    kelvin_u += Decimal("0.5") * dqs[i] * dq_imgs[j] / wn
-            induced_energy = float(dk * (kelvin_u + Decimal("0.5") * dS * dS / da))
-            bg_energy = float(dk * dQ * dS / da)
+                    diff_m = Decimal.from_float(s.position_m[m]) - dc_vec[m]
+                    if diff_m != 0:
+                        geom_exps.append(diff_m.adjusted())
+        charge_exps = [dq.adjusted() for dq in dqs if dq != 0]
+        geom_spread = (max(geom_exps) - min(geom_exps)) if geom_exps else 0
+        charge_spread = (max(charge_exps) - min(charge_exps)) if charge_exps else 0
+        prec = max(90, min(2400, 90 + 3 * geom_spread + charge_spread))
+        induced_vecs: list[Vector3] = []
+        backgrounds: list[Vector3] = []
+        induced_energy = 0.0
+        bg_energy = 0.0
+        for _ in range(5):
+            with localcontext(Context(prec=prec, Emax=999999999, Emin=-999999999)):
+                drs = [
+                    tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3))
+                    for s in sources
+                ]
+                dds = [sum(x * x for x in r).sqrt() for r in drs]
+                dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
+                dS = sum(-qi for qi in dq_imgs)
+                dr_imgs = [
+                    tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
+                    for j in range(len(sources))
+                ]
+                max_lost = 0
+                induced_vecs = []
+                backgrounds = []
+                for i in range(len(sources)):
+                    ri, di, qi = drs[i], dds[i], dqs[i]
+                    di3 = di * di * di
+                    f_ind = [Decimal(0), Decimal(0), Decimal(0)]
+                    f_sc = [Decimal(0), Decimal(0), Decimal(0)]
+                    for j in range(len(sources)):
+                        w = tuple(ri[m] - dr_imgs[j][m] for m in range(3))
+                        wn = sum(x * x for x in w).sqrt()
+                        wn3 = wn * wn * wn
+                        for m in range(3):
+                            term = qi * dq_imgs[j] * w[m] / wn3
+                            f_ind[m] += term
+                            at = abs(term)
+                            if at > f_sc[m]:
+                                f_sc[m] = at
+                    for m in range(3):
+                        term = qi * dS * ri[m] / di3
+                        f_ind[m] += term
+                        at = abs(term)
+                        if at > f_sc[m]:
+                            f_sc[m] = at
+                        if f_ind[m] != 0 and f_sc[m] > 0:
+                            lost = f_sc[m].adjusted() - f_ind[m].adjusted()
+                            if lost > max_lost:
+                                max_lost = lost
+                    induced_vecs.append(tuple(float(dk * x) for x in f_ind))
+                    backgrounds.append(tuple(float(dk * qi * dQ * ri[m] / di3) for m in range(3)))
+                kelvin_u = Decimal(0)
+                u_sc = Decimal(0)
+                for i in range(len(sources)):
+                    for j in range(len(sources)):
+                        w = tuple(drs[i][m] - dr_imgs[j][m] for m in range(3))
+                        wn = sum(x * x for x in w).sqrt()
+                        term = Decimal("0.5") * dqs[i] * dq_imgs[j] / wn
+                        kelvin_u += term
+                        at = abs(term)
+                        if at > u_sc:
+                            u_sc = at
+                comp_u = Decimal("0.5") * dS * dS / da
+                if abs(comp_u) > u_sc:
+                    u_sc = abs(comp_u)
+                u_raw = kelvin_u + comp_u
+                if u_raw != 0 and u_sc > 0:
+                    lost = u_sc.adjusted() - u_raw.adjusted()
+                    if lost > max_lost:
+                        max_lost = lost
+                induced_energy = float(dk * u_raw)
+                bg_energy = float(dk * dQ * dS / da)
+                if prec - max_lost >= 35 or prec >= 3200:
+                    break
+                prec = min(3200, max(2 * prec, max_lost + 60))
+        for i, site in enumerate(sources):
+            charges.append(ChargeForce(site, direct[i], induced_vecs[i], backgrounds[i]))
     else:
         for i, site in enumerate(sources):
             terms = [[], [], []]

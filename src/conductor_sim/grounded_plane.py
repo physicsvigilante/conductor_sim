@@ -125,12 +125,37 @@ class GroundedPlaneSolution:
         point = _position(point_m, "surface point")
         if not isclose(self.plane.signed_distance_m(point), 0.0, abs_tol=1e-12):
             raise ValueError("surface-density point must lie on conducting plane")
+        from fractions import Fraction
+        from .model import _plane_exact_numerator, _plane_raw_normal
         from .observables import _scaled_ratio_product
         terms = []
         for q in self.sources:
-            r = hypot(*_minus(point, q.position_m))
+            delta = _minus(point, q.position_m)
+            r = hypot(*delta) if all(isfinite(d) for d in delta) else float("inf")
             hq = self.plane.signed_distance_m(q.position_m)
-            terms.append(_scaled_ratio_product((q.charge_c, hq), (2.0 * pi, r, r, r)))
+            if isfinite(r) and r > 0.0 and isfinite(hq):
+                terms.append(_scaled_ratio_product((q.charge_c, hq), (2.0 * pi, r, r, r)))
+                continue
+            delta_f = tuple(Fraction(point[i]) - Fraction(q.position_m[i]) for i in range(3))
+            d_max = max(abs(x) for x in delta_f)
+            if d_max == 0:
+                raise ZeroDivisionError("surface-density point coincides with point source")
+            r_scaled = hypot(*(float(x / d_max) for x in delta_f))
+            if isfinite(hq):
+                exact_hq = Fraction(hq)
+            else:
+                rn = _plane_raw_normal(self.plane.normal)
+                r_max = max(abs(Fraction(x)) for x in rn)
+                r_norm = hypot(*(float(Fraction(x) / r_max) for x in rn))
+                exact_hq = _plane_exact_numerator(q.position_m, self.plane.point_m, self.plane.normal, rn) / (r_max * Fraction(r_norm))
+            exact_term = (
+                Fraction(q.charge_c) * exact_hq
+                / (Fraction(2.0 * pi) * (d_max ** 3) * Fraction(r_scaled) ** 3)
+            )
+            try:
+                terms.append(float(exact_term))
+            except OverflowError:
+                terms.append(float("inf") if exact_term > 0 else float("-inf"))
         return -fsum(terms)
 
     def surface_charge_density(self, surface: str, radial_distance_m: float) -> float:
