@@ -245,7 +245,7 @@ class GroundedPlaneSolution:
             d_img2 = d_dir2 + (4 * num_hp * num_hq) / n_sq
             src_data.append((q.charge_c, num_hq, v_dir, d_dir2, d_img2))
 
-        max_digits = 4000
+        max_digits = 5000
         spread = self._plane_spread_digits((point,))
         zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
         digits = min(max_digits, max(80, spread + 60))
@@ -257,30 +257,35 @@ class GroundedPlaneSolution:
                 unit_n = tuple(_fdec(fn[i]) / n_norm for i in range(3))
                 hp = _fdec(num_hp) / n_norm
                 if not want_field:
-                    total = Decimal(0)
-                    max_term = Decimal(0)
+                    terms = []
                     for qc, num_hq, _, d_dir2, d_img2 in src_data:
                         dq = Decimal.from_float(qc)
                         hq = _fdec(num_hq) / n_norm
                         dd = _fdec(d_dir2).sqrt()
                         di = _fdec(d_img2).sqrt()
-                        term = dk * dq * Decimal(4) * hp * hq / (dd * di * (dd + di))
-                        total += term
-                        if abs(term) > max_term:
-                            max_term = abs(term)
-                    if total == 0:
-                        if max_term == 0 or digits >= zero_check_digits:
-                            return 0.0
-                        digits = min(max_digits, max(zero_check_digits, 2 * digits))
+                        terms.append(dk * dq * Decimal(4) * hp * hq / (dd * di * (dd + di)))
+                    nz = [abs(t) for t in terms if t != 0]
+                    if not nz:
+                        return 0.0
+                    max_term = max(nz)
+                    min_term = min(nz)
+                    span_need = (max_term.adjusted() - min_term.adjusted() + 80) if len(nz) >= 2 else 0
+                    if span_need > digits and digits < max_digits:
+                        digits = min(max_digits, max(2 * digits, span_need))
                         continue
-                    lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
+                    total = sum(terms, Decimal(0))
+                    if total == 0:
+                        if digits >= max(zero_check_digits, span_need) or digits >= max_digits:
+                            return 0.0
+                        digits = min(max_digits, max(zero_check_digits, span_need, 2 * digits))
+                        continue
+                    lost = max(0, max_term.adjusted() - total.adjusted())
                     if digits - lost >= 40 or digits >= max_digits:
                         return float(total)
                     digits = min(max_digits, max(2 * digits, lost + 80))
                     continue
 
-                totals = [Decimal(0), Decimal(0), Decimal(0)]
-                max_terms = [Decimal(0), Decimal(0), Decimal(0)]
+                term_lists = ([], [], [])
                 for qc, num_hq, v_dir, d_dir2, d_img2 in src_data:
                     dq = Decimal.from_float(qc)
                     hq = _fdec(num_hq) / n_norm
@@ -291,21 +296,33 @@ class GroundedPlaneSolution:
                     diff_inv3 = Decimal(4) * hp * hq * ratio_fac / (dd * dd * dd * di * di)
                     inv_di3 = Decimal(2) * hq / (di * di * di)
                     for i in range(3):
-                        t1 = dk * dq * _fdec(v_dir[i]) * diff_inv3
-                        t2 = -dk * dq * inv_di3 * unit_n[i]
-                        totals[i] += t1 + t2
-                        peak = max(abs(t1), abs(t2))
-                        if peak > max_terms[i]:
-                            max_terms[i] = peak
+                        if v_dir[i] != 0:
+                            term_lists[i].append(dk * dq * _fdec(v_dir[i]) * diff_inv3)
+                        if fn[i] != 0:
+                            term_lists[i].append(-dk * dq * inv_di3 * unit_n[i])
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
                 need_more = False
                 next_digits = digits
                 for i in range(3):
-                    if totals[i] == 0:
-                        if max_terms[i] > 0 and digits < zero_check_digits:
+                    nz = [abs(t) for t in term_lists[i] if t != 0]
+                    if not nz:
+                        continue
+                    max_t = max(nz)
+                    min_t = min(nz)
+                    span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                    if span_need > digits and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, max(2 * digits, span_need))
+                        continue
+                    tot = sum(term_lists[i], Decimal(0))
+                    totals[i] = tot
+                    if tot == 0:
+                        req = max(zero_check_digits, span_need)
+                        if digits < req and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(zero_check_digits, 2 * digits))
-                    elif max_terms[i] > 0:
-                        lost = max(0, max_terms[i].adjusted() - totals[i].adjusted())
+                            next_digits = max(next_digits, max(req, 2 * digits))
+                    else:
+                        lost = max(0, max_t.adjusted() - tot.adjusted())
                         if digits - lost < 40 and digits < max_digits:
                             need_more = True
                             next_digits = max(next_digits, max(2 * digits, lost + 80))
@@ -339,7 +356,7 @@ class GroundedPlaneSolution:
             d_img2 = d_dir2 + (4 * num_hi * num_hj) / n_sq
             pair_data.append((j, other.charge_c, num_hj, v_dir, d_dir2, v_img, d_img2))
 
-        max_digits = 4000
+        max_digits = 5000
         spread = self._plane_spread_digits()
         zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
         digits = min(max_digits, max(80, spread + 60))
@@ -351,8 +368,7 @@ class GroundedPlaneSolution:
                 n_norm = _fdec(n_sq).sqrt()
                 unit_n = tuple(_fdec(fn[c]) / n_norm for c in range(3))
                 hi = _fdec(num_hi) / n_norm
-                totals = [Decimal(0), Decimal(0), Decimal(0)]
-                max_terms = [Decimal(0), Decimal(0), Decimal(0)]
+                term_lists = ([], [], [])
                 for j, qj_f, num_hj, v_dir, d_dir2, v_img, d_img2 in pair_data:
                     dqj = Decimal.from_float(qj_f)
                     di = _fdec(d_img2).sqrt()
@@ -365,27 +381,37 @@ class GroundedPlaneSolution:
                         diff_inv3 = Decimal(4) * hi * hj * ratio_fac / (dd * dd * dd * di * di)
                         inv_di3 = Decimal(2) * hj / di3
                         for c in range(3):
-                            t1 = dk * dqi * dqj * _fdec(v_dir[c]) * diff_inv3
-                            t2 = -dk * dqi * dqj * inv_di3 * unit_n[c]
-                            totals[c] += t1 + t2
-                            peak = max(abs(t1), abs(t2))
-                            if peak > max_terms[c]:
-                                max_terms[c] = peak
+                            if v_dir[c] != 0:
+                                term_lists[c].append(dk * dqi * dqj * _fdec(v_dir[c]) * diff_inv3)
+                            if fn[c] != 0:
+                                term_lists[c].append(-dk * dqi * dqj * inv_di3 * unit_n[c])
                     else:
                         for c in range(3):
-                            t = -dk * dqi * dqj * _fdec(v_img[c]) / di3
-                            totals[c] += t
-                            if abs(t) > max_terms[c]:
-                                max_terms[c] = abs(t)
+                            if v_img[c] != 0:
+                                term_lists[c].append(-dk * dqi * dqj * _fdec(v_img[c]) / di3)
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
                 need_more = False
                 next_digits = digits
                 for c in range(3):
-                    if totals[c] == 0:
-                        if max_terms[c] > 0 and digits < zero_check_digits:
+                    nz = [abs(t) for t in term_lists[c] if t != 0]
+                    if not nz:
+                        continue
+                    max_t = max(nz)
+                    min_t = min(nz)
+                    span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                    if span_need > digits and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, max(2 * digits, span_need))
+                        continue
+                    tot = sum(term_lists[c], Decimal(0))
+                    totals[c] = tot
+                    if tot == 0:
+                        req = max(zero_check_digits, span_need)
+                        if digits < req and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(zero_check_digits, 2 * digits))
-                    elif max_terms[c] > 0:
-                        lost = max(0, max_terms[c].adjusted() - totals[c].adjusted())
+                            next_digits = max(next_digits, max(req, 2 * digits))
+                    else:
+                        lost = max(0, max_t.adjusted() - tot.adjusted())
                         if digits - lost < 40 and digits < max_digits:
                             need_more = True
                             next_digits = max(next_digits, max(2 * digits, lost + 80))
@@ -416,7 +442,7 @@ class GroundedPlaneSolution:
                 d_img2 = d_dir2 + (4 * num_h[i] * num_h[j]) / n_sq
                 pair_data.append((i, j, d_dir2, d_img2))
 
-        max_digits = 4000
+        max_digits = 5000
         spread = self._plane_spread_digits()
         zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
         digits = min(max_digits, max(80, spread + 60))
@@ -427,26 +453,29 @@ class GroundedPlaneSolution:
                 n_norm = _fdec(n_sq).sqrt()
                 hs = [_fdec(x) / n_norm for x in num_h]
                 dqs = [Decimal.from_float(q.charge_c) for q in self.sources]
-                total = Decimal(0)
-                max_term = Decimal(0)
+                terms = []
                 for i in range(len(self.sources)):
-                    t = -Decimal("0.25") * dk * dqs[i] * dqs[i] / hs[i]
-                    total += t
-                    if abs(t) > max_term:
-                        max_term = abs(t)
+                    terms.append(-Decimal("0.25") * dk * dqs[i] * dqs[i] / hs[i])
                 for i, j, d_dir2, d_img2 in pair_data:
                     dd = _fdec(d_dir2).sqrt()
                     di = _fdec(d_img2).sqrt()
-                    t = dk * dqs[i] * dqs[j] * Decimal(4) * hs[i] * hs[j] / (dd * di * (dd + di))
-                    total += t
-                    if abs(t) > max_term:
-                        max_term = abs(t)
-                if total == 0:
-                    if max_term == 0 or digits >= zero_check_digits:
-                        return 0.0
-                    digits = min(max_digits, max(zero_check_digits, 2 * digits))
+                    terms.append(dk * dqs[i] * dqs[j] * Decimal(4) * hs[i] * hs[j] / (dd * di * (dd + di)))
+                nz = [abs(t) for t in terms if t != 0]
+                if not nz:
+                    return 0.0
+                max_term = max(nz)
+                min_term = min(nz)
+                span_need = (max_term.adjusted() - min_term.adjusted() + 80) if len(nz) >= 2 else 0
+                if span_need > digits and digits < max_digits:
+                    digits = min(max_digits, max(2 * digits, span_need))
                     continue
-                lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
+                total = sum(terms, Decimal(0))
+                if total == 0:
+                    if digits >= max(zero_check_digits, span_need) or digits >= max_digits:
+                        return 0.0
+                    digits = min(max_digits, max(zero_check_digits, span_need, 2 * digits))
+                    continue
+                lost = max(0, max_term.adjusted() - total.adjusted())
                 if digits - lost >= 40 or digits >= max_digits:
                     return float(total)
                 digits = min(max_digits, max(2 * digits, lost + 80))

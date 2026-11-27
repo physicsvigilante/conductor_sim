@@ -294,8 +294,62 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             out.append(tot_i)
         return tuple(out)
 
+    def _isolated_density_from_chord(self, chord: float) -> float:
+        """Cancellation-free isolated-sphere surface charge density at chord |u-n|."""
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .observables import _PI_120
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        fa = Fraction(self.sphere.radius_m)
+        f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
+        fd2 = sum(x * x for x in f_delta)
+        fd2_minus_a2 = fd2 - fa * fa
+        Q_val = self.conductor_results[0].net_charge_c
+        max_digits = 5000
+        digits = 120
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                four_pi = Decimal(4) * Decimal(_PI_120)
+                da = Decimal.from_float(self.sphere.radius_m)
+                dq = Decimal.from_float(self.source.charge_c)
+                dQ = Decimal.from_float(Q_val)
+                d = _fdec(fd2).sqrt()
+                gap_sq = _fdec(fd2_minus_a2)
+                L0 = gap_sq / (d + da)
+                dc = Decimal.from_float(chord)
+                t = da * d * dc * dc
+                L02 = L0 * L0
+                L2 = L02 + t
+                L = L2.sqrt()
+                L3 = L2 * L
+                # Exact cancellation-free numerator of L^6 - d^2*(d^2 - a^2)^2:
+                #   -a*L0^2*(3d - a)*(2d^2 - a*d + a^2) + t*(3*L0^4 + 3*L0^2*t + t^2)
+                neg_part = -da * L02 * (Decimal(3) * d - da) * (Decimal(2) * d * d - da * d + da * da)
+                pos_part = t * (Decimal(3) * L02 * L02 + Decimal(3) * L02 * t + t * t)
+                num = neg_part + pos_part
+                denom = four_pi * da * d * L3 * (L3 + d * gap_sq)
+                sigma_ind = dq * num / denom
+                sigma_Q = dQ / (four_pi * da * da)
+                tot = sigma_ind + sigma_Q
+                # Check precision loss in both (neg_part + pos_part) and (sigma_ind + sigma_Q)
+                lost = 0
+                if neg_part != 0 and pos_part != 0:
+                    p_n = max(abs(neg_part), abs(pos_part))
+                    lost = max(lost, (p_n.adjusted() - num.adjusted()) if num != 0 else digits)
+                if sigma_ind != 0 and sigma_Q != 0:
+                    p_s = max(abs(sigma_ind), abs(sigma_Q))
+                    lost = max(lost, (p_s.adjusted() - tot.adjusted()) if tot != 0 else digits)
+                if (tot != 0 and digits - lost >= 40) or digits >= max_digits or (tot == 0 and digits >= 480):
+                    return float(tot)
+                digits = min(max_digits, max(2 * digits, lost + 80))
+
     def surface_charge_density(self, surface: str, theta_rad: float) -> float:
         # super() validates face and angle before adding the constant term.
+        from math import frexp, sin
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         grounded_density = super().surface_charge_density(surface, theta_rad)
         a = self.sphere.radius_m
@@ -304,11 +358,21 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             _scaled_ratio_parts((Q,), (4.0 * pi, a, a)),
             _scaled_ratio_parts((self.source.charge_c,), (4.0 * pi, self.source_distance_m, a)),
         ])
-        return grounded_density + central
+        total = grounded_density + central
+        if (
+            not (isfinite(grounded_density) and isfinite(central) and isfinite(total))
+            or (grounded_density != 0.0 and central != 0.0 and (
+                total == 0.0 or frexp(abs(total))[1] < max(frexp(abs(grounded_density))[1], frexp(abs(central))[1]) - 10
+            ))
+        ):
+            return self._isolated_density_from_chord(2.0 * sin(theta_rad / 2.0))
+        return total
 
     def surface_charge_density_at(self, surface: str, point_m: Vector3) -> float:
         # The grounded part is evaluated at the intended surface point; the
         # central image adds a uniform density.
+        from math import frexp
+        from .external_sphere import _chord
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         grounded_density = super().surface_charge_density_at(surface, point_m)
         a = self.sphere.radius_m
@@ -317,7 +381,19 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             _scaled_ratio_parts((Q,), (4.0 * pi, a, a)),
             _scaled_ratio_parts((self.source.charge_c,), (4.0 * pi, self.source_distance_m, a)),
         ])
-        return grounded_density + central
+        total = grounded_density + central
+        if (
+            not (isfinite(grounded_density) and isfinite(central) and isfinite(total))
+            or (grounded_density != 0.0 and central != 0.0 and (
+                total == 0.0 or frexp(abs(total))[1] < max(frexp(abs(grounded_density))[1], frexp(abs(central))[1]) - 10
+            ))
+        ):
+            point = _position(point_m, 'surface point')
+            delta = _diff(point, self.sphere.center_m)
+            radius = _norm(delta)
+            unit = tuple(x / radius for x in delta)
+            return self._isolated_density_from_chord(_chord(unit, self.symmetry_axis))
+        return total
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:

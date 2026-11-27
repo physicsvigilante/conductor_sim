@@ -40,6 +40,8 @@ class ChargeForce:
     background_force_n: Vector3 = _ZERO
     _total_override_n: Vector3 | None = field(default=None, repr=False, compare=False)
     _total_override_for: tuple[Vector3, Vector3, Vector3] | None = field(default=None, repr=False, compare=False)
+    _conductor_override_n: Vector3 | None = field(default=None, repr=False, compare=False)
+    _conductor_override_for: tuple[Vector3, Vector3] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, PointCharge):
@@ -56,9 +58,25 @@ class ChargeForce:
                 object.__setattr__(self, '_total_override_for', None)
             else:
                 object.__setattr__(self, '_total_override_n', _position(self._total_override_n, 'total_force_n'))
+        ckey = (self.induced_force_n, self.background_force_n)
+        if self._conductor_override_n is not None:
+            if self._conductor_override_for is None:
+                object.__setattr__(
+                    self, '_conductor_override_n', _position(self._conductor_override_n, 'conductor_force_n')
+                )
+                object.__setattr__(self, '_conductor_override_for', ckey)
+            elif self._conductor_override_for != ckey:
+                object.__setattr__(self, '_conductor_override_n', None)
+                object.__setattr__(self, '_conductor_override_for', None)
+            else:
+                object.__setattr__(
+                    self, '_conductor_override_n', _position(self._conductor_override_n, 'conductor_force_n')
+                )
 
     @property
     def conductor_force_n(self) -> Vector3:
+        if self._conductor_override_n is not None:
+            return self._conductor_override_n
         return _sum_vectors(self.induced_force_n, self.background_force_n)
 
     @property
@@ -457,9 +475,15 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             _scaled_ratio_product((site.charge_c, Q, delta_c[c]), (four_pi, eps, dc, dc, dc))
             for c in range(3)
         )
+        if not all(isfinite(x) for x in (*induced_vec, *background, induced_energy, bg_energy)):
+            raise UnsupportedProblem(
+                'decomposed exterior-sphere force or energy contribution overflows binary64'
+            )
         total_force_override = None
+        conductor_force_override = None
         total_energy_override = None
-        if fixed and site.charge_c * Q > 0.0:
+        same_sign = Q != 0.0 and ((site.charge_c > 0.0) == (Q > 0.0))
+        if fixed and same_sign:
             force_cancels = any(
                 induced_vec[c] != 0.0
                 and background[c] != 0.0
@@ -478,10 +502,18 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                 )
                 if force_cancels:
                     total_force_override = exact_f
+                    conductor_force_override = exact_f
                 if energy_cancels:
                     total_energy_override = exact_u
         charges.append(
-            ChargeForce(site, direct[0], induced_vec, background, _total_override_n=total_force_override)
+            ChargeForce(
+                site,
+                direct[0],
+                induced_vec,
+                background,
+                _total_override_n=total_force_override,
+                _conductor_override_n=conductor_force_override,
+            )
         )
     else:
         total_energy_override = None
@@ -611,6 +643,183 @@ def _sphere_observables(solution) -> ForceEnergyResult:
          'omitted; zero at infinite separation.'),
         _total_override_j=total_energy_override)
     return ForceEnergyResult(tuple(charges), energy, 'analytical exterior-sphere Kelvin images')
+
+
+def _sphere_force_only(reference, index: int, *, include_direct: bool) -> Vector3:
+    """Compute one site's conductor or total force without requiring unrelated energy/sites to be finite."""
+    sources = reference.sites
+    eps = reference.permittivity_f_per_m
+    fixed = isinstance(reference.sphere.constraint, FixedNetCharge)
+    Q = reference.sphere.constraint.charge_c if fixed else 0.0
+    if len(sources) == 1:
+        site = sources[0]
+        if fixed:
+            from .external_isolated import ExternalIsolatedSphereSolution
+            from .solver import ConductorResult
+            sol = ExternalIsolatedSphereSolution(
+                reference.sphere, site, eps,
+                (ConductorResult(reference.sphere.name, reference.conductor_potential_v, Q, 0.0, Q),),
+            )
+            return sol.induced_force_on_charge_n
+        from .external_sphere import ExternalGroundedSphereSolution
+        sol = ExternalGroundedSphereSolution(
+            reference.sphere, site, eps, reference.conductor_results
+        )
+        return sol.induced_force_on_charge_n
+    a = reference.sphere.radius_m
+    center = reference.sphere.center_m
+    da = Decimal.from_float(a)
+    dc_vec = tuple(Decimal.from_float(x) for x in center)
+    dQ = Decimal.from_float(Q)
+    dqs = [Decimal.from_float(s.charge_c) for s in sources]
+    max_digits = 5000
+    digits = 120
+    while True:
+        ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+        with localcontext(ctx):
+            dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(eps))
+            drs = [tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3)) for s in sources]
+            dds = [sum(x * x for x in r).sqrt() for r in drs]
+            dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
+            dS = sum((-qi for qi in dq_imgs), Decimal(0)) if fixed else Decimal(0)
+            dr_imgs = [
+                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
+                for j in range(len(sources))
+            ]
+            ri, di, qi = drs[index], dds[index], dqs[index]
+            di3 = di * di * di
+            term_lists = ([], [], [])
+            for j in range(len(sources)):
+                w = tuple(ri[m] - dr_imgs[j][m] for m in range(3))
+                wn = sum(x * x for x in w).sqrt()
+                wn3 = wn * wn * wn
+                for m in range(3):
+                    if w[m] != 0:
+                        term_lists[m].append(dk * qi * dq_imgs[j] * w[m] / wn3)
+                if include_direct and j != index:
+                    vd = tuple(ri[m] - drs[j][m] for m in range(3))
+                    dn = sum(x * x for x in vd).sqrt()
+                    dn3 = dn * dn * dn
+                    for m in range(3):
+                        if vd[m] != 0:
+                            term_lists[m].append(dk * qi * dqs[j] * vd[m] / dn3)
+            if fixed:
+                q_cen = dQ + dS
+                for m in range(3):
+                    if ri[m] != 0 and q_cen != 0:
+                        term_lists[m].append(dk * qi * q_cen * ri[m] / di3)
+            need_more = False
+            next_digits = digits
+            if fixed and dq_imgs:
+                s_nz = [abs(x) for x in (*dq_imgs, dQ) if x != 0]
+                if len(s_nz) >= 2:
+                    s_span = max(s_nz).adjusted() - min(s_nz).adjusted() + 80
+                    if s_span > digits and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, s_span)
+            totals = [Decimal(0), Decimal(0), Decimal(0)]
+            for m in range(3):
+                nz = [abs(t) for t in term_lists[m] if t != 0]
+                if not nz:
+                    continue
+                max_t, min_t = max(nz), min(nz)
+                span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                if span_need > digits and digits < max_digits:
+                    need_more = True
+                    next_digits = max(next_digits, max(2 * digits, span_need))
+                    continue
+                tot = sum(term_lists[m], Decimal(0))
+                totals[m] = tot
+                if tot == 0:
+                    req = max(480, span_need)
+                    if digits < req and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, max(req, 2 * digits))
+                else:
+                    lost = max(0, max_t.adjusted() - tot.adjusted())
+                    if digits - lost < 40 and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, max(2 * digits, lost + 80))
+            if not need_more or digits >= max_digits:
+                return tuple(float(x) for x in totals)
+            digits = min(max_digits, next_digits)
+
+
+def _sphere_energy_only(reference) -> float:
+    """Compute total exterior-sphere interaction energy without requiring site forces to be finite."""
+    sources = reference.sites
+    eps = reference.permittivity_f_per_m
+    fixed = isinstance(reference.sphere.constraint, FixedNetCharge)
+    Q = reference.sphere.constraint.charge_c if fixed else 0.0
+    if len(sources) == 1:
+        site = sources[0]
+        if fixed:
+            from .external_isolated import ExternalIsolatedSphereSolution
+            from .solver import ConductorResult
+            sol = ExternalIsolatedSphereSolution(
+                reference.sphere, site, eps,
+                (ConductorResult(reference.sphere.name, reference.conductor_potential_v, Q, 0.0, Q),),
+            )
+            return sol.interaction_energy_j
+        from .external_sphere import ExternalGroundedSphereSolution
+        sol = ExternalGroundedSphereSolution(
+            reference.sphere, site, eps, reference.conductor_results
+        )
+        return sol.interaction_energy_j
+    a = reference.sphere.radius_m
+    center = reference.sphere.center_m
+    da = Decimal.from_float(a)
+    dc_vec = tuple(Decimal.from_float(x) for x in center)
+    dQ = Decimal.from_float(Q)
+    dqs = [Decimal.from_float(s.charge_c) for s in sources]
+    max_digits = 5000
+    digits = 120
+    while True:
+        ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+        with localcontext(ctx):
+            dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(eps))
+            drs = [tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3)) for s in sources]
+            dds = [sum(x * x for x in r).sqrt() for r in drs]
+            dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
+            dS = sum((-qi for qi in dq_imgs), Decimal(0)) if fixed else Decimal(0)
+            dr_imgs = [
+                tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
+                for j in range(len(sources))
+            ]
+            terms = []
+            for i in range(len(sources)):
+                for j in range(i + 1, len(sources)):
+                    vd = tuple(drs[i][m] - drs[j][m] for m in range(3))
+                    dn = sum(x * x for x in vd).sqrt()
+                    terms.append(dk * dqs[i] * dqs[j] / dn)
+            for i in range(len(sources)):
+                for j in range(len(sources)):
+                    w = tuple(drs[i][m] - dr_imgs[j][m] for m in range(3))
+                    wn = sum(x * x for x in w).sqrt()
+                    terms.append(Decimal("0.5") * dk * dqs[i] * dq_imgs[j] / wn)
+            if fixed:
+                if dS != 0:
+                    terms.append(Decimal("0.5") * dk * dS * dS / da)
+                if dQ != 0 and dS != 0:
+                    terms.append(dk * dQ * dS / da)
+            nz = [abs(t) for t in terms if t != 0]
+            if not nz:
+                return 0.0
+            max_t, min_t = max(nz), min(nz)
+            span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+            if span_need > digits and digits < max_digits:
+                digits = min(max_digits, max(2 * digits, span_need))
+                continue
+            tot = sum(terms, Decimal(0))
+            if tot == 0:
+                if digits >= max(480, span_need) or digits >= max_digits:
+                    return 0.0
+                digits = min(max_digits, max(480, span_need, 2 * digits))
+                continue
+            lost = max(0, max_t.adjusted() - tot.adjusted())
+            if digits - lost >= 40 or digits >= max_digits:
+                return float(tot)
+            digits = min(max_digits, max(2 * digits, lost + 80))
 
 
 def _plate_observables(solution) -> ForceEnergyResult:

@@ -61,6 +61,64 @@ def active_external_sites(problem: ElectrostaticProblem) -> tuple[PointCharge, .
     return tuple(site for site in sites if site.charge_c != 0)
 
 
+def _multi_conductor_potential_v(
+    sphere: SolidSphere,
+    sites: tuple[PointCharge, ...],
+    permittivity_f_per_m: float,
+) -> float:
+    """Overflow/underflow- and cancellation-safe conductor potential (Q/a + sum(q_j/d_j))/(4*pi*eps)."""
+    if isinstance(sphere.constraint, Grounded):
+        return 0.0
+    from math import frexp
+    from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+    four_pi = 4.0 * pi
+    Q = sphere.constraint.charge_c
+    parts = [_scaled_ratio_parts((Q,), (four_pi, permittivity_f_per_m, sphere.radius_m))]
+    for site in sites:
+        d = norm(difference(site.position_m, sphere.center_m))
+        parts.append(_scaled_ratio_parts((site.charge_c,), (four_pi, permittivity_f_per_m, d)))
+    val = _sum_scaled_ratios(parts)
+    nonzero = [(m, e) for m, e in parts if m != 0.0]
+    if len(nonzero) >= 2 and (not isfinite(val) or val == 0.0 or frexp(abs(val))[1] < max(e for _, e in nonzero) - 10):
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .observables import _PI_120
+
+        def _fdec(v: Fraction) -> Decimal:
+            return Decimal(v.numerator) / Decimal(v.denominator)
+
+        c = tuple(Fraction(x) for x in sphere.center_m)
+        d2s = [sum((Fraction(site.position_m[i]) - c[i]) ** 2 for i in range(3)) for site in sites]
+        max_digits = 5000
+        digits = 120
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(permittivity_f_per_m))
+                terms = [dk * Decimal.from_float(Q) / Decimal.from_float(sphere.radius_m)]
+                for site, d2 in zip(sites, d2s):
+                    terms.append(dk * Decimal.from_float(site.charge_c) / _fdec(d2).sqrt())
+                nz = [abs(t) for t in terms if t != 0]
+                if not nz:
+                    return 0.0
+                max_t, min_t = max(nz), min(nz)
+                span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                if span_need > digits and digits < max_digits:
+                    digits = min(max_digits, max(2 * digits, span_need))
+                    continue
+                tot = sum(terms, Decimal(0))
+                if tot == 0:
+                    if digits >= max(480, span_need) or digits >= max_digits:
+                        return 0.0
+                    digits = min(max_digits, max(480, span_need, 2 * digits))
+                    continue
+                lost = max(0, max_t.adjusted() - tot.adjusted())
+                if digits - lost >= 40 or digits >= max_digits:
+                    return float(tot)
+                digits = min(max_digits, max(2 * digits, lost + 80))
+    return val
+
+
 def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: int = 2) -> bool:
     if len(problem.conductors) != 1 or len(problem.charges) < min_components:
         return False
@@ -81,9 +139,7 @@ def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: 
         Q = (0.0 if isinstance(sphere.constraint, Grounded)
              else sphere.constraint.charge_c)
         central = 0.0 if isinstance(sphere.constraint, Grounded) else Q-images_total
-        potential = _scaled_ratio_product(
-            (central,), (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m)
-        )
+        potential = _multi_conductor_potential_v(sphere, sites, problem.permittivity_f_per_m)
         return (0 < len(sites) <= 32 and isfinite(images_total)
                 and isfinite(central) and isfinite(potential))
     except (ValueError, OverflowError, ZeroDivisionError, UnsupportedProblem):
@@ -155,7 +211,7 @@ class ExternalMultiSphereSolution:
             r_img2 = sum(x * x for x in v_ref)
             site_data.append((site.charge_c, d2, v_dir, dist2, v_ref, r_img2))
 
-        max_digits = 4000
+        max_digits = 5000
         digits = 120
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
@@ -175,61 +231,79 @@ class ExternalMultiSphereSolution:
                     q_imgs.append(-Decimal.from_float(qc) * da / d_src)
                 q_center = (Decimal.from_float(Q_val) - sum(q_imgs, Decimal(0))) if fixed else Decimal(0)
                 if not want_field:
-                    total = Decimal(0)
-                    peak = Decimal(0)
+                    terms = []
                     for idx, (qc, d2, _, _, _, _) in enumerate(site_data):
                         dq = Decimal.from_float(qc)
-                        t_pair = dk * dq * _fdec((d2 - a2) * (rp2 - a2)) / (
-                            d_srcs[idx] * dists[idx] * r_imgs[idx] * (d_srcs[idx] * r_imgs[idx] + da * dists[idx])
+                        terms.append(
+                            dk * dq * _fdec((d2 - a2) * (rp2 - a2)) / (
+                                d_srcs[idx] * dists[idx] * r_imgs[idx] * (d_srcs[idx] * r_imgs[idx] + da * dists[idx])
+                            )
                         )
-                        total += t_pair
-                        if abs(t_pair) > peak:
-                            peak = abs(t_pair)
                     if fixed:
-                        t_cen = dk * q_center / r_p_norm
-                        total += t_cen
-                        if abs(t_cen) > peak:
-                            peak = abs(t_cen)
-                    if total == 0:
-                        if peak == 0 or digits >= 960:
-                            return 0.0
-                        digits = min(max_digits, 2 * digits)
+                        if Q_val != 0.0:
+                            terms.append(dk * Decimal.from_float(Q_val) / r_p_norm)
+                        for qi in q_imgs:
+                            terms.append(-dk * qi / r_p_norm)
+                    nz = [abs(t) for t in terms if t != 0]
+                    if not nz:
+                        return 0.0
+                    max_t, min_t = max(nz), min(nz)
+                    span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                    if span_need > digits and digits < max_digits:
+                        digits = min(max_digits, max(2 * digits, span_need))
                         continue
-                    lost = max(0, peak.adjusted() - total.adjusted()) if peak > 0 else 0
+                    total = sum(terms, Decimal(0))
+                    if total == 0:
+                        if digits >= max(480, span_need) or digits >= max_digits:
+                            return 0.0
+                        digits = min(max_digits, max(480, span_need, 2 * digits))
+                        continue
+                    lost = max(0, max_t.adjusted() - total.adjusted())
                     if digits - lost >= 40 or digits >= max_digits:
                         return float(total)
                     digits = min(max_digits, max(2 * digits, lost + 80))
                     continue
 
                 rp3 = r_p_norm * r_p_norm * r_p_norm
-                totals = [Decimal(0), Decimal(0), Decimal(0)]
-                peaks = [Decimal(0), Decimal(0), Decimal(0)]
+                term_lists = ([], [], [])
                 for idx, (qc, _, v_dir, _, v_ref, _) in enumerate(site_data):
                     dq = Decimal.from_float(qc)
                     dist3 = dists[idx] * dists[idx] * dists[idx]
                     r_img3 = r_imgs[idx] * r_imgs[idx] * r_imgs[idx]
                     for i in range(3):
-                        t_d = dk * dq * _fdec(v_dir[i]) / dist3
-                        t_i = dk * q_imgs[idx] * _fdec(v_ref[i]) / r_img3
-                        totals[i] += t_d + t_i
-                        p_i = max(abs(t_d), abs(t_i))
-                        if p_i > peaks[i]:
-                            peaks[i] = p_i
-                if fixed:
+                        if v_dir[i] != 0:
+                            term_lists[i].append(dk * dq * _fdec(v_dir[i]) / dist3)
+                        if v_ref[i] != 0:
+                            term_lists[i].append(dk * q_imgs[idx] * _fdec(v_ref[i]) / r_img3)
+                        if fixed and r_p[i] != 0:
+                            term_lists[i].append(-dk * q_imgs[idx] * _fdec(r_p[i]) / rp3)
+                if fixed and Q_val != 0.0:
+                    dQ = Decimal.from_float(Q_val)
                     for i in range(3):
-                        t_c = dk * q_center * _fdec(r_p[i]) / rp3
-                        totals[i] += t_c
-                        if abs(t_c) > peaks[i]:
-                            peaks[i] = abs(t_c)
+                        if r_p[i] != 0:
+                            term_lists[i].append(dk * dQ * _fdec(r_p[i]) / rp3)
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
                 need_more = False
                 next_digits = digits
                 for i in range(3):
-                    if totals[i] == 0:
-                        if peaks[i] > 0 and digits < 960:
+                    nz = [abs(t) for t in term_lists[i] if t != 0]
+                    if not nz:
+                        continue
+                    max_t, min_t = max(nz), min(nz)
+                    span_need = (max_t.adjusted() - min_t.adjusted() + 80) if len(nz) >= 2 else 0
+                    if span_need > digits and digits < max_digits:
+                        need_more = True
+                        next_digits = max(next_digits, max(2 * digits, span_need))
+                        continue
+                    tot = sum(term_lists[i], Decimal(0))
+                    totals[i] = tot
+                    if tot == 0:
+                        req = max(480, span_need)
+                        if digits < req and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, 2 * digits)
-                    elif peaks[i] > 0:
-                        lost = max(0, peaks[i].adjusted() - totals[i].adjusted())
+                            next_digits = max(next_digits, max(req, 2 * digits))
+                    else:
+                        lost = max(0, max_t.adjusted() - tot.adjusted())
                         if digits - lost < 40 and digits < max_digits:
                             need_more = True
                             next_digits = max(next_digits, max(2 * digits, lost + 80))
@@ -396,16 +470,16 @@ class ExternalMultiSphereSolution:
     def conductor_force_on_charge_n(self, index: int) -> Vector3:
         """Force on an active external site from the METAL only, no direct pair force."""
         from .grounded_plane import _checked_site_index
-        from .observables import _sphere_observables
+        from .observables import _sphere_force_only
         idx = _checked_site_index(index, len(self.sites))
-        return _sphere_observables(self).charges[idx].conductor_force_n
+        return _sphere_force_only(self, idx, include_direct=False)
 
     def force_on_charge_n(self, index: int) -> Vector3:
         """Total force on active site, including other REAL charges, excluding its own field."""
         from .grounded_plane import _checked_site_index
-        from .observables import _sphere_observables
+        from .observables import _sphere_force_only
         idx = _checked_site_index(index, len(self.sites))
-        return _sphere_observables(self).charges[idx].total_force_n
+        return _sphere_force_only(self, idx, include_direct=True)
 
     @property
     def interaction_energy_j(self) -> float:
@@ -415,8 +489,8 @@ class ExternalMultiSphereSolution:
         central-monopole correction is k*((Q+S)^2-Q^2)/(2*a), S=sum(q*a/d).
         Its position derivative gives the correct total force on each charge.
         """
-        from .observables import _sphere_observables
-        return _sphere_observables(self).energy.total_j
+        from .observables import _sphere_energy_only
+        return _sphere_energy_only(self)
 
 
 class ExternalMultiSphereBackend:
@@ -436,9 +510,6 @@ class ExternalMultiSphereBackend:
             for site in sites
         )
         Q = images_total if isinstance(sphere.constraint,Grounded) else sphere.constraint.charge_c
-        central = 0.0 if isinstance(sphere.constraint,Grounded) else Q-images_total
-        potential = _scaled_ratio_product(
-            (central,), (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m)
-        )
+        potential = _multi_conductor_potential_v(sphere, sites, problem.permittivity_f_per_m)
         conductor = ConductorResult(sphere.name,potential,Q,0.0,Q)
         return ExternalMultiSphereSolution(sphere,sites,problem.permittivity_f_per_m,(conductor,))

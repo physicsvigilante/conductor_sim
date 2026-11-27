@@ -3306,3 +3306,124 @@ def test_m45_sol_v51_plane_deep_cancel_isolated_cancel_underflow_and_multi_large
     obs_m = force_energy(sol_m)
     assert all(isclose(a, b, rel_tol=1e-12, abs_tol=0.0) for a, b in zip(sol_m.force_on_charge_n(0), obs_m.charges[0].total_force_n))
     assert isclose(sol_m.interaction_energy_j, obs_m.energy.total_j, rel_tol=1e-12)
+
+
+def test_m45_sol_v52_wide_symmetry_residuals_isolated_sign_underflow_decoupled_multi_and_boundary():
+    """Regression suite for all six Sol v52 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    a = 2.0**-1000
+    d = 2.0**1000
+    eps = 2.0**-1074
+
+    # 1. Multi-sphere exterior fallback preserves weak 5th source after 4-charge symmetry cancellation
+    s_g = SolidSphere(a, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_msym = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (
+                PointCharge(d, (a, 0.0, 3.0 * a)),
+                PointCharge(d, (-a, 0.0, 3.0 * a)),
+                PointCharge(-d, (0.0, a, 3.0 * a)),
+                PointCharge(-d, (0.0, -a, 3.0 * a)),
+                PointCharge(eps, (0.0, 0.0, d)),
+            ),
+            (s_g,),
+            permittivity_f_per_m=eps,
+        )
+    )
+    assert isclose(sol_msym.potential_at((0.0, 0.0, 2.0 * a)), 3.713337952315403e-303, rel_tol=1e-11, abs_tol=0.0)
+    assert isclose(sol_msym.electric_field_at((0.0, 0.0, 2.0 * a))[2], -0.019894367886486918, rel_tol=1e-11, abs_tol=0.0)
+
+    # 2. Grounded-plane field fallback preserves weak 5th source Ex after 4-charge symmetry cancellation
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    sol_psym = GroundedPlaneBackend().solve(
+        ElectrostaticProblem(
+            (
+                PointCharge(d, (a, 0.0, 1.0)),
+                PointCharge(d, (-a, 0.0, 1.0)),
+                PointCharge(-d, (0.0, a, 1.0)),
+                PointCharge(-d, (0.0, -a, 1.0)),
+                PointCharge(eps, (0.5 * a, 0.0, 2.0)),
+            ),
+            (p_z0,),
+            permittivity_f_per_m=eps,
+        )
+    )
+    assert isclose(sol_psym.electric_field_at((0.0, 0.0, 1.0))[0], -3.5758069170444624e-303, rel_tol=1e-11, abs_tol=0.0)
+
+    # 3. Isolated-sphere force_energy avoids q*Q sign underflow and refuses overflowing breakdowns cleanly
+    a_small = 2.0**-600
+    s_small = SolidSphere(a_small, FixedNetCharge(nextafter(7.0 * a_small, inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_small = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(18.0 * a_small, (0.0, 0.0, 2.0 * a_small)),), (s_small,), permittivity_f_per_m=1.0)
+    )
+    assert isclose(sol_small.induced_force_on_charge_n[2], 3.1805546814635167e-16, rel_tol=1e-12, abs_tol=0.0)
+    obs_small = force_energy(sol_small)
+    assert isclose(obs_small.charges[0].total_force_n[2], 3.1805546814635167e-16, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs_small.charges[0].conductor_force_n[2], 3.1805546814635167e-16, rel_tol=1e-12, abs_tol=0.0)
+
+    s_big = SolidSphere(1.0, FixedNetCharge(nextafter(7.0 * (2.0**533), inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_big = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(18.0 * (2.0**533), (0.0, 0.0, 2.0)),), (s_big,), permittivity_f_per_m=1.0)
+    )
+    assert isclose(sol_big.induced_force_on_charge_n[2], 2.514654040216138e305, rel_tol=1e-12)
+    with pytest.raises(UnsupportedProblem, match="overflows binary64"):
+        force_energy(sol_big)
+
+    s_big_u = SolidSphere(1.0, FixedNetCharge(nextafter(2.0**533, inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_big_u = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(12.0 * (2.0**533), (0.0, 0.0, 2.0)),), (s_big_u,), permittivity_f_per_m=1.0)
+    )
+    assert isclose(sol_big_u.interaction_energy_j, 8.382180134053793e304, rel_tol=1e-12)
+    with pytest.raises(UnsupportedProblem, match="overflows binary64"):
+        force_energy(sol_big_u)
+
+    # 4. Multi-sphere native force queries do not fail when unrelated energy overflows
+    s_unit = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_dec = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1.0, (0.0, 0.0, 2.0)), PointCharge(1e159, (0.0, 0.0, 1e4))),
+            (s_unit,),
+            permittivity_f_per_m=1.0,
+        )
+    )
+    idx_far = next(i for i, q in enumerate(sol_dec.sites) if q.position_m[2] == 1e4)
+    assert isclose(sol_dec.conductor_force_on_charge_n(idx_far)[2], -7.95774731374971e304, rel_tol=1e-11)
+    assert isclose(sol_dec.force_on_charge_n(idx_far)[2], -7.95774731374971e304, rel_tol=1e-11)
+
+    # 5. Grouped single-site multi-sphere conductor_force_n and total_force_n agree on exact residual
+    s_grp = SolidSphere(1.0, FixedNetCharge(nextafter(7.0 * (2.0**500), inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_grp = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(9.0 * (2.0**500), (0.0, 0.0, 2.0)), PointCharge(9.0 * (2.0**500), (0.0, 0.0, 2.0))),
+            (s_grp,),
+            permittivity_f_per_m=1.0,
+        )
+    )
+    assert isclose(sol_grp.conductor_force_on_charge_n(0)[2], 3.407991716814735e285, rel_tol=1e-12)
+    assert isclose(sol_grp.force_on_charge_n(0)[2], 3.407991716814735e285, rel_tol=1e-12)
+    obs_grp = force_energy(sol_grp)
+    assert isclose(obs_grp.charges[0].conductor_force_n[2], 3.407991716814735e285, rel_tol=1e-12)
+    assert isclose(obs_grp.charges[0].total_force_n[2], 3.407991716814735e285, rel_tol=1e-12)
+
+    # 6. Multi-sphere boundary potential and isolated-sphere surface charge density preserve finite results
+    s_tiny_m = SolidSphere(1e-200, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "tiny")
+    sol_tm = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1.0, (0.0, 0.0, 1e200)), PointCharge(1.0, (0.0, 0.0, -1e200))),
+            (s_tiny_m,),
+            permittivity_f_per_m=1e-300,
+        )
+    )
+    assert isclose(sol_tm.conductor_potential_v, 1.5915494309189535e99, rel_tol=1e-12)
+    assert isclose(sol_tm.potential_at((0.0, 0.0, 0.0)), 1.5915494309189535e99, rel_tol=1e-12)
+
+    a_sig = 2.0**-300
+    s_sig = SolidSphere(a_sig, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    sol_sig = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(2.0**600, (0.0, 0.0, 2.0**300)),), (s_sig,))
+    )
+    assert isclose(sol_sig.surface_charge_density("outer", 0.0), -0.238732414637843, rel_tol=1e-12)
+    assert isclose(sol_sig.surface_charge_density_at("outer", (0.0, 0.0, a_sig)), -0.238732414637843, rel_tol=1e-12)
