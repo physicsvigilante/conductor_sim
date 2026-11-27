@@ -7,7 +7,7 @@ fail explicitly. Fixed-voltage energies are mechanical interaction potentials
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Context, Decimal, localcontext
+from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
 from fractions import Fraction
 from math import copysign, frexp, fsum, hypot, isfinite, ldexp
 from typing import Protocol
@@ -238,7 +238,7 @@ def _sphere_observables(solution) -> ForceEnergyResult:
     a = reference.sphere.radius_m
     center = reference.sphere.center_m
     charges = []
-    if fixed and len(sources) == 1:
+    if len(sources) == 1:
         site = sources[0]
         delta_c = difference(site.position_m, center)
         dc = norm(delta_c)
@@ -254,37 +254,69 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             u_denom = float((f_d2 - f_a2) / f_d2)
         else:
             u_denom = ((dc - a) / dc) * (1.0 + ratio)
-        # Exact cancellation-, overflow-, and underflow-free single-source polarization:
-        #   F_ind = -k * q^2 * (a/d)^3 * (2 - (a/d)^2) / (d^2 * (1 - (a/d)^2)^2) * r_hat
-        #   U_ind = -0.5 * k * q^2 * a * (a/d)^2 / (d^2 * (1 - (a/d)^2))
-        self_mag = _scaled_ratio_product(
-            (-k, site.charge_c, site.charge_c, ratio, ratio, ratio, 2.0 - ratio * ratio),
-            (dc, dc, u_denom, u_denom),
-        )
+        if fixed:
+            # Exact cancellation-, overflow-, and underflow-free isolated-sphere polarization:
+            #   F_ind = -k * q^2 * (a/d)^3 * (2 - (a/d)^2) / (d^2 * (1 - (a/d)^2)^2) * r_hat
+            #   U_ind = -0.5 * k * q^2 * a * (a/d)^2 / (d^2 * (1 - (a/d)^2))
+            self_mag = _scaled_ratio_product(
+                (-k, site.charge_c, site.charge_c, ratio, ratio, ratio, 2.0 - ratio * ratio),
+                (dc, dc, u_denom, u_denom),
+            )
+            induced_energy = _scaled_ratio_product(
+                (-0.5, k, site.charge_c, site.charge_c, a, ratio, ratio),
+                (dc, dc, u_denom),
+            )
+            bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
+        else:
+            # Exact near-contact-safe grounded-sphere polarization:
+            #   F_ind = -k * q^2 * (a/d) / (d^2 * (1 - (a/d)^2)^2) * r_hat
+            #   U_ind = -0.5 * k * q^2 * (a/d) / (d * (1 - (a/d)^2))
+            self_mag = _scaled_ratio_product(
+                (-k, site.charge_c, site.charge_c, ratio),
+                (dc, dc, u_denom, u_denom),
+            )
+            induced_energy = _scaled_ratio_product(
+                (-0.5, k, site.charge_c, site.charge_c, ratio),
+                (dc, u_denom),
+            )
+            bg_energy = 0.0
         induced_vec = tuple(self_mag * r0_hat[c] for c in range(3))
         background = tuple(_scaled_ratio_product((k, site.charge_c, Q, r0_hat[c]), (dc, dc)) for c in range(3))
         charges.append(ChargeForce(site, direct[0], induced_vec, background))
-        induced_energy = _scaled_ratio_product(
-            (-0.5, k, site.charge_c, site.charge_c, a, ratio, ratio),
-            (dc, dc, u_denom),
-        )
-        bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
-    elif fixed:
-        # Multi-source fixed-net-charge exterior sphere: evaluate Kelvin images
-        # and the shared central compensator in a clean, trap-isolated Decimal
-        # Context whose precision adapts to coordinate/charge spreads and any
-        # runtime multipole or reflection-symmetry cancellation.
+    else:
+        # Multi-source exterior sphere (fixed-Q or grounded): evaluate Kelvin
+        # images and any central compensator in a fresh trap-isolated Decimal
+        # Context (explicit rounding=ROUND_HALF_EVEN, traps=[], flags=[], so
+        # neither caller context nor DefaultContext traps can interfere), with
+        # precision adapting to authored coordinate/charge spreads and any
+        # runtime cancellation in force, induced energy, or compensator S.
+        def _clean_ctx(digits: int) -> Context:
+            return Context(
+                prec=digits,
+                rounding=ROUND_HALF_EVEN,
+                Emax=999999999,
+                Emin=-999999999,
+                traps=[],
+                flags=[],
+            )
+
         da = Decimal.from_float(a)
         dc_vec = tuple(Decimal.from_float(x) for x in center)
         dQ = Decimal.from_float(Q)
         dqs = [Decimal.from_float(s.charge_c) for s in sources]
-        with localcontext(Context(prec=60, Emax=999999999, Emin=-999999999)):
+        with localcontext(_clean_ctx(60)):
             dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(reference.permittivity_f_per_m))
-        with localcontext(Context(prec=100, Emax=999999999, Emin=-999999999)):
+        with localcontext(_clean_ctx(100)):
             geom_exps = [da.adjusted()]
+            for m in range(3):
+                if dc_vec[m] != 0:
+                    geom_exps.append(dc_vec[m].adjusted())
             for s in sources:
                 for m in range(3):
-                    diff_m = Decimal.from_float(s.position_m[m]) - dc_vec[m]
+                    dp = Decimal.from_float(s.position_m[m])
+                    if dp != 0:
+                        geom_exps.append(dp.adjusted())
+                    diff_m = dp - dc_vec[m]
                     if diff_m != 0:
                         geom_exps.append(diff_m.adjusted())
         charge_exps = [dq.adjusted() for dq in dqs if dq != 0]
@@ -296,19 +328,25 @@ def _sphere_observables(solution) -> ForceEnergyResult:
         induced_energy = 0.0
         bg_energy = 0.0
         for _ in range(5):
-            with localcontext(Context(prec=prec, Emax=999999999, Emin=-999999999)):
+            with localcontext(_clean_ctx(prec)):
                 drs = [
                     tuple(Decimal.from_float(s.position_m[m]) - dc_vec[m] for m in range(3))
                     for s in sources
                 ]
                 dds = [sum(x * x for x in r).sqrt() for r in drs]
                 dq_imgs = [-dqs[j] * da / dds[j] for j in range(len(sources))]
-                dS = sum(-qi for qi in dq_imgs)
+                dS = sum(-qi for qi in dq_imgs) if fixed else Decimal(0)
                 dr_imgs = [
                     tuple((da * da / (dds[j] * dds[j])) * drs[j][m] for m in range(3))
                     for j in range(len(sources))
                 ]
                 max_lost = 0
+                if fixed and dS != 0:
+                    s_sc = max(abs(qi) for qi in dq_imgs)
+                    if s_sc > 0:
+                        lost = s_sc.adjusted() - dS.adjusted()
+                        if lost > max_lost:
+                            max_lost = lost
                 induced_vecs = []
                 backgrounds = []
                 for i in range(len(sources)):
@@ -327,11 +365,12 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                             if at > f_sc[m]:
                                 f_sc[m] = at
                     for m in range(3):
-                        term = qi * dS * ri[m] / di3
-                        f_ind[m] += term
-                        at = abs(term)
-                        if at > f_sc[m]:
-                            f_sc[m] = at
+                        if fixed:
+                            term = qi * dS * ri[m] / di3
+                            f_ind[m] += term
+                            at = abs(term)
+                            if at > f_sc[m]:
+                                f_sc[m] = at
                         if f_ind[m] != 0 and f_sc[m] > 0:
                             lost = f_sc[m].adjusted() - f_ind[m].adjusted()
                             if lost > max_lost:
@@ -349,7 +388,7 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                         at = abs(term)
                         if at > u_sc:
                             u_sc = at
-                comp_u = Decimal("0.5") * dS * dS / da
+                comp_u = Decimal("0.5") * dS * dS / da if fixed else Decimal(0)
                 if abs(comp_u) > u_sc:
                     u_sc = abs(comp_u)
                 u_raw = kelvin_u + comp_u
@@ -358,29 +397,12 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                     if lost > max_lost:
                         max_lost = lost
                 induced_energy = float(dk * u_raw)
-                bg_energy = float(dk * dQ * dS / da)
+                bg_energy = float(dk * dQ * dS / da) if fixed else 0.0
                 if prec - max_lost >= 35 or prec >= 3200:
                     break
                 prec = min(3200, max(2 * prec, max_lost + 60))
         for i, site in enumerate(sources):
             charges.append(ChargeForce(site, direct[i], induced_vecs[i], backgrounds[i]))
-    else:
-        for i, site in enumerate(sources):
-            terms = [[], [], []]
-            for image in images:
-                delta = difference(site.position_m, image.position_m)
-                d = norm(delta)
-                for c in range(3):
-                    terms[c].append(k * site.charge_c * image.charge_c * (delta[c] / d) / d / d)
-            delta_c = difference(site.position_m, center)
-            dc = norm(delta_c)
-            background = tuple(k * site.charge_c * Q * (x / dc) / dc / dc for x in delta_c)
-            charges.append(ChargeForce(site, direct[i], tuple(fsum(t) for t in terms), background))
-        induced_energy = 0.5 * k * fsum(
-            site.charge_c * image.charge_c / norm(difference(site.position_m, image.position_m))
-            for site in sources for image in images
-        )
-        bg_energy = k * Q * S / a
     energy = EnergyBreakdown(pair_energy, induced_energy, bg_energy,
         ('Fixed-Q exterior sphere: mechanical interaction energy; constant sphere Q^2/(2C) '
          'and point self energies omitted; zero at infinite separation.' if fixed else

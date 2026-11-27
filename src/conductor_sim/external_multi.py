@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from math import acos, cos, fsum, hypot, isclose, isfinite, pi, sin, sqrt
 from typing import Literal
 
+from .external_sphere import _sphere_strictly_outside
 from .model import (ElectrostaticProblem, FixedNetCharge, Grounded, PointCharge,
                     SolidSphere, Vector3, _position)
 from .solver import ConductorResult, SingularField, UnsupportedProblem
@@ -68,7 +69,7 @@ def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: 
             and isinstance(sphere.constraint, (Grounded, FixedNetCharge))):
         return False
     if any(not isfinite(norm(difference(q.position_m, sphere.center_m)))
-           or norm(difference(q.position_m, sphere.center_m)) <= sphere.radius_m
+           or not _sphere_strictly_outside(q.position_m, sphere.center_m, sphere.radius_m)
            for q in problem.charges):
         return False
     try:

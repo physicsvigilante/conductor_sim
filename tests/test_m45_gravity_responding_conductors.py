@@ -2762,3 +2762,57 @@ def test_m45_sol_v42_off_axis_contact_reflection_symmetry_decimal_traps_and_plan
     )
     sigma_ovf = sol_ovf.surface_charge_density_at("outer", (-1e308, 0.0, 0.0))
     assert isclose(sigma_ovf, -1.2738935767241e-310, rel_tol=1e-10, abs_tol=0.0)
+
+
+def test_m45_sol_v43_sphere_admission_compensator_precision_subnormal_height_and_default_context():
+    """Regression suite for all four Sol v43 findings."""
+    import decimal
+    from conductor_sim import ExternalGroundedSphereBackend, ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Exact exterior admission: interior point refused, strictly exterior off-axis point accepted
+    s_in = SolidSphere(0.8838834764831843, FixedNetCharge(0.0), (2.0**-54, 2.0**-54, 0.0), "sphere")
+    p_in = ElectrostaticProblem((PointCharge(1e-8, (0.625, 0.625, 0.0)),), (s_in,))
+    assert ExternalIsolatedSphereBackend().supports(p_in) is False
+    assert ExternalMultiSphereBackend().supports(p_in) is False
+
+    s_out = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    p_out = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_out,))
+    assert ExternalIsolatedSphereBackend().supports(p_out) is True
+    obs_out = force_energy(ExternalIsolatedSphereBackend().solve(p_out))
+    assert obs_out.energy.induced_j < 0.0
+    assert obs_out.charges[0].induced_force_n[2] < 0.0
+    s_gnd = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    p_gnd = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_gnd,))
+    assert ExternalGroundedSphereBackend().supports(p_gnd) is True
+    assert force_energy(ExternalGroundedSphereBackend().solve(p_gnd)).energy.induced_j < 0.0
+
+    # 2. Adaptive precision tracks center coordinate offset and compensator S cancellation
+    s_off = SolidSphere(1.0, FixedNetCharge(1e-8), (1e-100, 0.0, 0.0), "sphere")
+    p_off = ElectrostaticProblem(
+        (PointCharge(1e-8, (2.0, 0.0, 0.0)), PointCharge(-1e-8, (-2.0, 0.0, 0.0))),
+        (s_off,),
+    )
+    obs_off = force_energy(ExternalMultiSphereBackend().solve(p_off))
+    assert isclose(obs_off.energy.background_j, 4.4937758961305865e-107, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Grounded-plane density avoids subnormal source-height rounding error
+    p_110 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), Grounded())
+    sol_110 = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (5e-324, 0.0, 0.0)),), (p_110,))
+    )
+    sigma_110 = sol_110.surface_charge_density_at("outer", (1.0, -1.0, 0.0))
+    assert isclose(sigma_110, -1.965824743688103e-17, rel_tol=1e-12, abs_tol=0.0)
+
+    # 4. Decimal Context is isolated even from mutated decimal.DefaultContext.traps
+    s_u = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    sol_u = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-8, (-2.0, 0.0, 0.0)), PointCharge(1e-8, (2.0, 0.0, 0.0))), (s_u,))
+    )
+    prev_trap = decimal.DefaultContext.traps[decimal.Inexact]
+    try:
+        decimal.DefaultContext.traps[decimal.Inexact] = True
+        obs_u = force_energy(sol_u)
+    finally:
+        decimal.DefaultContext.traps[decimal.Inexact] = prev_trap
+    assert isclose(obs_u.energy.induced_j, -2.995850597420391e-08, rel_tol=1e-12, abs_tol=0.0)

@@ -10,7 +10,7 @@ from math import isfinite, pi
 
 from .external_sphere import (
     ExternalGroundedSphereBackend, ExternalGroundedSphereSolution, _diff, _field, _norm,
-    _pair_force,
+    _pair_force, _sphere_strictly_outside,
 )
 from .model import ElectrostaticProblem, FixedNetCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, UnsupportedProblem
@@ -111,9 +111,9 @@ class ExternalIsolatedSphereBackend:
                 and isinstance(sphere.constraint, FixedNetCharge)
                 and source.charge_c != 0):
             return False
-        distance = _norm(_diff(source.position_m, sphere.center_m))
-        return distance > sphere.radius_m and isfinite(
-            sphere.constraint.charge_c+source.charge_c
+        return (
+            _sphere_strictly_outside(source.position_m, sphere.center_m, sphere.radius_m)
+            and isfinite(sphere.constraint.charge_c + source.charge_c)
         )
 
     def solve(self, problem: ElectrostaticProblem) -> ExternalIsolatedSphereSolution:

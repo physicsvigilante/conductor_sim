@@ -7,11 +7,26 @@ solid, not a hollow SphericalShell, and supports no interior charge sources.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot, isclose, pi, sin, sqrt
+from fractions import Fraction
+from math import hypot, isclose, isfinite, pi, sin, sqrt
 from typing import Literal
 
 from .model import ElectrostaticProblem, Grounded, PointCharge, SolidSphere, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
+
+
+def _sphere_strictly_outside(point: Vector3, center: Vector3, radius: float) -> bool:
+    """Exact |point - center|^2 > radius^2 check, immune to hypot rounding near surface."""
+    delta = tuple(point[i] - center[i] for i in range(3))
+    if all(isfinite(x) for x in delta):
+        d = hypot(*delta)
+        if isfinite(d):
+            if d > radius * (1.0 + 1e-12):
+                return True
+            if d < radius * (1.0 - 1e-12):
+                return False
+    f_delta = tuple(Fraction(point[i]) - Fraction(center[i]) for i in range(3))
+    return sum(x * x for x in f_delta) > Fraction(radius) * Fraction(radius)
 
 
 def _diff(a: Vector3, b: Vector3) -> Vector3:
@@ -137,8 +152,19 @@ class ExternalGroundedSphereSolution:
     @property
     def induced_force_on_charge_n(self) -> Vector3:
         """Exact physical force on source due to the grounded conductor, excluding self-field."""
-        v = _diff(self.source.position_m,self.image_position_m)
+        v = _diff(self.source.position_m, self.image_position_m)
         r = _norm(v)
+        d = self.source_distance_m
+        a = self.sphere.radius_m
+        if r == 0.0 or d - a < 0.01 * a:
+            from .observables import _scaled_ratio_product
+            delta = _diff(self.source.position_m, self.sphere.center_m)
+            f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
+            f_d2 = sum(x * x for x in f_delta)
+            f_a2 = Fraction(a) * Fraction(a)
+            u_denom = float((f_d2 - f_a2) / f_d2)
+            mag = _scaled_ratio_product((-self._k, self.source.charge_c, self.source.charge_c, a / d), (d, d, u_denom, u_denom))
+            return tuple(mag * (delta[i] / d) for i in range(3))
         return _pair_force(self._k, self.source.charge_c, self.image_charge_c, v, r)
 
     @property
@@ -149,8 +175,17 @@ class ExternalGroundedSphereSolution:
     @property
     def interaction_energy_j(self) -> float:
         """Induced-charge interaction energy, with its physical factor 1/2."""
-        r = _norm(_diff(self.source.position_m,self.image_position_m))
-        return (self._k*(self.source.charge_c/r))*self.image_charge_c/2
+        r = _norm(_diff(self.source.position_m, self.image_position_m))
+        d = self.source_distance_m
+        a = self.sphere.radius_m
+        if r == 0.0 or d - a < 0.01 * a:
+            from .observables import _scaled_ratio_product
+            f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
+            f_d2 = sum(x * x for x in f_delta)
+            f_a2 = Fraction(a) * Fraction(a)
+            u_denom = float((f_d2 - f_a2) / f_d2)
+            return _scaled_ratio_product((-0.5, self._k, self.source.charge_c, self.source.charge_c, a / d), (d, u_denom))
+        return (self._k * (self.source.charge_c / r)) * self.image_charge_c / 2
 
 
 class ExternalGroundedSphereBackend:
@@ -159,10 +194,10 @@ class ExternalGroundedSphereBackend:
     def supports(self, problem: ElectrostaticProblem) -> bool:
         if len(problem.conductors) != 1 or len(problem.charges) != 1:
             return False
-        sphere, source = problem.conductors[0],problem.charges[0]
-        return (isinstance(sphere,SolidSphere) and isinstance(sphere.constraint,Grounded)
+        sphere, source = problem.conductors[0], problem.charges[0]
+        return (isinstance(sphere, SolidSphere) and isinstance(sphere.constraint, Grounded)
                 and source.charge_c != 0
-                and _norm(_diff(source.position_m,sphere.center_m)) > sphere.radius_m)
+                and _sphere_strictly_outside(source.position_m, sphere.center_m, sphere.radius_m))
 
     def solve(self, problem: ElectrostaticProblem) -> ExternalGroundedSphereSolution:
         if not self.supports(problem):

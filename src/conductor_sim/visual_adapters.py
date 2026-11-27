@@ -160,6 +160,10 @@ def context_for_solution(problem, solution):
                     ((Fraction(origin_m[i]) - Fraction(solution.plane.point_m[i])) + pos_offset[i]) * fn[i]
                     for i in range(3)
                 ) / n_sq
+                from sys import float_info
+                from .model import _plane_exact_numerator
+                min_normal = float_info.min * 1e4
+                n_norm = _scaled_norm_fraction(fn)
                 terms = []
                 for q in solution.sources:
                     hq = solution.plane.signed_distance_m(q.position_m)
@@ -175,13 +179,21 @@ def context_for_solution(problem, solution):
                         d_max_f = float(d_max)
                     except OverflowError:
                         d_max_f = float("inf")
-                    if d_max_f > 0.0 and d_max_f < float("inf"):
+                    if (
+                        min_normal <= d_max_f < float("inf")
+                        and min_normal <= abs(hq) < float("inf")
+                    ):
                         r_val = d_max_f * r_scaled
                         if r_val < float("inf"):
                             terms.append(_scaled_ratio_product((q.charge_c, hq), (2.0 * pi, r_val, r_val, r_val)))
                             continue
+                    exact_hq = (
+                        Fraction(hq)
+                        if min_normal <= abs(hq) < float("inf")
+                        else _plane_exact_numerator(q.position_m, solution.plane.point_m, solution.plane.normal, raw_n) / n_norm
+                    )
                     exact_term = (
-                        Fraction(q.charge_c) * Fraction(hq)
+                        Fraction(q.charge_c) * exact_hq
                         / (Fraction(2.0 * pi) * (d_max ** 3) * Fraction(r_scaled) ** 3)
                     )
                     try:
