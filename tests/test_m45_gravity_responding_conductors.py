@@ -3193,3 +3193,53 @@ def test_m45_sol_v49_subnormal_image_offset_authored_normal_plane_cancel_and_lar
     assert isclose(sol_eps.potential_at((0.0, 0.0, 3.0)), (1.0 - 0.5 / 2.5) / (4.0 * pi), rel_tol=1e-12)
     assert isclose(sol_eps.induced_force_on_charge_n[2], -1e308 / (4.0 * pi * 9.0 / 2.0), rel_tol=1e-12)
     assert isclose(force_energy(sol_eps).charges[0].induced_force_n[2], sol_eps.induced_force_on_charge_n[2], rel_tol=1e-12)
+
+
+def test_m45_sol_v50_plane_multi_cancel_isolated_sphere_large_eps_and_plane_fields():
+    """Regression suite for all three Sol v50 findings."""
+    from conductor_sim.observables import force_energy
+
+    # 1. Grounded-plane multi-charge force cancellation preserves weak third-charge force (-1.04 N)
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_c = ElectrostaticProblem(
+        (
+            PointCharge(9.0 * (2.0**100), (0.0, 0.0, 1.0)),
+            PointCharge(2.0**107, (0.0, 0.0, 2.0)),
+            PointCharge(2.0**-107, (0.0, 0.0, 3.0)),
+        ),
+        (p_z0,),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    sol_c = GroundedPlaneBackend().solve(prob_c)
+    idx_mid = next(i for i, q in enumerate(sol_c.sources) if q.position_m[2] == 2.0)
+    assert isclose(sol_c.force_on_charge_n(idx_mid)[2], -1.04, rel_tol=1e-12)
+    obs_c = force_energy(sol_c)
+    c_mid = next(c for c in obs_c.charges if c.source.position_m[2] == 2.0)
+    assert isclose(c_mid.total_force_n[2], -1.04, rel_tol=1e-12)
+
+    # 2. Isolated-sphere native queries match conductor_potential_v and force_energy at eps=1e308
+    s_iso = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    sol_iso = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 2.0)),), (s_iso,), permittivity_f_per_m=1e308)
+    )
+    v_cond = sol_iso.conductor_potential_v
+    assert isclose(v_cond, 0.039788735772973836, rel_tol=1e-12)
+    assert isclose(sol_iso.potential_at((0.0, 0.0, 0.0)), v_cond, rel_tol=1e-14)
+    assert isclose(sol_iso.potential_at((0.0, 0.0, 3.0)), (1.0 - 0.5 / 2.5 + 0.5 / 3.0) / (4.0 * pi), rel_tol=1e-12)
+    assert isclose(sol_iso.electric_field_at((0.0, 0.0, 3.0))[2], (1.0 - 0.5 / 6.25 + 0.5 / 9.0) / (4.0 * pi), rel_tol=1e-12)
+    obs_iso = force_energy(sol_iso)
+    assert all(isclose(a, b, rel_tol=1e-12, abs_tol=0.0) for a, b in zip(sol_iso.induced_force_on_charge_n, obs_iso.charges[0].total_force_n))
+    assert isclose(sol_iso.interaction_energy_j, obs_iso.energy.total_j, rel_tol=1e-12)
+
+    # 3. Grounded-plane potential & field preserve finite results at eps=1e308 and tiny authored normal
+    sol_pe = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 2.0)),), (p_z0,), permittivity_f_per_m=1e308)
+    )
+    assert isclose(sol_pe.potential_at((0.0, 0.0, 3.0)), 0.06366197723675814, rel_tol=1e-12)
+    assert isclose(sol_pe.electric_field_at((0.0, 0.0, 3.0))[2], 0.07639437268410977, rel_tol=1e-12)
+
+    p_tiny_y = ConductingPlane((0.0, 0.0, 0.0), (1e100, 1e-250, 0.0), Grounded())
+    sol_ny = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e145, (1.0, 0.0, 0.0)),), (p_tiny_y,))
+    )
+    assert isclose(sol_ny.electric_field_at((2.0, 0.0, 0.0))[1], -6.657445772045313e-197, rel_tol=1e-12, abs_tol=0.0)

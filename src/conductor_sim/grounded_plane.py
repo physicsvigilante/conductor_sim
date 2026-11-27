@@ -191,50 +191,342 @@ class GroundedPlaneSolution:
     def _k(self) -> float:
         return 1 / (4*pi*self.permittivity_f_per_m)
 
-    def potential_at(self, point_m: Vector3) -> float:
-        point = _position(point_m, "sample point")
-        height = self.plane.signed_distance_m(point)
-        if height <= 0:
-            return 0.0
-        terms = []
+    @staticmethod
+    def _needs_exact_sum(parts: list[tuple[float, int]], total: float) -> bool:
+        nonzero = [(m, e) for m, e in parts if m != 0.0]
+        if len(nonzero) < 2:
+            return False
+        if not isfinite(total) or total == 0.0:
+            return True
+        max_e = max(e for _, e in nonzero)
+        return frexp(abs(total))[1] < max_e - 10
+
+    def _plane_spread_digits(self, extra_points: tuple[Vector3, ...] = ()) -> int:
+        exps = [frexp(abs(self.permittivity_f_per_m))[1]]
+        from .model import _plane_raw_normal
+        for v in (*_plane_raw_normal(self.plane.normal), *self.plane.point_m):
+            if v != 0.0:
+                exps.append(frexp(abs(v))[1])
         for q in self.sources:
-            distance = hypot(*_minus(point, q.position_m))
-            if distance == 0:
+            if q.charge_c != 0.0:
+                exps.append(frexp(abs(q.charge_c))[1])
+            for v in q.position_m:
+                if v != 0.0:
+                    exps.append(frexp(abs(v))[1])
+        for pt in extra_points:
+            for v in pt:
+                if v != 0.0:
+                    exps.append(frexp(abs(v))[1])
+        if len(exps) < 2:
+            return 0
+        return min(800, ((max(exps) - min(exps)) * 302) // 1000 + 20)
+
+    def _exact_field_or_potential(self, point: Vector3, *, want_field: bool):
+        """Trap-isolated adaptive-precision rationalized plane evaluation for cancellation/extremes."""
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .model import _plane_exact_numerator, _plane_raw_normal
+        from .observables import _PI_120
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        rn = _plane_raw_normal(self.plane.normal)
+        fn = tuple(Fraction(x) for x in rn)
+        n_sq = sum(x * x for x in fn)
+        num_hp = _plane_exact_numerator(point, self.plane.point_m, self.plane.normal, rn)
+        p_f = tuple(Fraction(x) for x in point)
+        src_data = []
+        for q in self.sources:
+            num_hq = _plane_exact_numerator(q.position_m, self.plane.point_m, self.plane.normal, rn)
+            q_f = tuple(Fraction(x) for x in q.position_m)
+            v_dir = tuple(p_f[i] - q_f[i] for i in range(3))
+            d_dir2 = sum(x * x for x in v_dir)
+            d_img2 = d_dir2 + (4 * num_hp * num_hq) / n_sq
+            src_data.append((q.charge_c, num_hq, v_dir, d_dir2, d_img2))
+
+        spread = self._plane_spread_digits((point,))
+        digits = max(80, spread + 60)
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(self.permittivity_f_per_m))
+                n_norm = _fdec(n_sq).sqrt()
+                unit_n = tuple(_fdec(fn[i]) / n_norm for i in range(3))
+                hp = _fdec(num_hp) / n_norm
+                if not want_field:
+                    total = Decimal(0)
+                    max_term = Decimal(0)
+                    for qc, num_hq, _, d_dir2, d_img2 in src_data:
+                        dq = Decimal.from_float(qc)
+                        hq = _fdec(num_hq) / n_norm
+                        dd = _fdec(d_dir2).sqrt()
+                        di = _fdec(d_img2).sqrt()
+                        term = dk * dq * Decimal(4) * hp * hq / (dd * di * (dd + di))
+                        total += term
+                        if abs(term) > max_term:
+                            max_term = abs(term)
+                    if total == 0:
+                        if max_term == 0 or digits >= max(240, spread + 120):
+                            return 0.0
+                        digits = min(1200, max(240, 2 * digits))
+                        continue
+                    lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
+                    if digits - lost >= 40 or digits >= 1200:
+                        return float(total)
+                    digits = min(1200, max(2 * digits, lost + 60))
+                    continue
+
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
+                max_terms = [Decimal(0), Decimal(0), Decimal(0)]
+                for qc, num_hq, v_dir, d_dir2, d_img2 in src_data:
+                    dq = Decimal.from_float(qc)
+                    hq = _fdec(num_hq) / n_norm
+                    dd = _fdec(d_dir2).sqrt()
+                    di = _fdec(d_img2).sqrt()
+                    rho = dd / di
+                    ratio_fac = (Decimal(1) + rho + rho * rho) / (Decimal(1) + rho)
+                    diff_inv3 = Decimal(4) * hp * hq * ratio_fac / (dd * dd * dd * di * di)
+                    inv_di3 = Decimal(2) * hq / (di * di * di)
+                    for i in range(3):
+                        t1 = dk * dq * _fdec(v_dir[i]) * diff_inv3
+                        t2 = -dk * dq * inv_di3 * unit_n[i]
+                        totals[i] += t1 + t2
+                        peak = max(abs(t1), abs(t2))
+                        if peak > max_terms[i]:
+                            max_terms[i] = peak
+                need_more = False
+                next_digits = digits
+                for i in range(3):
+                    if totals[i] == 0:
+                        if max_terms[i] > 0 and digits < max(240, spread + 120):
+                            need_more = True
+                            next_digits = max(next_digits, max(240, 2 * digits))
+                    elif max_terms[i] > 0:
+                        lost = max(0, max_terms[i].adjusted() - totals[i].adjusted())
+                        if digits - lost < 40 and digits < 1200:
+                            need_more = True
+                            next_digits = max(next_digits, max(2 * digits, lost + 60))
+                if not need_more or digits >= 1200:
+                    return tuple(float(x) for x in totals)
+                digits = min(1200, next_digits)
+
+    def _exact_force_on_charge_n(self, index: int, *, include_direct: bool) -> Vector3:
+        """Trap-isolated adaptive-precision rationalized plane force evaluation."""
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .model import _plane_exact_numerator, _plane_raw_normal
+        from .observables import _PI_120
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        source = self.sources[index]
+        rn = _plane_raw_normal(self.plane.normal)
+        fn = tuple(Fraction(x) for x in rn)
+        n_sq = sum(x * x for x in fn)
+        num_hi = _plane_exact_numerator(source.position_m, self.plane.point_m, self.plane.normal, rn)
+        pi_f = tuple(Fraction(x) for x in source.position_m)
+        pair_data = []
+        for j, other in enumerate(self.sources):
+            num_hj = _plane_exact_numerator(other.position_m, self.plane.point_m, self.plane.normal, rn)
+            pj_f = tuple(Fraction(x) for x in other.position_m)
+            v_dir = tuple(pi_f[c] - pj_f[c] for c in range(3))
+            d_dir2 = sum(x * x for x in v_dir)
+            v_img = tuple(v_dir[c] + (2 * num_hj * fn[c]) / n_sq for c in range(3))
+            d_img2 = d_dir2 + (4 * num_hi * num_hj) / n_sq
+            pair_data.append((j, other.charge_c, num_hj, v_dir, d_dir2, v_img, d_img2))
+
+        spread = self._plane_spread_digits()
+        digits = max(80, spread + 60)
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(self.permittivity_f_per_m))
+                dqi = Decimal.from_float(source.charge_c)
+                n_norm = _fdec(n_sq).sqrt()
+                unit_n = tuple(_fdec(fn[c]) / n_norm for c in range(3))
+                hi = _fdec(num_hi) / n_norm
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
+                max_terms = [Decimal(0), Decimal(0), Decimal(0)]
+                for j, qj_f, num_hj, v_dir, d_dir2, v_img, d_img2 in pair_data:
+                    dqj = Decimal.from_float(qj_f)
+                    di = _fdec(d_img2).sqrt()
+                    di3 = di * di * di
+                    if include_direct and j != index:
+                        dd = _fdec(d_dir2).sqrt()
+                        hj = _fdec(num_hj) / n_norm
+                        rho = dd / di
+                        ratio_fac = (Decimal(1) + rho + rho * rho) / (Decimal(1) + rho)
+                        diff_inv3 = Decimal(4) * hi * hj * ratio_fac / (dd * dd * dd * di * di)
+                        inv_di3 = Decimal(2) * hj / di3
+                        for c in range(3):
+                            t1 = dk * dqi * dqj * _fdec(v_dir[c]) * diff_inv3
+                            t2 = -dk * dqi * dqj * inv_di3 * unit_n[c]
+                            totals[c] += t1 + t2
+                            peak = max(abs(t1), abs(t2))
+                            if peak > max_terms[c]:
+                                max_terms[c] = peak
+                    else:
+                        for c in range(3):
+                            t = -dk * dqi * dqj * _fdec(v_img[c]) / di3
+                            totals[c] += t
+                            if abs(t) > max_terms[c]:
+                                max_terms[c] = abs(t)
+                need_more = False
+                next_digits = digits
+                for c in range(3):
+                    if totals[c] == 0:
+                        if max_terms[c] > 0 and digits < max(240, spread + 120):
+                            need_more = True
+                            next_digits = max(next_digits, max(240, 2 * digits))
+                    elif max_terms[c] > 0:
+                        lost = max(0, max_terms[c].adjusted() - totals[c].adjusted())
+                        if digits - lost < 40 and digits < 1200:
+                            need_more = True
+                            next_digits = max(next_digits, max(2 * digits, lost + 60))
+                if not need_more or digits >= 1200:
+                    return tuple(float(x) for x in totals)
+                digits = min(1200, next_digits)
+
+    def _exact_interaction_energy_j(self) -> float:
+        """Trap-isolated adaptive-precision rationalized plane interaction energy."""
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .model import _plane_exact_numerator, _plane_raw_normal
+        from .observables import _PI_120
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        rn = _plane_raw_normal(self.plane.normal)
+        fn = tuple(Fraction(x) for x in rn)
+        n_sq = sum(x * x for x in fn)
+        num_h = [_plane_exact_numerator(q.position_m, self.plane.point_m, self.plane.normal, rn) for q in self.sources]
+        pos_f = [tuple(Fraction(x) for x in q.position_m) for q in self.sources]
+        pair_data = []
+        for i in range(len(self.sources)):
+            for j in range(i + 1, len(self.sources)):
+                v_dir = tuple(pos_f[i][c] - pos_f[j][c] for c in range(3))
+                d_dir2 = sum(x * x for x in v_dir)
+                d_img2 = d_dir2 + (4 * num_h[i] * num_h[j]) / n_sq
+                pair_data.append((i, j, d_dir2, d_img2))
+
+        spread = self._plane_spread_digits()
+        digits = max(80, spread + 60)
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(self.permittivity_f_per_m))
+                n_norm = _fdec(n_sq).sqrt()
+                hs = [_fdec(x) / n_norm for x in num_h]
+                dqs = [Decimal.from_float(q.charge_c) for q in self.sources]
+                total = Decimal(0)
+                max_term = Decimal(0)
+                for i in range(len(self.sources)):
+                    t = -Decimal("0.25") * dk * dqs[i] * dqs[i] / hs[i]
+                    total += t
+                    if abs(t) > max_term:
+                        max_term = abs(t)
+                for i, j, d_dir2, d_img2 in pair_data:
+                    dd = _fdec(d_dir2).sqrt()
+                    di = _fdec(d_img2).sqrt()
+                    t = dk * dqs[i] * dqs[j] * Decimal(4) * hs[i] * hs[j] / (dd * di * (dd + di))
+                    total += t
+                    if abs(t) > max_term:
+                        max_term = abs(t)
+                if total == 0:
+                    if max_term == 0 or digits >= max(240, spread + 120):
+                        return 0.0
+                    digits = min(1200, max(240, 2 * digits))
+                    continue
+                lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
+                if digits - lost >= 40 or digits >= 1200:
+                    return float(total)
+                digits = min(1200, max(2 * digits, lost + 60))
+
+    def potential_at(self, point_m: Vector3) -> float:
+        from .observables import (
+            _displacement_parts,
+            _scaled_ratio_parts,
+            _scaled_ratio_product,
+            _sum_scaled_ratios,
+        )
+        point = _position(point_m, "sample point")
+        h_p_m, h_p_e = _plane_height_parts(point, self.plane)
+        if h_p_m <= 0.0:
+            return 0.0
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        parts = []
+        for q in self.sources:
+            _, d_m, d_e = _displacement_parts(point, q.position_m)
+            if d_m == 0.0:
                 raise SingularField("potential is singular at an ideal point charge")
-            image_distance = hypot(*_mirror_displacement(point, q.position_m, self.plane))
-            # Rationalize the difference: ri^2-r^2 = 4*h*h_source.
-            # Direct reciprocal subtraction loses weak far/near-plane values.
-            source_height = self.plane.signed_distance_m(q.position_m)
-            relative_separation = (2*(height/image_distance)*source_height /
-                                   (.5*distance+.5*image_distance))
-            terms.append(q.charge_c * relative_separation / distance)
-        return self._k * fsum(terms)
+            _, dm, de = _mirror_displacement_parts(point, q.position_m, self.plane)
+            h_q_m, h_q_e = _plane_height_parts(q.position_m, self.plane)
+            rho = min(1.0, _scaled_ratio_product((d_m,), (dm,), d_e - de))
+            parts.append(
+                _scaled_ratio_parts(
+                    (4.0, q.charge_c, h_p_m, h_q_m),
+                    (four_pi, eps, d_m, dm, dm, 1.0 + rho),
+                    h_p_e + h_q_e - d_e - 2 * de,
+                )
+            )
+        total = _sum_scaled_ratios(parts)
+        if self._needs_exact_sum(parts, total):
+            return self._exact_field_or_potential(point, want_field=False)
+        return total
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        from .observables import (
+            _displacement_parts,
+            _scaled_ratio_parts,
+            _scaled_ratio_product,
+            _sum_scaled_ratios,
+        )
         point = _position(point_m, "sample point")
         height = self.plane.signed_distance_m(point)
         if isclose(height, 0.0, abs_tol=1e-14):
             raise SingularField("electric field has distinct one-sided limits at plane")
         if height < 0:
             return (0.0, 0.0, 0.0)
+        h_p_m, h_p_e = _plane_height_parts(point, self.plane)
+        unit_n = _plane_unit_normal_parts(self.plane)
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
         terms = [[], [], []]
         for q in self.sources:
-            direct = _minus(point, q.position_m)
-            dr = hypot(*direct)
-            if dr == 0:
+            comps_d, d_m, d_e = _displacement_parts(point, q.position_m)
+            if d_m == 0.0:
                 raise SingularField("electric field is singular at an ideal point charge")
-            image = _mirror_displacement(point, q.position_m, self.plane)
-            di = hypot(*image)
-            source_height = self.plane.signed_distance_m(q.position_m)
-            # (di-dr)/di, obtained without subtracting nearly equal distances.
-            separation = 2*(height/di)*source_height/(.5*dr+.5*di)
-            ratio = dr/di
-            inverse_cube_difference = separation*(1+ratio+ratio*ratio)
+            _, dm, de = _mirror_displacement_parts(point, q.position_m, self.plane)
+            h_q_m, h_q_e = _plane_height_parts(q.position_m, self.plane)
+            rho = min(1.0, _scaled_ratio_product((d_m,), (dm,), d_e - de))
+            ratio_fac = (1.0 + rho + rho * rho) / (1.0 + rho)
             for i in range(3):
-                terms[i].append(q.charge_c * (
-                    (direct[i]/dr)*inverse_cube_difference/dr/dr
-                    - (2*source_height/di)*self.plane.normal[i]/di/di))
-        return tuple(self._k * fsum(component) for component in terms)
+                mc, ec = comps_d[i]
+                if mc != 0.0:
+                    terms[i].append(
+                        _scaled_ratio_parts(
+                            (4.0, q.charge_c, h_p_m, h_q_m, ratio_fac, mc),
+                            (four_pi, eps, d_m, d_m, d_m, dm, dm),
+                            h_p_e + h_q_e + ec - 3 * d_e - 2 * de,
+                        )
+                    )
+                nm, ne = unit_n[i]
+                if nm != 0.0:
+                    terms[i].append(
+                        _scaled_ratio_parts(
+                            (-2.0, q.charge_c, h_q_m, nm),
+                            (four_pi, eps, dm, dm, dm),
+                            h_q_e + ne - 3 * de,
+                        )
+                    )
+        out = tuple(_sum_scaled_ratios(component) for component in terms)
+        if any(self._needs_exact_sum(terms[i], out[i]) for i in range(3)):
+            return self._exact_field_or_potential(point, want_field=True)
+        return out
 
     def surface_charge_density_at(self, surface: str, point_m: Vector3) -> float:
         if surface != 'outer':
@@ -374,7 +666,10 @@ class GroundedPlaneSolution:
                             ec - 3 * de,
                         )
                     )
-        return tuple(_sum_scaled_ratios(x) for x in items)
+        out = tuple(_sum_scaled_ratios(x) for x in items)
+        if any(self._needs_exact_sum(items[i], out[i]) for i in range(3)):
+            return self._exact_force_on_charge_n(index, include_direct=include_direct)
+        return out
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:
@@ -415,7 +710,10 @@ class GroundedPlaneSolution:
                         h_i_e + h_j_e - d_e - 2 * de,
                     )
                 )
-        return _sum_scaled_ratios(parts)
+        total = _sum_scaled_ratios(parts)
+        if self._needs_exact_sum(parts, total):
+            return self._exact_interaction_energy_j()
+        return total
 
 
 class GroundedPlaneBackend:

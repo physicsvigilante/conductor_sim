@@ -81,7 +81,9 @@ def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: 
         Q = (0.0 if isinstance(sphere.constraint, Grounded)
              else sphere.constraint.charge_c)
         central = 0.0 if isinstance(sphere.constraint, Grounded) else Q-images_total
-        potential = (central/sphere.radius_m)/(4*pi*problem.permittivity_f_per_m)
+        potential = _scaled_ratio_product(
+            (central,), (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m)
+        )
         return (0 < len(sites) <= 32 and isfinite(images_total)
                 and isfinite(central) and isfinite(potential))
     except (ValueError, OverflowError, ZeroDivisionError, UnsupportedProblem):
@@ -291,13 +293,18 @@ class ExternalMultiSphereBackend:
     def solve(self, problem: ElectrostaticProblem) -> ExternalMultiSphereSolution:
         if not self.supports(problem):
             raise UnsupportedProblem('multiple external charges require one grounded or fixed-Q solid sphere, all sites strictly outside, and finite source strengths')
+        from .observables import _scaled_ratio_product
         sphere = problem.conductors[0]
         sites = active_external_sites(problem)
-        images_total = fsum(-site.charge_c*(sphere.radius_m/
-                                            norm(difference(site.position_m,sphere.center_m)))
-                            for site in sites)
+        images_total = fsum(
+            _scaled_ratio_product((-site.charge_c, sphere.radius_m),
+                                  (norm(difference(site.position_m, sphere.center_m)),))
+            for site in sites
+        )
         Q = images_total if isinstance(sphere.constraint,Grounded) else sphere.constraint.charge_c
         central = 0.0 if isinstance(sphere.constraint,Grounded) else Q-images_total
-        potential = (central/sphere.radius_m)/(4*pi*problem.permittivity_f_per_m)
+        potential = _scaled_ratio_product(
+            (central,), (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m)
+        )
         conductor = ConductorResult(sphere.name,potential,Q,0.0,Q)
         return ExternalMultiSphereSolution(sphere,sites,problem.permittivity_f_per_m,(conductor,))
