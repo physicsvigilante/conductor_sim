@@ -315,6 +315,18 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
     return _Domain(lower,upper,scale,guard)
 
 
+def _kinetic_energy_1d(mass_kg: float, velocity_m_s: float) -> float:
+    """Bit-exact legacy 1D kinetic energy in normal range, overflow/underflow-safe at extremes."""
+    if velocity_m_s == 0.0:
+        return 0.0
+    mv = 0.5 * mass_kg * velocity_m_s
+    if mass_kg >= 1e-290 and isfinite(mv) and abs(mv) >= 1e-290:
+        k = mv * velocity_m_s
+        if isfinite(k) and k >= 1e-290:
+            return k
+    return _scaled_ratio_product((0.5, mass_kg, velocity_m_s, velocity_m_s))
+
+
 def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     """Integrate autonomous 1D classical motion, never prescribing a path.
 
@@ -393,7 +405,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         UniformGravity(gravity.acceleration_m_s2, reference_position_m=original.position_m)
         if gravity is not None else None
     )
-    energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v, v))
+    energy0 = _kinetic_energy_1d(spec.mass_kg, v)
     total_j0 = _exact_sum((energy0, ref.total_j, ref_u_grav)) if gravity is not None else (energy0 + ref.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
@@ -403,7 +415,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     def record(t,s,v):
         nonlocal max_drift, peak_grav_exchange, peak_disp
         force, elec_force, energy, u_grav = observe(s)
-        kinetic = _scaled_ratio_product((0.5, spec.mass_kg, v, v))
+        kinetic = _kinetic_energy_1d(spec.mass_kg, v)
         position = _add(original.position_m, spec.axis, s)
         if gravity is None:
             interaction_j = energy.total_j

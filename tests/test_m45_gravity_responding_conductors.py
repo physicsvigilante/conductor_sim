@@ -3086,3 +3086,61 @@ def test_m45_sol_v47_plane_translation_wide_sum_direct_overflow_and_sphere_cance
         ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 4.0)),), (s_u,))
     )
     assert isclose(sol_e.electric_field_at((0.0, 0.0, nextafter(-3.5, inf)))[2], 1.892159892817436e300, rel_tol=1e-12)
+
+
+def test_m45_sol_v48_motion_events_transverse_force_sphere_translation_zero_and_subnormal_sum():
+    """Regression suite for all five Sol v48 findings."""
+    from conductor_sim import ExternalGroundedSphereBackend
+    from conductor_sim.observables import _sum_scaled_ratios, force_energy
+
+    # 1. Bit-exact legacy kinetic energy preserves prescribed-motion event validation
+    from conductor_sim.motion_1d import _kinetic_energy_1d
+    from conductor_sim.motion_2d import _kinetic_energy_2d
+    assert _kinetic_energy_2d(1e-6, 1.4142135623730951) == 0.5 * 1e-6 * (1.4142135623730951 ** 2)
+    assert _kinetic_energy_1d(1e-6, 1.4142135623730951) == 0.5 * 1e-6 * 1.4142135623730951 * 1.4142135623730951
+    assert isclose(_kinetic_energy_2d(1e300, 1e-160), 5e-21, rel_tol=1e-14, abs_tol=0.0)
+    assert isclose(_kinetic_energy_1d(1e-200, 1e200), 5e199, rel_tol=1e-14, abs_tol=0.0)
+
+    # 2. Tiny transverse offset (1e-308) alongside large longitudinal separation (1e20) keeps full force scale
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_tr = ElectrostaticProblem(
+        (PointCharge(1e150, (0.0, 0.0, 1e20)), PointCharge(1e150, (1e20, 1e-308, 1e20))),
+        (p_z0,),
+    )
+    sol_tr = GroundedPlaneBackend().solve(prob_tr)
+    obs_tr = force_energy(sol_tr)
+    c2 = next(c for c in obs_tr.charges if c.source.position_m[0] > 0.0)
+    assert isclose(c2.direct_force_n[1], 8.98755179226117e-59, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(c2.total_force_n[1], 8.183680721909329e-59, rel_tol=1e-12, abs_tol=0.0)
+    idx2 = next(i for i, q in enumerate(sol_tr.sources) if q.position_m[0] > 0.0)
+    assert isclose(sol_tr.force_on_charge_n(idx2)[1], 8.183680721909329e-59, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Grounded-sphere potential & field are invariant under large world translation (1e16 m)
+    s0 = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol0 = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-9, (2.0, 0.0, 0.0)),), (s0,))
+    )
+    s_shift = SolidSphere(1.0, Grounded(), (1e16, 0.0, 0.0), "sphere")
+    sol_shift = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-9, (1e16 + 2.0, 0.0, 0.0)),), (s_shift,))
+    )
+    v0 = sol0.potential_at((0.0, 2.0, 0.0))
+    v_shift = sol_shift.potential_at((1e16, 2.0, 0.0))
+    e0 = sol0.electric_field_at((0.0, 2.0, 0.0))
+    e_shift = sol_shift.electric_field_at((1e16, 2.0, 0.0))
+    assert isclose(v_shift, v0, rel_tol=1e-14)
+    assert isclose(v_shift, 0.9977779178041133, rel_tol=1e-12)
+    assert all(isclose(a, b, rel_tol=1e-14, abs_tol=1e-30) for a, b in zip(e_shift, e0))
+    assert isclose(e_shift[0], -0.5379476180295915, rel_tol=1e-12)
+
+    # 4. Exact rationalized Kelvin field preserves quadratic residual near an axial field zero
+    sol_zero = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e298, (0.0, 0.0, 4.0)),), (s0,))
+    )
+    e_off = sol_zero.electric_field_at((1e-140, 0.0, -3.5))
+    assert isclose(e_off[2], -1.2782295882327e25, rel_tol=1e-11, abs_tol=0.0)
+    assert sol_zero.electric_field_at((0.0, 0.0, -3.5))[2] == 0.0
+
+    # 5. _sum_scaled_ratios avoids subnormal double rounding on wide and narrow spreads
+    assert _sum_scaled_ratios([(0.75, 0), (-0.75, 0), (0.5, -1074), (0.5, -1127)]) == 5e-324
+    assert _sum_scaled_ratios([(0.5, -1074), (0.5, -1127)]) == 5e-324

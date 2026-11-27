@@ -201,11 +201,11 @@ def validate_planar_motion(motion, *, frames=None):
                 if not isfinite(exp_a) or not isclose(a, exp_a, rel_tol=2e-9, abs_tol=128 * ulp(abs(exp_a))):
                     raise ValueError('motion acceleration disagrees with force and mass')
         from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
-        from .observables import _scaled_ratio_product
+        from .motion_2d import _kinetic_energy_2d
         speed = hypot(*velocity)
         if speed >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
             raise ValueError('saved classical motion speed must be below 0.1c')
-        kinetic = _scaled_ratio_product((0.5, mass, speed, speed))
+        kinetic = _kinetic_energy_2d(mass, speed)
         if gravity_obj is None:
             if row['kinetic_energy_j'] < 0 or not _close(row['kinetic_energy_j'], kinetic):
                 raise ValueError('motion kinetic energy disagrees with velocity and mass')
@@ -475,12 +475,11 @@ def validate_motion_1d_gravity(motion):
         if not isfinite(exp_u) or not isclose(row['interaction_energy_j'], exp_u,
                                               rel_tol=0.0, abs_tol=8 * ulp(abs(exp_u))):
             raise ValueError('saved 1D interaction energy disagrees with electric + gravitational sum')
-        from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S
-        from .observables import _scaled_ratio_product
+        from .motion_1d import _NONRELATIVISTIC_SPEED_LIMIT_M_S, _kinetic_energy_1d
         v_s = row['velocity_m_s']
         if abs(v_s) >= _NONRELATIVISTIC_SPEED_LIMIT_M_S:
             raise ValueError('saved 1D classical motion speed must be below 0.1c')
-        kinetic = _scaled_ratio_product((0.5, mass, v_s, v_s))
+        kinetic = _kinetic_energy_1d(mass, v_s)
         if (not isfinite(kinetic) or row['kinetic_energy_j'] < 0 or
                 not isclose(row['kinetic_energy_j'], kinetic,
                             rel_tol=2e-9, abs_tol=128 * ulp(abs(kinetic)))):

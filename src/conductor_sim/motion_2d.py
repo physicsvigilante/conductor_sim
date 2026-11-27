@@ -628,6 +628,18 @@ def _neumaier_add(acc, comp, delta):
     return tuple(new_acc), tuple(new_comp)
 
 
+def _kinetic_energy_2d(mass_kg: float, speed_m_s: float) -> float:
+    """Bit-exact legacy 2D kinetic energy in normal range, overflow/underflow-safe at extremes."""
+    if speed_m_s == 0.0:
+        return 0.0
+    v2 = speed_m_s ** 2
+    if mass_kg >= 1e-290 and isfinite(v2) and v2 >= 1e-290:
+        k = 0.5 * mass_kg * v2
+        if isfinite(k) and k >= 1e-290:
+            return k
+    return _scaled_ratio_product((0.5, mass_kg, speed_m_s, speed_m_s))
+
+
 def _integrate_vector_motion(spec, geometry, observe, *,
                              surface_description='Stopped before the ideal conductor; not an exact collision',
                              step_observer=None, max_step_s=None, dynamics=None, gravity=None):
@@ -686,7 +698,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     )
     ref_u_grav = gravity.potential_energy_at(p0, mass_kg=spec.mass_kg) if gravity is not None else 0.0
     v0_norm = _norm(spec.initial_velocity_m_s)
-    energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v0_norm, v0_norm))
+    energy0 = _kinetic_energy_2d(spec.mass_kg, v0_norm)
     total_j0 = _exact_sum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
@@ -708,7 +720,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         position, velocity = values[:3], values[3:]
         elec_force, energy = observe(position)
         v_norm = _norm(velocity)
-        kinetic = _scaled_ratio_product((0.5, spec.mass_kg, v_norm, v_norm))
+        kinetic = _kinetic_energy_2d(spec.mass_kg, v_norm)
         if gravity is None:
             force = elec_force
             interaction_j = energy.total_j

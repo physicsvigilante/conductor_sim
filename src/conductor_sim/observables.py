@@ -213,36 +213,55 @@ def _scaled_ratio_product(nums: tuple[float, ...], denoms: tuple[float, ...] = (
         return copysign(float('inf'), mantissa)
 
 
-def _displacement_scaled(a: Vector3, b: Vector3) -> tuple[Vector3, float, int]:
-    """Return ``(unit_dir, dist_mantissa, dist_exp)`` for ``a - b`` without overflow/underflow."""
-    delta = tuple(a[i] - b[i] for i in range(3))
-    if all(isfinite(x) for x in delta):
-        d = hypot(*delta)
-        if isfinite(d) and d >= 1e-290:
-            dm, de = frexp(d)
-            return tuple(x / d for x in delta), dm, de
-        d_scale = max(abs(x) for x in delta)
-        if d_scale == 0.0:
-            return (0.0, 0.0, 0.0), 0.0, 0
-        _, s_exp = frexp(d_scale)
-        delta_s = tuple(ldexp(x, -s_exp) for x in delta)
-        d_s = hypot(*delta_s)
-        dm, de = frexp(d_s)
-        return tuple(x / d_s for x in delta_s), dm, s_exp + de
-    scale = max(max(abs(x) for x in a), max(abs(x) for x in b))
-    if scale == 0.0:
-        return (0.0, 0.0, 0.0), 0.0, 0
-    _, s_exp = frexp(scale)
-    delta_s = tuple(ldexp(a[i], -s_exp) - ldexp(b[i], -s_exp) for i in range(3))
-    d_s = hypot(*delta_s)
-    if d_s == 0.0:
-        return (0.0, 0.0, 0.0), 0.0, 0
+def _component_diff_parts(ai: float, bi: float) -> tuple[float, int]:
+    """Return exact ``(mantissa, exp)`` for ``ai - bi`` without overflow."""
+    d = ai - bi
+    if isfinite(d):
+        return frexp(d) if d != 0.0 else (0.0, 0)
+    # Overflow implies opposite signs with magnitude ~1e308; halving is exact.
+    m, e = frexp(0.5 * ai - 0.5 * bi)
+    return (m, e + 1) if m != 0.0 else (0.0, 0)
+
+
+def _fraction_to_parts(val: Fraction) -> tuple[float, int]:
+    """Convert an exact nonzero Fraction to normalized ``(mantissa, exp)`` without overflow/underflow."""
+    if val == 0:
+        return 0.0, 0
+    neg = val < 0
+    mag = -val if neg else val
+    shift = mag.numerator.bit_length() - mag.denominator.bit_length()
+    shifted = mag * Fraction(1, 1 << shift) if shift >= 0 else mag * (1 << (-shift))
+    m, e = frexp(float(shifted))
+    return (-m if neg else m), shift + e
+
+
+def _vector_norm_parts(comps: tuple[tuple[float, int], ...]) -> tuple[float, int]:
+    """Return ``(dist_mantissa, dist_exp)`` for the Euclidean norm of per-component ``(m, e)`` parts."""
+    nonzero = [(m, e) for m, e in comps if m != 0.0]
+    if not nonzero:
+        return 0.0, 0
+    max_e = max(e for _, e in nonzero)
+    d_s = hypot(*(ldexp(m, e - max_e) for m, e in nonzero))
     dm, de = frexp(d_s)
-    return tuple(x / d_s for x in delta_s), dm, s_exp + de
+    return dm, max_e + de
+
+
+def _displacement_parts(
+    a: Vector3, b: Vector3
+) -> tuple[tuple[tuple[float, int], tuple[float, int], tuple[float, int]], float, int]:
+    """Return ``(comp_parts, dist_mantissa, dist_exp)`` for ``a - b``.
+
+    Preserves each component's independent binary exponent so tiny transverse
+    offsets (e.g. ``1e-308``) alongside large longitudinal distances never
+    underflow to zero before charge factors restore their scale.
+    """
+    comps = tuple(_component_diff_parts(a[i], b[i]) for i in range(3))
+    dm, de = _vector_norm_parts(comps)
+    return comps, dm, de
 
 
 def _sum_scaled_ratios(parts: list[tuple[float, int]]) -> float:
-    """Sum (mantissa, exponent) terms without intermediate overflow or underflow."""
+    """Sum (mantissa, exponent) terms without intermediate overflow, underflow, or double rounding."""
     nonzero = [(m, e) for m, e in parts if m != 0.0]
     if not nonzero:
         return 0.0
@@ -250,28 +269,31 @@ def _sum_scaled_ratios(parts: list[tuple[float, int]]) -> float:
     min_e = min(e for _, e in nonzero)
     if max_e - min_e <= 950:
         total = fsum(ldexp(m, e - max_e) for m, e in nonzero)
-        if total == 0.0:
-            return 0.0
-        m_tot, e_tot = frexp(total)
-        try:
-            return ldexp(m_tot, max_e + e_tot)
-        except OverflowError:
-            return copysign(float('inf'), m_tot)
-    # Wide exponent spread (>950 bits): exact shifted rational sum so weak terms
-    # never underflow when large opposing terms cancel.
+        if total != 0.0:
+            m_tot, e_tot = frexp(total)
+            final_e = max_e + e_tot
+            if final_e > -1020:
+                try:
+                    return ldexp(m_tot, final_e)
+                except OverflowError:
+                    return copysign(float('inf'), m_tot)
+    # Wide exponent spread (>950 bits), cancellation, or subnormal result:
+    # sum exactly in Fraction and perform one IEEE-754 round-to-nearest-even step.
     exact = sum(Fraction(m) * (1 << (e - min_e)) for m, e in nonzero)
     if exact == 0:
         return 0.0
     neg = exact < 0
     mag = -exact if neg else exact
-    bit_shift = mag.numerator.bit_length() - mag.denominator.bit_length()
-    shifted = mag * Fraction(1, 1 << bit_shift) if bit_shift >= 0 else mag * (1 << (-bit_shift))
-    val = -float(shifted) if neg else float(shifted)
-    m_tot, e_tot = frexp(val)
+    true_exp = min_e + mag.numerator.bit_length() - mag.denominator.bit_length()
+    if true_exp > 1030:
+        return copysign(float('inf'), -1.0 if neg else 1.0)
+    if true_exp < -1080:
+        return 0.0
+    exact_val = exact * (1 << min_e) if min_e >= 0 else exact * Fraction(1, 1 << (-min_e))
     try:
-        return ldexp(m_tot, min_e + bit_shift + e_tot)
+        return float(exact_val)
     except OverflowError:
-        return copysign(float('inf'), m_tot)
+        return copysign(float('inf'), -1.0 if neg else 1.0)
 
 
 def _direct(sources: tuple[PointCharge, ...], k: float):
@@ -281,19 +303,22 @@ def _direct(sources: tuple[PointCharge, ...], k: float):
     for i, a in enumerate(sources):
         for j in range(i+1, len(sources)):
             b = sources[j]
-            u_dir, dm, de = _displacement_scaled(a.position_m, b.position_m)
+            comps, dm, de = _displacement_parts(a.position_m, b.position_m)
             if dm == 0.0:
                 raise ValueError('coincident force sites must be grouped before observation')
             energies.append(_scaled_ratio_parts((k, a.charge_c, b.charge_c), (dm,), -de))
             for c in range(3):
-                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, u_dir[c]), (dm, dm), -2 * de)
+                mc, ec = comps[c]
+                if mc == 0.0:
+                    continue
+                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, mc), (dm, dm, dm), ec - 3 * de)
                 forces[i][c].append((m_f, e_f))
                 forces[j][c].append((-m_f, e_f))
     return tuple(tuple(_sum_scaled_ratios(c) for c in f) for f in forces), _sum_scaled_ratios(energies)
 
 
 def _plane_observables(solution) -> ForceEnergyResult:
-    from .grounded_plane import _mirror_displacement_scaled
+    from .grounded_plane import _mirror_displacement_parts
     sources, k = solution.sources, solution._k
     direct, pair_energy = _direct(sources, k)
     charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
@@ -301,7 +326,7 @@ def _plane_observables(solution) -> ForceEnergyResult:
     induced_parts = []
     for a in sources:
         for b in sources:
-            _, dm, de = _mirror_displacement_scaled(a.position_m, b.position_m, solution.plane)
+            _, dm, de = _mirror_displacement_parts(a.position_m, b.position_m, solution.plane)
             induced_parts.append(_scaled_ratio_parts((-0.5, k, a.charge_c, b.charge_c), (dm,), -de))
     induced = _sum_scaled_ratios(induced_parts)
     energy = EnergyBreakdown(pair_energy, induced, 0.,
@@ -347,9 +372,12 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             #   F_ind = -k * q^2 * a^3 * (2 - (a/d)^2) / (d^5 * (1 - (a/d)^2)^2) * r_hat
             #   U_ind = -0.5 * k * q^2 * a^3 / (d^4 * (1 - (a/d)^2))
             ratio_sq = _scaled_ratio_product((a, a), (dc, dc))
-            self_mag = _scaled_ratio_product(
-                (-k, site.charge_c, site.charge_c, a, a, a, 2.0 - ratio_sq),
-                (dc, dc, dc, dc, dc, u_denom, u_denom),
+            induced_vec = tuple(
+                _scaled_ratio_product(
+                    (-k, site.charge_c, site.charge_c, a, a, a, 2.0 - ratio_sq, delta_c[c]),
+                    (dc, dc, dc, dc, dc, dc, u_denom, u_denom),
+                )
+                for c in range(3)
             )
             induced_energy = _scaled_ratio_product(
                 (-0.5, k, site.charge_c, site.charge_c, a, a, a),
@@ -360,17 +388,19 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             # Exact near-contact- and far-field-safe grounded-sphere polarization:
             #   F_ind = -k * q^2 * a / (d^3 * (1 - (a/d)^2)^2) * r_hat
             #   U_ind = -0.5 * k * q^2 * a / (d^2 * (1 - (a/d)^2))
-            self_mag = _scaled_ratio_product(
-                (-k, site.charge_c, site.charge_c, a),
-                (dc, dc, dc, u_denom, u_denom),
+            induced_vec = tuple(
+                _scaled_ratio_product(
+                    (-k, site.charge_c, site.charge_c, a, delta_c[c]),
+                    (dc, dc, dc, dc, u_denom, u_denom),
+                )
+                for c in range(3)
             )
             induced_energy = _scaled_ratio_product(
                 (-0.5, k, site.charge_c, site.charge_c, a),
                 (dc, dc, u_denom),
             )
             bg_energy = 0.0
-        induced_vec = tuple(self_mag * r0_hat[c] for c in range(3))
-        background = tuple(_scaled_ratio_product((k, site.charge_c, Q, r0_hat[c]), (dc, dc)) for c in range(3))
+        background = tuple(_scaled_ratio_product((k, site.charge_c, Q, delta_c[c]), (dc, dc, dc)) for c in range(3))
         charges.append(ChargeForce(site, direct[0], induced_vec, background))
     else:
         # Multi-source exterior sphere (fixed-Q or grounded): evaluate Kelvin

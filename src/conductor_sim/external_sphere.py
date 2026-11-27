@@ -92,75 +92,110 @@ class ExternalGroundedSphereSolution:
     def _k(self) -> float:
         return 1/(4*pi*self.permittivity_f_per_m)
 
-    def _kelvin_decimal_eval(self, point: Vector3, *, want_field: bool):
-        """High-precision trap-isolated Kelvin real+image sum when cancellation or overflow occurs."""
+    def _kelvin_exact_eval(self, point: Vector3, *, want_field: bool):
+        """Cancellation-free exact-numerator Kelvin evaluation (trap-isolated Decimal)."""
         from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
-        from math import frexp
         from .observables import _PI_120
-        exps = [
-            frexp(abs(v))[1]
-            for v in (
-                self.sphere.radius_m,
-                *self.sphere.center_m,
-                *point,
-                *self.source.position_m,
-            )
-            if v != 0.0
-        ]
-        spread_dec = ((max(exps) - min(exps)) // 3 + 40) if len(exps) >= 2 else 0
-        prec = max(120, min(800, 80 + spread_dec))
-        ctx = Context(prec=prec, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        a = Fraction(self.sphere.radius_m)
+        a2 = a * a
+        c = tuple(Fraction(x) for x in self.sphere.center_m)
+        p = tuple(Fraction(x) for x in point)
+        s = tuple(Fraction(x) for x in self.source.position_m)
+        r_src = tuple(s[i] - c[i] for i in range(3))
+        r_p = tuple(p[i] - c[i] for i in range(3))
+        d2 = sum(x * x for x in r_src)
+        rp2 = sum(x * x for x in r_p)
+        v_dir = tuple(p[i] - s[i] for i in range(3))
+        dist2 = sum(x * x for x in v_dir)
+        scale = a2 / d2
+        v_ref = tuple(r_p[i] - scale * r_src[i] for i in range(3))
+        r_img2 = sum(x * x for x in v_ref)
+
+        ctx = Context(prec=60, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
         with localcontext(ctx):
-            da = Decimal.from_float(self.sphere.radius_m)
-            dc = tuple(Decimal.from_float(x) for x in self.sphere.center_m)
-            dp = tuple(Decimal.from_float(x) for x in point)
-            ds = tuple(Decimal.from_float(x) for x in self.source.position_m)
-            dq = Decimal.from_float(self.source.charge_c)
             dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(self.permittivity_f_per_m))
-            r_src = tuple(ds[i] - dc[i] for i in range(3))
-            r_p = tuple(dp[i] - dc[i] for i in range(3))
-            d_src = sum(x * x for x in r_src).sqrt()
-            dq_img = -dq * da / d_src
-            scale = da * da / (d_src * d_src)
-            v_dir = tuple(dp[i] - ds[i] for i in range(3))
-            dist = sum(x * x for x in v_dir).sqrt()
-            v_ref = tuple(r_p[i] - scale * r_src[i] for i in range(3))
-            r_img = sum(x * x for x in v_ref).sqrt()
+            dq = Decimal.from_float(self.source.charge_c)
+            da = Decimal.from_float(self.sphere.radius_m)
+            d_src = _fdec(d2).sqrt()
+            dist = _fdec(dist2).sqrt()
+            r_img = _fdec(r_img2).sqrt()
             if not want_field:
-                return float(dk * (dq / dist + dq_img / r_img))
+                num = _fdec((d2 - a2) * (rp2 - a2))
+                denom = d_src * dist * r_img * (d_src * r_img + da * dist)
+                return float(dk * dq * num / denom)
             dist3 = dist * dist * dist
             r_img3 = r_img * r_img * r_img
-            return tuple(float(dk * (dq * v_dir[i] / dist3 + dq_img * v_ref[i] / r_img3)) for i in range(3))
+            dist2_3 = dist2 * dist2 * dist2
+            r_img2_3 = r_img2 * r_img2 * r_img2
+            out = []
+            for i in range(3):
+                vd_i = v_dir[i]
+                vr_i = v_ref[i]
+                if vd_i == 0 and vr_i == 0:
+                    out.append(0.0)
+                elif vd_i * vr_i <= 0:
+                    t1 = _fdec(vd_i) / dist3
+                    t2 = -(da / d_src) * _fdec(vr_i) / r_img3
+                    out.append(float(dk * dq * (t1 + t2)))
+                else:
+                    n_i = (vd_i * vd_i) * d2 * r_img2_3 - a2 * (vr_i * vr_i) * dist2_3
+                    if n_i == 0:
+                        out.append(0.0)
+                    else:
+                        sgn = Decimal(1) if vd_i > 0 else Decimal(-1)
+                        abs_a = _fdec(abs(vd_i)) / dist3
+                        abs_b = (da * _fdec(abs(vr_i))) / (d_src * r_img3)
+                        denom = _fdec(d2 * dist2_3 * r_img2_3) * (abs_a + abs_b)
+                        out.append(float(dk * dq * sgn * _fdec(n_i) / denom))
+            return tuple(out)
 
     def potential_at(self, point_m: Vector3) -> float:
         from math import ldexp
-        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _scaled_ratio_parts, _scaled_ratio_product, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
-        r = _norm(_diff(point, self.sphere.center_m))
+        r_p = _diff(point, self.sphere.center_m)
+        r = _norm(r_p)
         if r <= self.sphere.radius_m:
             return 0.0
         source_distance = _norm(_diff(point, self.source.position_m))
         if source_distance == 0:
             raise SingularField('point-charge potential is singular at the external source')
-        r_img = _norm(_diff(point, self.image_position_m))
-        if not (isfinite(source_distance) and isfinite(r_img) and r_img > 0.0):
-            return self._kelvin_decimal_eval(point, want_field=False)
+        a = self.sphere.radius_m
+        r_src = _diff(self.source.position_m, self.sphere.center_m)
+        d_src = _norm(r_src)
+        img_off = tuple(_scaled_ratio_product((a, a, r_src[i]), (d_src, d_src)) for i in range(3))
+        reflected = tuple(r_p[i] - img_off[i] for i in range(3))
+        r_img = _norm(reflected)
+        if (
+            not (isfinite(source_distance) and isfinite(r_img) and r_img > 0.0)
+            or any(r_src[i] != 0.0 and img_off[i] == 0.0 for i in range(3))
+            or any(
+                r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
+                for i in range(3)
+            )
+        ):
+            return self._kelvin_exact_eval(point, want_field=False)
         p_src = _scaled_ratio_parts((self._k, self.source.charge_c), (source_distance,))
         p_img = _scaled_ratio_parts(
-            (-self._k, self.source.charge_c, self.sphere.radius_m),
-            (self.source_distance_m, r_img),
+            (-self._k, self.source.charge_c, a),
+            (d_src, r_img),
         )
         max_e = max(p_src[1], p_img[1])
         s_sum = ldexp(p_src[0], p_src[1] - max_e) + ldexp(p_img[0], p_img[1] - max_e)
         if abs(s_sum) < 0.01:
-            return self._kelvin_decimal_eval(point, want_field=False)
+            return self._kelvin_exact_eval(point, want_field=False)
         return _sum_scaled_ratios([p_src, p_img])
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
         from math import ldexp
-        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _scaled_ratio_parts, _scaled_ratio_product, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
-        r = _norm(_diff(point, self.sphere.center_m))
+        r_p = _diff(point, self.sphere.center_m)
+        r = _norm(r_p)
         if isclose(r, self.sphere.radius_m, rel_tol=1e-12):
             raise SingularField('field has distinct one-sided limits at sphere surface')
         if r < self.sphere.radius_m:
@@ -169,12 +204,21 @@ class ExternalGroundedSphereSolution:
         dist = _norm(direct)
         if dist == 0:
             raise SingularField('electric field is singular at the external charge')
-        reflected = _diff(point, self.image_position_m)
-        r_img = _norm(reflected)
-        if not (isfinite(dist) and isfinite(r_img) and r_img > 0.0):
-            return self._kelvin_decimal_eval(point, want_field=True)
-        d_src = self.source_distance_m
         a = self.sphere.radius_m
+        r_src = _diff(self.source.position_m, self.sphere.center_m)
+        d_src = _norm(r_src)
+        img_off = tuple(_scaled_ratio_product((a, a, r_src[i]), (d_src, d_src)) for i in range(3))
+        reflected = tuple(r_p[i] - img_off[i] for i in range(3))
+        r_img = _norm(reflected)
+        if (
+            not (isfinite(dist) and isfinite(r_img) and r_img > 0.0)
+            or any(r_src[i] != 0.0 and img_off[i] == 0.0 for i in range(3))
+            or any(
+                r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
+                for i in range(3)
+            )
+        ):
+            return self._kelvin_exact_eval(point, want_field=True)
         q = self.source.charge_c
         out = []
         for i in range(3):
@@ -184,7 +228,7 @@ class ExternalGroundedSphereSolution:
                 max_e = max(p_src[1], p_img[1])
                 s_sum = ldexp(p_src[0], p_src[1] - max_e) + ldexp(p_img[0], p_img[1] - max_e)
                 if abs(s_sum) < 0.01:
-                    return self._kelvin_decimal_eval(point, want_field=True)
+                    return self._kelvin_exact_eval(point, want_field=True)
             out.append(_sum_scaled_ratios([p_src, p_img]))
         return tuple(out)
 
@@ -248,11 +292,13 @@ class ExternalGroundedSphereSolution:
             u_denom = float((f_d2 - f_a2) / f_d2)
         else:
             u_denom = ((d - a) / d) * (1.0 + a / d)
-        mag = _scaled_ratio_product(
-            (-self._k, self.source.charge_c, self.source.charge_c, a),
-            (d, d, d, u_denom, u_denom),
+        return tuple(
+            _scaled_ratio_product(
+                (-self._k, self.source.charge_c, self.source.charge_c, a, delta[i]),
+                (d, d, d, d, u_denom, u_denom),
+            )
+            for i in range(3)
         )
-        return tuple(mag * (delta[i] / d) for i in range(3))
 
     @property
     def force_on_charge_n(self) -> Vector3:

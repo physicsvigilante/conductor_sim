@@ -39,60 +39,80 @@ def _mirror_displacement(target: Vector3, source: Vector3, plane: ConductingPlan
     )
 
 
-def _mirror_displacement_scaled(
+def _mirror_displacement_parts(
     target: Vector3,
     source: Vector3,
     plane: ConductingPlane,
-) -> tuple[Vector3, float, int]:
-    """Return ``(unit_dir, dist_mantissa, dist_exp)`` for ``target - mirror(source, plane)``.
+) -> tuple[tuple[tuple[float, int], tuple[float, int], tuple[float, int]], float, int]:
+    """Return ``(comp_parts, dist_mantissa, dist_exp)`` for ``target - mirror(source, plane)``.
 
-    The true displacement vector equals ``unit_dir * ldexp(dist_mantissa, dist_exp)``,
-    avoiding ``2*h`` overflow, ``0*inf = nan`` tangential contamination, and
-    translation-dependent scaling loss when ``|target|, |source| >> |target - source|``.
+    Each component keeps its own binary exponent so tiny transverse offsets
+    (e.g. ``1e-308``) alongside huge longitudinal or normal distances never
+    underflow before charge factors restore their scale, while avoiding
+    world-coordinate translation loss, ``2*h`` overflow, and ``0*inf = nan``.
     """
+    from .observables import (
+        _component_diff_parts,
+        _fraction_to_parts,
+        _scaled_ratio_parts,
+        _vector_norm_parts,
+    )
     h = plane.signed_distance_m(source)
-    delta_ts = _minus(target, source)
-    if isfinite(h) and all(isfinite(d) for d in delta_ts):
-        scale = max(abs(h), max(abs(d) for d in delta_ts))
-        if scale == 0.0:
-            return (0.0, 0.0, 0.0), 0.0, 0
-        if 1e-150 <= scale <= 1e150:
-            vec = tuple(
-                delta_ts[i] + (2.0 * h * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
-                for i in range(3)
-            )
-            d = hypot(*vec)
-            if isfinite(d) and d > 0.0:
-                dm, de = frexp(d)
-                return tuple(x / d for x in vec), dm, de
-        _, s_exp = frexp(scale)
-        sh = ldexp(h, -s_exp)
-        vec_s = tuple(
-            ldexp(delta_ts[i], -s_exp) + (2.0 * sh * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
-            for i in range(3)
-        )
-        d_s = hypot(*vec_s)
-        if isfinite(d_s) and d_s > 0.0:
-            dm, de = frexp(d_s)
-            return tuple(x / d_s for x in vec_s), dm, s_exp + de
+    if isfinite(h) and abs(h) >= 1e-290:
+        hm, he = frexp(h)
+        comps = []
+        exact_ctx = None
+        for i in range(3):
+            dm_i, de_i = _component_diff_parts(target[i], source[i])
+            ni = plane.normal[i]
+            if ni == 0.0:
+                comps.append((dm_i, de_i))
+                continue
+            hm_i, he_i = _scaled_ratio_parts((2.0, hm, ni), (), he)
+            if dm_i == 0.0:
+                comps.append((hm_i, he_i))
+                continue
+            if hm_i == 0.0:
+                comps.append((dm_i, de_i))
+                continue
+            max_e = max(de_i, he_i)
+            min_e = min(de_i, he_i)
+            if max_e - min_e > 60:
+                comps.append((dm_i, de_i) if de_i > he_i else (hm_i, he_i))
+                continue
+            s = ldexp(dm_i, de_i - max_e) + ldexp(hm_i, he_i - max_e)
+            if abs(s) >= 0.01:
+                sm, se = frexp(s)
+                comps.append((sm, max_e + se))
+                continue
+            if exact_ctx is None:
+                from fractions import Fraction
+                from .model import _plane_exact_numerator, _plane_raw_normal
+                rn = _plane_raw_normal(plane.normal)
+                fn = tuple(Fraction(x) for x in rn)
+                n_sq = sum(x * x for x in fn)
+                num_h = _plane_exact_numerator(source, plane.point_m, plane.normal, rn)
+                exact_ctx = (Fraction, fn, n_sq, num_h)
+            Fraction_cls, fn, n_sq, num_h = exact_ctx
+            v_fi = (Fraction_cls(target[i]) - Fraction_cls(source[i])) + (2 * num_h * fn[i]) / n_sq
+            comps.append(_fraction_to_parts(v_fi))
+        comp_tuple = tuple(comps)
+        dm, de = _vector_norm_parts(comp_tuple)
+        return comp_tuple, dm, de
     from fractions import Fraction
     from .model import _plane_exact_numerator, _plane_raw_normal
     rn = _plane_raw_normal(plane.normal)
     fn = tuple(Fraction(x) for x in rn)
     n_sq = sum(x * x for x in fn)
     num_h = _plane_exact_numerator(source, plane.point_m, plane.normal, rn)
-    v_f = tuple(
-        (Fraction(target[i]) - Fraction(source[i])) + (2 * num_h * fn[i]) / n_sq
+    comp_tuple = tuple(
+        _fraction_to_parts(
+            (Fraction(target[i]) - Fraction(source[i])) + (2 * num_h * fn[i]) / n_sq
+        )
         for i in range(3)
     )
-    v_max = max(abs(x) for x in v_f)
-    if v_max == 0:
-        return (0.0, 0.0, 0.0), 0.0, 0
-    s_exp = v_max.numerator.bit_length() - v_max.denominator.bit_length()
-    v_s = tuple(float(x * Fraction(1, 1 << s_exp) if s_exp >= 0 else x * (1 << (-s_exp))) for x in v_f)
-    d_s = hypot(*v_s)
-    dm, de = frexp(d_s)
-    return tuple(x / d_s for x in v_s), dm, s_exp + de
+    dm, de = _vector_norm_parts(comp_tuple)
+    return comp_tuple, dm, de
 
 
 def _sites(problem: ElectrostaticProblem) -> tuple[PointCharge, ...]:
@@ -264,18 +284,30 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
-        from .observables import _displacement_scaled, _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _displacement_parts, _scaled_ratio_parts, _sum_scaled_ratios
         source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
         k = self._k
         for j, other in enumerate(self.sources):
             if include_direct and j != index:
-                u_dir, d_m, d_e = _displacement_scaled(source.position_m, other.position_m)
+                comps_d, d_m, d_e = _displacement_parts(source.position_m, other.position_m)
                 for i in range(3):
-                    items[i].append(_scaled_ratio_parts((k, source.charge_c, other.charge_c, u_dir[i]), (d_m, d_m), -2 * d_e))
-            u_ref, dm, de = _mirror_displacement_scaled(source.position_m, other.position_m, self.plane)
+                    mc, ec = comps_d[i]
+                    if mc != 0.0:
+                        items[i].append(
+                            _scaled_ratio_parts(
+                                (k, source.charge_c, other.charge_c, mc), (d_m, d_m, d_m), ec - 3 * d_e
+                            )
+                        )
+            comps_r, dm, de = _mirror_displacement_parts(source.position_m, other.position_m, self.plane)
             for i in range(3):
-                items[i].append(_scaled_ratio_parts((-k, source.charge_c, other.charge_c, u_ref[i]), (dm, dm), -2 * de))
+                mc, ec = comps_r[i]
+                if mc != 0.0:
+                    items[i].append(
+                        _scaled_ratio_parts(
+                            (-k, source.charge_c, other.charge_c, mc), (dm, dm, dm), ec - 3 * de
+                        )
+                    )
         return tuple(_sum_scaled_ratios(x) for x in items)
 
     @property
@@ -287,16 +319,16 @@ class GroundedPlaneSolution:
     @property
     def interaction_energy_j(self) -> float:
         """External real-real Coulomb energy plus half the image interaction."""
-        from .observables import _displacement_scaled, _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import _displacement_parts, _scaled_ratio_parts, _sum_scaled_ratios
         k = self._k
         parts = []
         for i in range(len(self.sources)):
             for j in range(i + 1, len(self.sources)):
-                _, d_m, d_e = _displacement_scaled(self.sources[i].position_m, self.sources[j].position_m)
+                _, d_m, d_e = _displacement_parts(self.sources[i].position_m, self.sources[j].position_m)
                 parts.append(_scaled_ratio_parts((k, self.sources[i].charge_c, self.sources[j].charge_c), (d_m,), -d_e))
         for q in self.sources:
             for other in self.sources:
-                _, dm, de = _mirror_displacement_scaled(q.position_m, other.position_m, self.plane)
+                _, dm, de = _mirror_displacement_parts(q.position_m, other.position_m, self.plane)
                 parts.append(_scaled_ratio_parts((-0.5, k, q.charge_c, other.charge_c), (dm,), -de))
         return _sum_scaled_ratios(parts)
 
