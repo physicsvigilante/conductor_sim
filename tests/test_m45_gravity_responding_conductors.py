@@ -2533,16 +2533,32 @@ def test_m45_sol_v39_sphere_far_field_cancellation_endpoint_fold_immutable_norma
     )
     assert find_1d_equilibria(spec_far, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-2.5, 2.5)) == ()
 
-    # 2. Rounded endpoint zero right at a cancelling fold peak is refused (not returned as a root)
+    # 2. Endpoint near/at a cancelling fold peak never returns a bogus root:
+    #    -42.64639393301988 gives 0 roots (matching 85-digit Decimal), and an exact
+    #    binary64 endpoint zero right at the fold peak is refused explicitly.
+    from conductor_sim.observables import force_energy
     sphere_fold = SolidSphere(0.1, FixedNetCharge(5e-7), (0.0, 0.0, 0.0), "sphere")
     prob_fold = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.25)),), (sphere_fold,))
     spec_fold = Motion1DSpec(
         prob_fold, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
         gravity=UniformGravity((0.0, 0.0, -42.64639393301988)),
     )
+    assert find_1d_equilibria(
+        spec_fold,
+        ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-0.09834496336481911, -0.07834496336481911),
+    ) == ()
+    z_fold = 0.25 - 0.07834496336481911
+    fe_fold = force_energy(ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, z_fold)),), (sphere_fold,))
+    )).charges[0].total_force_n[2]
+    spec_fold_zero = Motion1DSpec(
+        prob_fold, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -fe_fold / 5e-4)),
+    )
     with pytest.raises(UnsupportedProblem, match="near-tangent"):
         find_1d_equilibria(
-            spec_fold,
+            spec_fold_zero,
             ExternalIsolatedSphereBackend(),
             displacement_bounds_m=(-0.09834496336481911, -0.07834496336481911),
         )
@@ -2584,3 +2600,79 @@ def test_m45_sol_v39_sphere_far_field_cancellation_endpoint_fold_immutable_norma
     assert frame_coinc["geometry"][0]["visible"] is False
     assert frame_coinc["profiles"] == []
     assert all(r == "surface" for r in frame_coinc["grid"]["region"][4])
+
+
+def test_m45_sol_v40_boundary_root_profile_tilt_sphere_extremes_multi_quadrupole_and_slice_asdict():
+    """Regression suite for all five Sol v40 findings."""
+    from dataclasses import asdict
+    from math import sqrt
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.geometry import slice_geometry
+    from conductor_sim.observables import force_energy
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Resolvable simple equilibrium near upper scan boundary is found (not falsely refused
+    #    when an uncounted second root sits just outside the scan bound)
+    sphere = SolidSphere(0.1, FixedNetCharge(5e-7), (0.0, 0.0, 0.0), "sphere")
+    prob = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.25)),), (sphere,))
+    spec = Motion1DSpec(
+        prob, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.64639393291988)),
+    )
+    eqs = find_1d_equilibria(
+        spec, ExternalIsolatedSphereBackend(),
+        displacement_bounds_m=(-0.08, 0.1716550366351809 - 0.25),
+    )
+    assert len(eqs) == 1
+    assert isclose(eqs[0].position_m[2], 0.17165494335056045, rel_tol=1e-9)
+    assert eqs[0].stability == "unstable"
+
+    # 2. Surface-density profile uses authored slice axes matching slice_geometry (y=1)
+    p_tilt = ConductingPlane((0.0, 1e-19, 0.0), (3.0, 1.0, 0.0), Grounded())
+    sp_tilt = SliceSpec(
+        origin_m=(0.0, 0.0, 0.0), u=(1.0, -3.0, 0.0), v=(0.0, 1e-19, 1.0),
+        x_range_m=(-2.0, 2.0), y_range_m=(-2.0, 2.0), resolution=9,
+    )
+    bundle_tilt = sample_sweep(
+        [("tilt", ElectrostaticProblem((PointCharge(1e-9, (1.0, 0.0, 1.0)),), (p_tilt,)))],
+        GroundedPlaneBackend(), plane=sp_tilt, resolution=9,
+    )
+    f_tilt = bundle_tilt["frames"][0]
+    assert f_tilt["geometry"][0]["visible"] is True
+    assert isclose(f_tilt["geometry"][0]["point_m"][1], 1.0, rel_tol=1e-12)
+    expected_sigma0 = -1e-9 * (3.0 / sqrt(10.0)) / (2.0 * pi)
+    assert isclose(f_tilt["profiles"][0]["sigma_c_per_m2"][45], expected_sigma0, rel_tol=1e-10)
+
+    # 3. Fixed-net-charge sphere observables resist d+R overflow and (R/d)^2 underflow
+    s_ovf = SolidSphere(8e307, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "big")
+    obs_ovf = force_energy(ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e148, (0.0, 0.0, 1.1e308)),), (s_ovf,))
+    ))
+    assert isclose(obs_ovf.charges[0].induced_force_n[2], -1.8941030463e-310, rel_tol=1e-7, abs_tol=0.0)
+    assert isclose(obs_ovf.energy.induced_j, -0.003335962388, rel_tol=1e-7)
+
+    s_unf = SolidSphere(1e-140, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "tiny")
+    obs_unf = force_energy(ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e130, (0.0, 0.0, 1e25)),), (s_unf,))
+    ))
+    assert isclose(obs_unf.charges[0].induced_force_n[2], -1.7975103585e-275, rel_tol=1e-7, abs_tol=0.0)
+    assert isclose(obs_unf.energy.induced_j, -4.493775896e-251, rel_tol=1e-7, abs_tol=0.0)
+
+    # 4. Multi-source fixed-net-charge sphere preserves symmetric quadrupole residual force
+    s_quad = SolidSphere(0.1, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    prob_quad = ElectrostaticProblem(
+        (PointCharge(1e-7, (0.0, 0.0, 1e4)), PointCharge(1e-7, (0.0, 0.0, -1e4))),
+        (s_quad,),
+    )
+    obs_quad = force_energy(ExternalMultiSphereBackend().solve(prob_quad))
+    pos_site = next(c for c in obs_quad.charges if c.source.position_m[2] > 0)
+    assert isclose(pos_site.induced_force_n[2], -5.392531075356704e-37, rel_tol=1e-12, abs_tol=0.0)
+
+    # 5. SliceSpec(**asdict(spec)) preserves authored coincident geometry & equality
+    p_orig_31 = ConductingPlane((0.0, 0.0, 0.0), (3.0, 1.0, 0.0), Grounded())
+    sp_c = SliceSpec(u=(1.0, -3.0, 0.0), v=(0.0, 0.0, 1.0))
+    sp_rt = SliceSpec(**asdict(sp_c))
+    assert sp_rt == sp_c
+    assert hash(sp_rt) == hash(sp_c)
+    assert slice_geometry(p_orig_31, sp_rt)["visible"] is False
+    assert slice_geometry(p_orig_31, sp_rt)["fills_metal"] is True

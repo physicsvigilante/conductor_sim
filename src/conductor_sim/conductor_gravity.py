@@ -462,12 +462,50 @@ def find_1d_equilibria(
         else:
             f_plus = net_force(s_eq + step)
             f_minus = net_force(s_eq - step)
-            if eq_f_scale > 0.0 and not (
-                (f_minus < 0.0 and f_plus > 0.0) or (f_minus > 0.0 and f_plus < 0.0)
-            ):
-                raise UnsupportedProblem(
-                    "near-tangent 1D equilibrium multiplicity cannot be certified within binary64 force precision"
+            if eq_f_scale > 0.0:
+                min_sign_amp = 0.25 * zero_band(eq_f_scale)
+                has_sign_change = (
+                    (f_minus < -min_sign_amp and f_plus > min_sign_amp)
+                    or (f_minus > min_sign_amp and f_plus < -min_sign_amp)
                 )
+                if not has_sign_change:
+                    # A nearby root outside the scan bounds can sit closer than
+                    # the initial probe step; halve step down to min_step to
+                    # separate a genuine simple crossing from a cancelling fold.
+                    probe = step
+                    found = False
+                    while probe > 2.0 * min_step:
+                        probe *= 0.5
+                        if not (domain.safe(s_eq - probe) and domain.safe(s_eq + probe)):
+                            break
+                        fp_try = net_force(s_eq + probe)
+                        fm_try = net_force(s_eq - probe)
+                        if (
+                            (fm_try < -min_sign_amp and fp_try > min_sign_amp)
+                            or (fm_try > min_sign_amp and fp_try < -min_sign_amp)
+                        ):
+                            step, f_plus, f_minus = probe, fp_try, fm_try
+                            # Shrink twice more inside the bracketed linear regime
+                            # when available so central-difference stiffness stays accurate.
+                            for _ in range(2):
+                                refined = 0.5 * step
+                                if refined <= min_step:
+                                    break
+                                fp_ref = net_force(s_eq + refined)
+                                fm_ref = net_force(s_eq - refined)
+                                if (
+                                    (fm_ref < -min_sign_amp and fp_ref > min_sign_amp)
+                                    or (fm_ref > min_sign_amp and fp_ref < -min_sign_amp)
+                                ):
+                                    step, f_plus, f_minus = refined, fp_ref, fm_ref
+                                else:
+                                    break
+                            found = True
+                            break
+                    if not found:
+                        raise UnsupportedProblem(
+                            "near-tangent 1D equilibrium multiplicity cannot be certified within binary64 force precision"
+                        )
             # k_eff = -dF/ds = d^2U/ds^2; positive k_eff => restoring force => stable equilibrium.
             stiffness = -(f_plus - f_minus) / (2.0 * step)
             force_scale = max(abs(elec_along), abs(grav_along), abs(f_plus), abs(f_minus))

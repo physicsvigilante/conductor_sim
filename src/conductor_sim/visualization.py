@@ -54,16 +54,28 @@ class SliceSpec:
     x_range_m: tuple[float, float] = (-.3, .3)
     y_range_m: tuple[float, float] = (-.3, .3)
     resolution: int = 61
+    _authored_u: Vector3 | None = field(default=None, repr=False, compare=False)
+    _authored_v: Vector3 | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         object.__setattr__(self, 'origin_m', _position(self.origin_m, 'plane origin'))
-        raw_u = _position(self.u._raw if isinstance(self.u, _UnitDirection) else self.u, 'u')
-        raw_v = _position(self.v._raw if isinstance(self.v, _UnitDirection) else self.v, 'v')
+        if isinstance(self.u, _UnitDirection):
+            u_src = self.u._raw if self.u._has_raw else (self._authored_u if self._authored_u is not None else self.u)
+        else:
+            u_src = self.u
+        if isinstance(self.v, _UnitDirection):
+            v_src = self.v._raw if self.v._has_raw else (self._authored_v if self._authored_v is not None else self.v)
+        else:
+            v_src = self.v
+        raw_u = _position(u_src, 'u')
+        raw_v = _position(v_src, 'v')
         u, v = unit(raw_u), unit(raw_v)
         if abs(dot(u, v)) > 1e-10:
             raise ValueError('plane axes must be orthogonal')
         object.__setattr__(self, 'u', _UnitDirection(u, raw_u))
         object.__setattr__(self, 'v', _UnitDirection(v, raw_v))
+        object.__setattr__(self, '_authored_u', raw_u)
+        object.__setattr__(self, '_authored_v', raw_v)
         for name in ('x_range_m', 'y_range_m'):
             bounds = getattr(self, name)
             if len(bounds) != 2 or not all(isfinite(x) for x in bounds) or bounds[0] >= bounds[1]:
@@ -467,7 +479,11 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                                  'sigma_c_per_m2':values,'method':context.density_method})
     geometry = [slice_geometry(c,plane) for c in context.problem.conductors]
     charges = [{'charge_c':q,'position_m':list(p),'slice_position_m':plane.project(p)} for p,q in _sites(context.problem)]
-    frame = {'label':label,'backend':context.backend,'plane':asdict(plane),'grid':grid,
+    frame = {'label':label,'backend':context.backend,
+            'plane':{'origin_m':plane.origin_m,'u':plane.u,'v':plane.v,
+                     'x_range_m':plane.x_range_m,'y_range_m':plane.y_range_m,
+                     'resolution':plane.resolution},
+            'grid':grid,
             'contours':contour_segments(grid,levels,context,plane),'field_lines':lines,
             'line_termination_counts':terminations,
             'profiles':profiles,'geometry':geometry,'charges':charges,

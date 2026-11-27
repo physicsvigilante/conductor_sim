@@ -2,7 +2,8 @@
 from fractions import Fraction
 from math import acos, fsum, hypot, pi
 
-from .model import ConductingPlane
+from .model import ConductingPlane, _plane_raw_normal
+from .geometry import _scaled_norm_fraction
 from .grounded_plane import GroundedPlaneSolution
 from .parallel_plates import ParallelPlateSolution
 from .analytical import ConcentricShellSolution
@@ -126,13 +127,21 @@ def context_for_solution(problem, solution):
             def plane_profile_at(name,face,origin_m,u_vec,v_vec,x0,y0,tangent,d):
                 if face != 'outer':
                     raise ValueError("the ideal plane has one exposed conducting surface")
-                raw_n = getattr(solution.plane, "_raw_normal", solution.plane.normal)
+                raw_n = _plane_raw_normal(solution.plane.normal)
+                raw_u = _plane_raw_normal(u_vec)
+                raw_v = _plane_raw_normal(v_vec)
                 fn = tuple(Fraction(x) for x in raw_n)
                 n_sq = sum(x * x for x in fn)
-                fu = tuple(Fraction(x) for x in u_vec)
-                fv = tuple(Fraction(x) for x in v_vec)
-                fnx = sum(fn[i] * fu[i] for i in range(3))
-                fny = sum(fn[i] * fv[i] for i in range(3))
+                fu_raw = tuple(Fraction(x) for x in raw_u)
+                fv_raw = tuple(Fraction(x) for x in raw_v)
+                u_norm = _scaled_norm_fraction(fu_raw)
+                v_norm = _scaled_norm_fraction(fv_raw)
+                fu = tuple(x / u_norm for x in fu_raw)
+                fv = tuple(x / v_norm for x in fv_raw)
+                raw_nx = sum(fn[i] * fu_raw[i] for i in range(3))
+                raw_ny = sum(fn[i] * fv_raw[i] for i in range(3))
+                fnx = Fraction(0) if raw_nx == 0 else raw_nx / u_norm
+                fny = Fraction(0) if raw_ny == 0 else raw_ny / v_norm
                 fdenom = fnx * fnx + fny * fny
                 if fdenom > 0:
                     fd0 = sum(
