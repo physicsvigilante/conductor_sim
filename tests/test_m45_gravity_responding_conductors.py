@@ -2261,9 +2261,19 @@ def test_m45_sol_v34_cancelling_coincident_charges_and_strict_surface_density():
     prof_c = bundle_c["frames"][0]["profiles"][0]
     assert len(prof_c["sigma_c_per_m2"]) == 91
     h_f = p_far.signed_distance_m(q_far)
-    dist_center = sqrt(sum((p_far.point_m[i] - q_far[i]) ** 2 for i in range(3)))
-    expected_center = -1e-6 * h_f / (2.0 * pi * (dist_center ** 3))
-    assert isclose(prof_c["sigma_c_per_m2"][45], expected_center, rel_tol=1e-12, abs_tol=0.0)
+    from conductor_sim.geometry import slice_geometry
+    geom_c = slice_geometry(p_far, sp_far)
+    nx, ny = geom_c["normal_xy"]
+    nxy = sqrt(nx * nx + ny * ny)
+    tx, ty = (-ny / nxy, nx / nxy)
+    x0, y0 = geom_c["point_m"]
+    for d_coord, sigma_val in zip(prof_c["coordinate_m"], prof_c["sigma_c_per_m2"]):
+        sx, sy = x0 + d_coord * tx, y0 + d_coord * ty
+        dx = (sp_far.origin_m[0] - q_far[0]) + sx * sp_far.u[0] + sy * sp_far.v[0]
+        dy = (sp_far.origin_m[1] - q_far[1]) + sx * sp_far.u[1] + sy * sp_far.v[1]
+        dz = (sp_far.origin_m[2] - q_far[2]) + sx * sp_far.u[2] + sy * sp_far.v[2]
+        expected_c = -1e-6 * h_f / (2.0 * pi * (dx * dx + dy * dy + dz * dz) ** 1.5)
+        assert isclose(sigma_val, expected_c, rel_tol=1e-12, abs_tol=0.0)
 
     # 2. Multi-axis ULP off-plane query (1000000.0000000001, 999999.9999999999, 1e6) is strictly rejected
     p_3d = ConductingPlane((1e6, 1e6, 1e6), (1.0, 0.9, 0.3), Grounded())
@@ -2272,3 +2282,37 @@ def test_m45_sol_v34_cancelling_coincident_charges_and_strict_surface_density():
     )
     with pytest.raises(ValueError, match="conducting plane"):
         sol_3d.surface_charge_density_at("outer", (1000000.0000000001, 999999.9999999999, 1000000.0))
+
+
+def test_m45_sol_v35_exact_offset_profile_at_ulp_height():
+    """Regression suite for Sol v35: exact origin+offset profile has zero world-coord rounding at A=1e4 and 1e6."""
+    from math import ulp
+    from conductor_sim.geometry import slice_geometry
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    for anchor_val in (1e4, 1e6):
+        u_step = ulp(anchor_val)
+        anchor = (anchor_val, anchor_val, 0.0)
+        plane_u = ConductingPlane(anchor, (2.0, 1.0, 0.0), Grounded())
+        q_pos = (anchor_val - 500.0 * u_step, anchor_val + 1002.0 * u_step, 0.0)
+        prob_u = ElectrostaticProblem((PointCharge(1e-12, q_pos),), (plane_u,))
+        half_w = 1000.98 * u_step / sqrt(1.6)
+        sp_u = SliceSpec(
+            origin_m=anchor, u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+            x_range_m=(-half_w, half_w), y_range_m=(-half_w, half_w), resolution=9,
+        )
+        bundle_u = sample_sweep([("ulp-height", prob_u)], GroundedPlaneBackend(), plane=sp_u, resolution=9)
+        prof_u = bundle_u["frames"][0]["profiles"][0]
+        assert len(prof_u["sigma_c_per_m2"]) == 91
+        h_u = plane_u.signed_distance_m(q_pos)
+        geom_u = slice_geometry(plane_u, sp_u)
+        nx, ny = geom_u["normal_xy"]
+        nxy = sqrt(nx * nx + ny * ny)
+        tx, ty = (-ny / nxy, nx / nxy)
+        x0, y0 = geom_u["point_m"]
+        for d_coord, sigma_val in zip(prof_u["coordinate_m"], prof_u["sigma_c_per_m2"]):
+            sx, sy = x0 + d_coord * tx, y0 + d_coord * ty
+            dx = (anchor[0] - q_pos[0]) + sx
+            dy = (anchor[1] - q_pos[1]) + sy
+            expected_u = -1e-12 * h_u / (2.0 * pi * (dx * dx + dy * dy) ** 1.5)
+            assert isclose(sigma_val, expected_u, rel_tol=1e-12, abs_tol=0.0)

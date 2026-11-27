@@ -121,7 +121,7 @@ def slice_geometry(shape, plane):
     if isinstance(shape,ConductingPlane):
         nx = _dot(shape.normal,plane.u)
         ny = _dot(shape.normal,plane.v)
-        d0 = _dot(_sub(plane.origin_m,shape.point_m),shape.normal)
+        d0 = shape.signed_distance_m(plane.origin_m)
         denom = nx*nx+ny*ny
         if denom < 1e-20:
             return {"kind":"plane","name":shape.name,"visible":False,

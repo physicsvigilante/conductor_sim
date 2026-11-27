@@ -166,6 +166,7 @@ class SamplingContext:
     notes: tuple[str, ...] = ()
     conductor_results_method: str = 'Supplied solver conductor properties; provenance not specified.'
     domain_cylinder: CylindricalDomain | None = None
+    plane_profile_at: Callable[[str, str, Vector3, Vector3], float] | None = None
 
     def region(self, point):
         if self.domain_radius_m is not None and hypot(*sub(point, self.domain_center_m)) >= self.domain_radius_m:
@@ -410,13 +411,16 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                              for i in range(profile_samples)]
                 values=[]
                 for d in distances:
-                    point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
-                    h_off = conductor.signed_distance_m(point)
-                    if h_off != 0.0:
-                        cand_n = tuple(point[i] - h_off * conductor.normal[i] for i in range(3))
-                        if abs(conductor.signed_distance_m(cand_n)) < abs(h_off):
-                            point = cand_n
-                    values.append(_profile_value(context,conductor.name,'outer',point))
+                    if context.plane_profile_at is not None:
+                        sx, sy = x0 + d * tangent[0], y0 + d * tangent[1]
+                        offset = tuple(sx * plane.u[i] + sy * plane.v[i] for i in range(3))
+                        values.append(_finite(
+                            context.plane_profile_at(conductor.name, 'outer', plane.origin_m, offset),
+                            'surface density',
+                        ))
+                    else:
+                        point = plane.world((x0+d*tangent[0],y0+d*tangent[1]))
+                        values.append(_profile_value(context,conductor.name,'outer',point))
                 profiles.append({'conductor':conductor.name,'surface':'outer',
                                  'coordinate_m':distances,'sigma_c_per_m2':values,
                                  'method':context.density_method})
