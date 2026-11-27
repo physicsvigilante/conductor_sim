@@ -17,6 +17,118 @@ from .solver import ConductorResult, UnsupportedProblem
 from .external_multi import ExternalMultiSphereBackend
 
 
+def _isolated_exact_force_and_energy(
+    sphere: SolidSphere,
+    source_pos: Vector3,
+    q: float,
+    Q: float,
+    permittivity_f_per_m: float,
+) -> tuple[Vector3, float]:
+    """Exact cancellation-free rationalized force and energy for one isolated sphere + point charge."""
+    from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+    from fractions import Fraction
+    from .observables import _PI_120
+
+    def _fdec(val: Fraction) -> Decimal:
+        return Decimal(val.numerator) / Decimal(val.denominator)
+
+    fa = Fraction(sphere.radius_m)
+    fa2 = fa * fa
+    fa3 = fa2 * fa
+    f_delta = tuple(Fraction(source_pos[i]) - Fraction(sphere.center_m[i]) for i in range(3))
+    fd2 = sum(x * x for x in f_delta)
+    fd2_minus_a2 = fd2 - fa2
+    fq = Fraction(q)
+    fQ = Fraction(Q)
+
+    ctx = Context(prec=80, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+    with localcontext(ctx):
+        dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(permittivity_f_per_m))
+        d = _fdec(fd2).sqrt()
+        d2_dec = _fdec(fd2)
+        d4_dec = d2_dec * d2_dec
+        gap_dec = _fdec(fd2_minus_a2)
+        abs_q = _fdec(abs(fq))
+        abs_Q = _fdec(abs(fQ))
+        if fq * fQ > 0:
+            # Rationalized force numerator: Q^2*d^2*P^2 - q^2*R^2 (exact Fraction, zero cancellation)
+            p_f = fd2_minus_a2 * fd2_minus_a2
+            r_f = fa3 * (2 * fd2 - fa2)
+            n_f = (fQ * fQ) * fd2 * (p_f * p_f) - (fq * fq) * (r_f * r_f)
+            if n_f == 0:
+                force = (0.0, 0.0, 0.0)
+            else:
+                denom_f = d4_dec * _fdec(p_f) * (abs_Q * d * _fdec(p_f) + abs_q * _fdec(r_f))
+                scale_f = dk * abs_q * _fdec(n_f) / denom_f
+                force = tuple(float(scale_f * _fdec(f_delta[i])) for i in range(3))
+            # Rationalized energy numerator: Q^2*d^2*(2*(d^2-a^2))^2 - q^2*a^6 (exact Fraction)
+            p_u = 2 * fd2_minus_a2
+            n_u = (fQ * fQ) * fd2 * (p_u * p_u) - (fq * fq) * (fa3 * fa3)
+            if n_u == 0:
+                energy = 0.0
+            else:
+                denom_u = Decimal(2) * d2_dec * gap_dec * (abs_Q * d * _fdec(p_u) + abs_q * _fdec(fa3))
+                energy = float(dk * abs_q * _fdec(n_u) / denom_u)
+        else:
+            dq = _fdec(fq)
+            dQ = _fdec(fQ)
+            p_f_dec = gap_dec * gap_dec
+            r_f_dec = _fdec(fa3 * (2 * fd2 - fa2))
+            scale_f = dk * dq * (dQ * d * p_f_dec - dq * r_f_dec) / (d4_dec * p_f_dec)
+            force = tuple(float(scale_f * _fdec(f_delta[i])) for i in range(3))
+            energy = float(
+                dk * dq * (Decimal(2) * dQ * d * gap_dec - dq * _fdec(fa3))
+                / (Decimal(2) * d2_dec * gap_dec)
+            )
+        return force, energy
+
+
+def _isolated_conductor_potential_v(
+    sphere: SolidSphere,
+    source_pos: Vector3,
+    q: float,
+    Q: float,
+    permittivity_f_per_m: float,
+) -> float:
+    """Overflow/underflow- and cancellation-safe potential (Q/a + q/d) / (4*pi*eps)."""
+    from .observables import _scaled_ratio_parts, _sum_scaled_ratios
+    d = _norm(_diff(source_pos, sphere.center_m))
+    four_pi = 4.0 * pi
+    p_Q = _scaled_ratio_parts((Q,), (four_pi, permittivity_f_per_m, sphere.radius_m))
+    p_q = _scaled_ratio_parts((q,), (four_pi, permittivity_f_per_m, d))
+    val = _sum_scaled_ratios([p_Q, p_q])
+    if p_Q[0] != 0.0 and p_q[0] != 0.0:
+        from math import frexp
+        max_e = max(p_Q[1], p_q[1])
+        if not isfinite(val) or val == 0.0 or frexp(abs(val))[1] < max_e - 10:
+            from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+            from fractions import Fraction
+            from .observables import _PI_120
+            fa = Fraction(sphere.radius_m)
+            f_delta = tuple(Fraction(source_pos[i]) - Fraction(sphere.center_m[i]) for i in range(3))
+            fd2 = sum(x * x for x in f_delta)
+            fq = Fraction(q)
+            fQ = Fraction(Q)
+            ctx = Context(prec=80, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(permittivity_f_per_m))
+                d_dec = (Decimal(fd2.numerator) / Decimal(fd2.denominator)).sqrt()
+                a_dec = Decimal.from_float(sphere.radius_m)
+                if fQ * fq < 0:
+                    # Q*d + q*a = sgn(Q) * (Q^2*d^2 - q^2*a^2) / (|Q|*d + |q|*a)
+                    num = fQ * fQ * fd2 - fq * fq * fa * fa
+                    if num == 0:
+                        return 0.0
+                    sgn = Decimal(1) if fQ > 0 else Decimal(-1)
+                    num_d = Decimal(num.numerator) / Decimal(num.denominator)
+                    den_d = (Decimal(abs(fQ).numerator) / Decimal(abs(fQ).denominator)) * d_dec + (
+                        Decimal(abs(fq).numerator) / Decimal(abs(fq).denominator)
+                    ) * a_dec
+                    return float(dk * sgn * num_d / (a_dec * d_dec * den_d))
+                return float(dk * (Decimal.from_float(Q) / a_dec + Decimal.from_float(q) / d_dec))
+    return val
+
+
 class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
     """Exact Kelvin-image field for a fixed-net-charge (isolated) solid sphere.
 
@@ -37,14 +149,16 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
 
     @property
     def conductor_potential_v(self) -> float:
-        from .observables import _scaled_ratio_product
-        return _scaled_ratio_product(
-            (self.central_image_charge_c,),
-            (4.0 * pi, self.permittivity_f_per_m, self.sphere.radius_m),
+        return _isolated_conductor_potential_v(
+            self.sphere,
+            self.source.position_m,
+            self.source.charge_c,
+            self.conductor_results[0].net_charge_c,
+            self.permittivity_f_per_m,
         )
 
     def _isolated_exact_eval(self, point: Vector3, *, want_field: bool):
-        """Trap-isolated high-precision grounded Kelvin + central monopole evaluation."""
+        """Trap-isolated adaptive-precision grounded Kelvin + central monopole evaluation."""
         from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
         from fractions import Fraction
         from .observables import _PI_120
@@ -66,6 +180,7 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         v_ref = tuple(r_p[i] - (a2 / d2) * r_src[i] for i in range(3))
         r_img2 = sum(x * x for x in v_ref)
         Q_val = self.conductor_results[0].net_charge_c
+        max_digits = 4000
         digits = 120
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
@@ -86,14 +201,14 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                     total = v_gnd + v_cen
                     peak = max(abs(v_gnd), abs(v_cen))
                     if total == 0:
-                        if peak == 0 or digits >= 480:
+                        if peak == 0 or digits >= 960:
                             return 0.0
-                        digits *= 2
+                        digits = min(max_digits, 2 * digits)
                         continue
                     lost = max(0, peak.adjusted() - total.adjusted()) if peak > 0 else 0
-                    if digits - lost >= 40 or digits >= 960:
+                    if digits - lost >= 40 or digits >= max_digits:
                         return float(total)
-                    digits = min(960, max(2 * digits, lost + 60))
+                    digits = min(max_digits, max(2 * digits, lost + 80))
                     continue
 
                 dist3 = dist * dist * dist
@@ -110,20 +225,20 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                     totals.append(tot)
                     peak = max(abs(t_dir), abs(t_img), abs(t_cen))
                     if tot == 0:
-                        if peak > 0 and digits < 480:
+                        if peak > 0 and digits < 960:
                             need_more = True
                             next_digits = max(next_digits, 2 * digits)
                     elif peak > 0:
                         lost = max(0, peak.adjusted() - tot.adjusted())
-                        if digits - lost < 40 and digits < 960:
+                        if digits - lost < 40 and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(2 * digits, lost + 60))
-                if not need_more or digits >= 960:
+                            next_digits = max(next_digits, max(2 * digits, lost + 80))
+                if not need_more or digits >= max_digits:
                     return tuple(float(x) for x in totals)
-                digits = min(960, next_digits)
+                digits = min(max_digits, next_digits)
 
     def potential_at(self, point_m: Vector3) -> float:
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
         r = _norm(_diff(point, self.sphere.center_m))
         if r <= self.sphere.radius_m:
@@ -131,20 +246,25 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         base = super().potential_at(point)
         if not isfinite(r):
             return self._isolated_exact_eval(point, want_field=False)
-        central = _scaled_ratio_product(
-            (self.central_image_charge_c,),
-            (4.0 * pi, self.permittivity_f_per_m, r),
-        )
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        Q = self.conductor_results[0].net_charge_c
+        c_parts = [
+            _scaled_ratio_parts((Q,), (four_pi, eps, r)),
+            _scaled_ratio_parts((self.source.charge_c, self.sphere.radius_m), (four_pi, eps, self.source_distance_m, r)),
+        ]
+        central = _sum_scaled_ratios(c_parts)
         total = base + central
         if (
             not (isfinite(base) and isfinite(central) and isfinite(total))
             or (base != 0.0 and central != 0.0 and abs(total) < 0.01 * max(abs(base), abs(central)))
+            or (c_parts[0][0] != 0.0 and c_parts[1][0] != 0.0 and (central == 0.0 or abs(central) < 0.01 * max(abs(_sum_scaled_ratios([c_parts[0]])), abs(_sum_scaled_ratios([c_parts[1]])))))
         ):
             return self._isolated_exact_eval(point, want_field=False)
         return total
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
         base = super().electric_field_at(point)
         delta = _diff(point, self.sphere.center_m)
@@ -153,36 +273,51 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             return base
         if not isfinite(r):
             return self._isolated_exact_eval(point, want_field=True)
-        central = tuple(
-            _scaled_ratio_product(
-                (self.central_image_charge_c, delta[i]),
-                (4.0 * pi, self.permittivity_f_per_m, r, r, r),
-            )
-            for i in range(3)
-        )
-        out = tuple(base[i] + central[i] for i in range(3))
-        if any(
-            not (isfinite(base[i]) and isfinite(central[i]) and isfinite(out[i]))
-            or (base[i] != 0.0 and central[i] != 0.0 and abs(out[i]) < 0.01 * max(abs(base[i]), abs(central[i])))
-            for i in range(3)
-        ):
-            return self._isolated_exact_eval(point, want_field=True)
-        return out
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        Q = self.conductor_results[0].net_charge_c
+        q = self.source.charge_c
+        a = self.sphere.radius_m
+        d_src = self.source_distance_m
+        out = []
+        for i in range(3):
+            c_Q = _scaled_ratio_parts((Q, delta[i]), (four_pi, eps, r, r, r))
+            c_ind = _scaled_ratio_parts((q, a, delta[i]), (four_pi, eps, d_src, r, r, r))
+            central_i = _sum_scaled_ratios([c_Q, c_ind])
+            tot_i = base[i] + central_i
+            if (
+                not (isfinite(base[i]) and isfinite(central_i) and isfinite(tot_i))
+                or (base[i] != 0.0 and central_i != 0.0 and abs(tot_i) < 0.01 * max(abs(base[i]), abs(central_i)))
+                or (c_Q[0] != 0.0 and c_ind[0] != 0.0 and (central_i == 0.0 or abs(central_i) < 0.01 * max(abs(_sum_scaled_ratios([c_Q])), abs(_sum_scaled_ratios([c_ind])))))
+            ):
+                return self._isolated_exact_eval(point, want_field=True)
+            out.append(tot_i)
+        return tuple(out)
 
     def surface_charge_density(self, surface: str, theta_rad: float) -> float:
         # super() validates face and angle before adding the constant term.
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         grounded_density = super().surface_charge_density(surface, theta_rad)
         a = self.sphere.radius_m
-        return grounded_density + _scaled_ratio_product((self.central_image_charge_c,), (4.0 * pi, a, a))
+        Q = self.conductor_results[0].net_charge_c
+        central = _sum_scaled_ratios([
+            _scaled_ratio_parts((Q,), (4.0 * pi, a, a)),
+            _scaled_ratio_parts((self.source.charge_c,), (4.0 * pi, self.source_distance_m, a)),
+        ])
+        return grounded_density + central
 
     def surface_charge_density_at(self, surface: str, point_m: Vector3) -> float:
         # The grounded part is evaluated at the intended surface point; the
         # central image adds a uniform density.
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         grounded_density = super().surface_charge_density_at(surface, point_m)
         a = self.sphere.radius_m
-        return grounded_density + _scaled_ratio_product((self.central_image_charge_c,), (4.0 * pi, a, a))
+        Q = self.conductor_results[0].net_charge_c
+        central = _sum_scaled_ratios([
+            _scaled_ratio_parts((Q,), (4.0 * pi, a, a)),
+            _scaled_ratio_parts((self.source.charge_c,), (4.0 * pi, self.source_distance_m, a)),
+        ])
+        return grounded_density + central
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:
@@ -193,6 +328,7 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         Coulomb contribution from the sphere's prescribed total charge.
         """
         from fractions import Fraction
+        from math import frexp
         from .observables import _scaled_ratio_parts, _scaled_ratio_product, _sum_scaled_ratios
         q = self.source.charge_c
         Q = self.conductor_results[0].net_charge_c
@@ -216,7 +352,15 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
                 (four_pi, eps, d, d, d, d, d, d, u_denom, u_denom),
             )
             mono = _scaled_ratio_parts((q, Q, delta[i]), (four_pi, eps, d, d, d))
-            out.append(_sum_scaled_ratios([polar, mono]))
+            tot = _sum_scaled_ratios([polar, mono])
+            if polar[0] != 0.0 and mono[0] != 0.0:
+                max_e = max(polar[1], mono[1])
+                if not isfinite(tot) or tot == 0.0 or frexp(abs(tot))[1] < max_e - 10:
+                    exact_f, _ = _isolated_exact_force_and_energy(
+                        self.sphere, self.source.position_m, q, Q, eps
+                    )
+                    return exact_f
+            out.append(tot)
         return tuple(out)
 
     @property
@@ -228,6 +372,7 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         effect on the force. Polarization terms include the physical 1/2.
         """
         from fractions import Fraction
+        from math import frexp
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         q = self.source.charge_c
         Q = self.conductor_results[0].net_charge_c
@@ -243,7 +388,15 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         eps = self.permittivity_f_per_m
         polar = _scaled_ratio_parts((-0.5, q, q, a, a, a), (four_pi, eps, d, d, d, d, u_denom))
         mono = _scaled_ratio_parts((q, Q), (four_pi, eps, d))
-        return _sum_scaled_ratios([polar, mono])
+        tot = _sum_scaled_ratios([polar, mono])
+        if polar[0] != 0.0 and mono[0] != 0.0:
+            max_e = max(polar[1], mono[1])
+            if not isfinite(tot) or tot == 0.0 or frexp(abs(tot))[1] < max_e - 10:
+                _, exact_u = _isolated_exact_force_and_energy(
+                    self.sphere, self.source.position_m, q, Q, eps
+                )
+                return exact_u
+        return tot
 
 
 class ExternalIsolatedSphereBackend:
@@ -270,14 +423,10 @@ class ExternalIsolatedSphereBackend:
                 'grounded, touching, interior, multiple-source and general '
                 'conductor geometries are not supported by this backend'
             )
-        from .observables import _scaled_ratio_product
         sphere, source = problem.conductors[0], problem.charges[0]
         Q = sphere.constraint.charge_c
-        d = _norm(_diff(source.position_m, sphere.center_m))
-        q_image = _scaled_ratio_product((-source.charge_c, sphere.radius_m), (d,))
-        potential = _scaled_ratio_product(
-            (Q - q_image,),
-            (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m),
+        potential = _isolated_conductor_potential_v(
+            sphere, source.position_m, source.charge_c, Q, problem.permittivity_f_per_m
         )
         result = ConductorResult(sphere.name, potential, Q, 0.0, Q)
         return ExternalIsolatedSphereSolution(

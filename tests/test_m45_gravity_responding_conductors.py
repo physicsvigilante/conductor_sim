@@ -3243,3 +3243,66 @@ def test_m45_sol_v50_plane_multi_cancel_isolated_sphere_large_eps_and_plane_fiel
         ElectrostaticProblem((PointCharge(1e145, (1.0, 0.0, 0.0)),), (p_tiny_y,))
     )
     assert isclose(sol_ny.electric_field_at((2.0, 0.0, 0.0))[1], -6.657445772045313e-197, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_m45_sol_v51_plane_deep_cancel_isolated_cancel_underflow_and_multi_large_eps():
+    """Regression suite for all four Sol v51 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Grounded-plane fallback handles >1200-digit cancellation without overflowing to -inf
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    a = 2.0**-1000
+    eps = 2.0**-1074
+    prob_deep = ElectrostaticProblem(
+        (
+            PointCharge(9.0 * (2.0**1000), (0.0, 0.0, a)),
+            PointCharge(2.0**1007, (0.0, 0.0, 2.0 * a)),
+            PointCharge(eps, (0.0, 0.0, 3.0)),
+        ),
+        (p_z0,),
+        permittivity_f_per_m=eps,
+    )
+    sol_deep = GroundedPlaneBackend().solve(prob_deep)
+    idx_mid = next(i for i, q in enumerate(sol_deep.sources) if q.position_m[2] == 2.0 * a)
+    assert isclose(sol_deep.force_on_charge_n(idx_mid)[2], -2.425399344344269e301, rel_tol=1e-12)
+
+    # 2. Isolated-sphere force & energy preserve polarization-vs-monopole cancellation residual
+    s_f = SolidSphere(1.0, FixedNetCharge(nextafter(7.0 * (2.0**500), inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_f = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(18.0 * (2.0**500), (0.0, 0.0, 2.0)),), (s_f,), permittivity_f_per_m=1.0)
+    )
+    assert isclose(sol_f.induced_force_on_charge_n[2], 3.407991716814735e285, rel_tol=1e-12)
+    assert isclose(force_energy(sol_f).charges[0].total_force_n[2], 3.407991716814735e285, rel_tol=1e-12)
+
+    s_u = SolidSphere(1.0, FixedNetCharge(nextafter(2.0**500, inf)), (0.0, 0.0, 0.0), "sphere")
+    sol_u = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(12.0 * (2.0**500), (0.0, 0.0, 2.0)),), (s_u,), permittivity_f_per_m=1.0)
+    )
+    assert isclose(sol_u.interaction_energy_j, 1.135997238938245e285, rel_tol=1e-12)
+    assert isclose(force_energy(sol_u).energy.total_j, 1.135997238938245e285, rel_tol=1e-12)
+
+    # 3. Underflowing central image charge (q*a/d = 1e-400) preserves isolated-sphere potential & field
+    s_tiny = SolidSphere(1e-200, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "tiny")
+    sol_tiny = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1.0, (0.0, 0.0, 1e200)),), (s_tiny,), permittivity_f_per_m=1e-300)
+    )
+    assert isclose(sol_tiny.conductor_potential_v, 7.957747154594767e98, rel_tol=1e-12)
+    assert isclose(sol_tiny.potential_at((0.0, 0.0, 0.0)), 7.957747154594767e98, rel_tol=1e-12)
+    assert isclose(sol_tiny.electric_field_at((0.0, 0.0, 2e-200))[2], -9.947183943243459e-102, rel_tol=1e-12, abs_tol=0.0)
+
+    # 4. Multi-source sphere native exterior queries preserve finite potential, field, force & energy at eps=1e308
+    s_m = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
+    sol_m = ExternalMultiSphereBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1e308, (0.0, 0.0, 2.0)), PointCharge(1e308, (0.0, 0.0, -2.0))),
+            (s_m,),
+            permittivity_f_per_m=1e308,
+        )
+    )
+    assert isclose(sol_m.potential_at((0.0, 0.0, 3.0)), 0.09473508517374722, rel_tol=1e-12)
+    assert isclose(sol_m.electric_field_at((0.0, 0.0, 3.0))[2], 0.08198825390389293, rel_tol=1e-12)
+    obs_m = force_energy(sol_m)
+    assert all(isclose(a, b, rel_tol=1e-12, abs_tol=0.0) for a, b in zip(sol_m.force_on_charge_n(0), obs_m.charges[0].total_force_n))
+    assert isclose(sol_m.interaction_energy_j, obs_m.energy.total_j, rel_tol=1e-12)

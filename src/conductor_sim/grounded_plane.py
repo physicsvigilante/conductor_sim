@@ -219,7 +219,7 @@ class GroundedPlaneSolution:
                     exps.append(frexp(abs(v))[1])
         if len(exps) < 2:
             return 0
-        return min(800, ((max(exps) - min(exps)) * 302) // 1000 + 20)
+        return ((max(exps) - min(exps)) * 302) // 1000 + 20
 
     def _exact_field_or_potential(self, point: Vector3, *, want_field: bool):
         """Trap-isolated adaptive-precision rationalized plane evaluation for cancellation/extremes."""
@@ -245,8 +245,10 @@ class GroundedPlaneSolution:
             d_img2 = d_dir2 + (4 * num_hp * num_hq) / n_sq
             src_data.append((q.charge_c, num_hq, v_dir, d_dir2, d_img2))
 
+        max_digits = 4000
         spread = self._plane_spread_digits((point,))
-        digits = max(80, spread + 60)
+        zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
+        digits = min(max_digits, max(80, spread + 60))
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
             with localcontext(ctx):
@@ -267,14 +269,14 @@ class GroundedPlaneSolution:
                         if abs(term) > max_term:
                             max_term = abs(term)
                     if total == 0:
-                        if max_term == 0 or digits >= max(240, spread + 120):
+                        if max_term == 0 or digits >= zero_check_digits:
                             return 0.0
-                        digits = min(1200, max(240, 2 * digits))
+                        digits = min(max_digits, max(zero_check_digits, 2 * digits))
                         continue
                     lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
-                    if digits - lost >= 40 or digits >= 1200:
+                    if digits - lost >= 40 or digits >= max_digits:
                         return float(total)
-                    digits = min(1200, max(2 * digits, lost + 60))
+                    digits = min(max_digits, max(2 * digits, lost + 80))
                     continue
 
                 totals = [Decimal(0), Decimal(0), Decimal(0)]
@@ -299,17 +301,17 @@ class GroundedPlaneSolution:
                 next_digits = digits
                 for i in range(3):
                     if totals[i] == 0:
-                        if max_terms[i] > 0 and digits < max(240, spread + 120):
+                        if max_terms[i] > 0 and digits < zero_check_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(240, 2 * digits))
+                            next_digits = max(next_digits, max(zero_check_digits, 2 * digits))
                     elif max_terms[i] > 0:
                         lost = max(0, max_terms[i].adjusted() - totals[i].adjusted())
-                        if digits - lost < 40 and digits < 1200:
+                        if digits - lost < 40 and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(2 * digits, lost + 60))
-                if not need_more or digits >= 1200:
+                            next_digits = max(next_digits, max(2 * digits, lost + 80))
+                if not need_more or digits >= max_digits:
                     return tuple(float(x) for x in totals)
-                digits = min(1200, next_digits)
+                digits = min(max_digits, next_digits)
 
     def _exact_force_on_charge_n(self, index: int, *, include_direct: bool) -> Vector3:
         """Trap-isolated adaptive-precision rationalized plane force evaluation."""
@@ -337,8 +339,10 @@ class GroundedPlaneSolution:
             d_img2 = d_dir2 + (4 * num_hi * num_hj) / n_sq
             pair_data.append((j, other.charge_c, num_hj, v_dir, d_dir2, v_img, d_img2))
 
+        max_digits = 4000
         spread = self._plane_spread_digits()
-        digits = max(80, spread + 60)
+        zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
+        digits = min(max_digits, max(80, spread + 60))
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
             with localcontext(ctx):
@@ -377,17 +381,17 @@ class GroundedPlaneSolution:
                 next_digits = digits
                 for c in range(3):
                     if totals[c] == 0:
-                        if max_terms[c] > 0 and digits < max(240, spread + 120):
+                        if max_terms[c] > 0 and digits < zero_check_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(240, 2 * digits))
+                            next_digits = max(next_digits, max(zero_check_digits, 2 * digits))
                     elif max_terms[c] > 0:
                         lost = max(0, max_terms[c].adjusted() - totals[c].adjusted())
-                        if digits - lost < 40 and digits < 1200:
+                        if digits - lost < 40 and digits < max_digits:
                             need_more = True
-                            next_digits = max(next_digits, max(2 * digits, lost + 60))
-                if not need_more or digits >= 1200:
+                            next_digits = max(next_digits, max(2 * digits, lost + 80))
+                if not need_more or digits >= max_digits:
                     return tuple(float(x) for x in totals)
-                digits = min(1200, next_digits)
+                digits = min(max_digits, next_digits)
 
     def _exact_interaction_energy_j(self) -> float:
         """Trap-isolated adaptive-precision rationalized plane interaction energy."""
@@ -412,8 +416,10 @@ class GroundedPlaneSolution:
                 d_img2 = d_dir2 + (4 * num_h[i] * num_h[j]) / n_sq
                 pair_data.append((i, j, d_dir2, d_img2))
 
+        max_digits = 4000
         spread = self._plane_spread_digits()
-        digits = max(80, spread + 60)
+        zero_check_digits = min(max_digits, max(240, 2 * spread + 120))
+        digits = min(max_digits, max(80, spread + 60))
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
             with localcontext(ctx):
@@ -436,14 +442,14 @@ class GroundedPlaneSolution:
                     if abs(t) > max_term:
                         max_term = abs(t)
                 if total == 0:
-                    if max_term == 0 or digits >= max(240, spread + 120):
+                    if max_term == 0 or digits >= zero_check_digits:
                         return 0.0
-                    digits = min(1200, max(240, 2 * digits))
+                    digits = min(max_digits, max(zero_check_digits, 2 * digits))
                     continue
                 lost = max(0, max_term.adjusted() - total.adjusted()) if max_term > 0 else 0
-                if digits - lost >= 40 or digits >= 1200:
+                if digits - lost >= 40 or digits >= max_digits:
                     return float(total)
-                digits = min(1200, max(2 * digits, lost + 60))
+                digits = min(max_digits, max(2 * digits, lost + 80))
 
     def potential_at(self, point_m: Vector3) -> float:
         from .observables import (

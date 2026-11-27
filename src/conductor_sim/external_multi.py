@@ -127,44 +127,216 @@ class ExternalMultiSphereSolution:
     def conductor_potential_v(self) -> float:
         return self.conductor_results[0].potential_v
 
+    def _multi_exact_eval(self, pt: Vector3, *, want_field: bool):
+        """Trap-isolated adaptive-precision Kelvin superposition for multi-source exterior sphere."""
+        from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
+        from fractions import Fraction
+        from .observables import _PI_120
+
+        def _fdec(val: Fraction) -> Decimal:
+            return Decimal(val.numerator) / Decimal(val.denominator)
+
+        a = Fraction(self.sphere.radius_m)
+        a2 = a * a
+        c = tuple(Fraction(x) for x in self.sphere.center_m)
+        p = tuple(Fraction(x) for x in pt)
+        r_p = tuple(p[i] - c[i] for i in range(3))
+        rp2 = sum(x * x for x in r_p)
+        fixed = isinstance(self.sphere.constraint, FixedNetCharge)
+        Q_val = self.sphere.constraint.charge_c if fixed else 0.0
+        site_data = []
+        for site in self.sites:
+            s = tuple(Fraction(x) for x in site.position_m)
+            r_src = tuple(s[i] - c[i] for i in range(3))
+            d2 = sum(x * x for x in r_src)
+            v_dir = tuple(p[i] - s[i] for i in range(3))
+            dist2 = sum(x * x for x in v_dir)
+            v_ref = tuple(r_p[i] - (a2 / d2) * r_src[i] for i in range(3))
+            r_img2 = sum(x * x for x in v_ref)
+            site_data.append((site.charge_c, d2, v_dir, dist2, v_ref, r_img2))
+
+        max_digits = 4000
+        digits = 120
+        while True:
+            ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
+            with localcontext(ctx):
+                dk = Decimal(1) / (Decimal(4) * Decimal(_PI_120) * Decimal.from_float(self.permittivity_f_per_m))
+                da = Decimal.from_float(self.sphere.radius_m)
+                r_p_norm = _fdec(rp2).sqrt()
+                q_imgs = []
+                d_srcs = []
+                dists = []
+                r_imgs = []
+                for qc, d2, _, dist2, _, r_img2 in site_data:
+                    d_src = _fdec(d2).sqrt()
+                    d_srcs.append(d_src)
+                    dists.append(_fdec(dist2).sqrt())
+                    r_imgs.append(_fdec(r_img2).sqrt())
+                    q_imgs.append(-Decimal.from_float(qc) * da / d_src)
+                q_center = (Decimal.from_float(Q_val) - sum(q_imgs, Decimal(0))) if fixed else Decimal(0)
+                if not want_field:
+                    total = Decimal(0)
+                    peak = Decimal(0)
+                    for idx, (qc, d2, _, _, _, _) in enumerate(site_data):
+                        dq = Decimal.from_float(qc)
+                        t_pair = dk * dq * _fdec((d2 - a2) * (rp2 - a2)) / (
+                            d_srcs[idx] * dists[idx] * r_imgs[idx] * (d_srcs[idx] * r_imgs[idx] + da * dists[idx])
+                        )
+                        total += t_pair
+                        if abs(t_pair) > peak:
+                            peak = abs(t_pair)
+                    if fixed:
+                        t_cen = dk * q_center / r_p_norm
+                        total += t_cen
+                        if abs(t_cen) > peak:
+                            peak = abs(t_cen)
+                    if total == 0:
+                        if peak == 0 or digits >= 960:
+                            return 0.0
+                        digits = min(max_digits, 2 * digits)
+                        continue
+                    lost = max(0, peak.adjusted() - total.adjusted()) if peak > 0 else 0
+                    if digits - lost >= 40 or digits >= max_digits:
+                        return float(total)
+                    digits = min(max_digits, max(2 * digits, lost + 80))
+                    continue
+
+                rp3 = r_p_norm * r_p_norm * r_p_norm
+                totals = [Decimal(0), Decimal(0), Decimal(0)]
+                peaks = [Decimal(0), Decimal(0), Decimal(0)]
+                for idx, (qc, _, v_dir, _, v_ref, _) in enumerate(site_data):
+                    dq = Decimal.from_float(qc)
+                    dist3 = dists[idx] * dists[idx] * dists[idx]
+                    r_img3 = r_imgs[idx] * r_imgs[idx] * r_imgs[idx]
+                    for i in range(3):
+                        t_d = dk * dq * _fdec(v_dir[i]) / dist3
+                        t_i = dk * q_imgs[idx] * _fdec(v_ref[i]) / r_img3
+                        totals[i] += t_d + t_i
+                        p_i = max(abs(t_d), abs(t_i))
+                        if p_i > peaks[i]:
+                            peaks[i] = p_i
+                if fixed:
+                    for i in range(3):
+                        t_c = dk * q_center * _fdec(r_p[i]) / rp3
+                        totals[i] += t_c
+                        if abs(t_c) > peaks[i]:
+                            peaks[i] = abs(t_c)
+                need_more = False
+                next_digits = digits
+                for i in range(3):
+                    if totals[i] == 0:
+                        if peaks[i] > 0 and digits < 960:
+                            need_more = True
+                            next_digits = max(next_digits, 2 * digits)
+                    elif peaks[i] > 0:
+                        lost = max(0, peaks[i].adjusted() - totals[i].adjusted())
+                        if digits - lost < 40 and digits < max_digits:
+                            need_more = True
+                            next_digits = max(next_digits, max(2 * digits, lost + 80))
+                if not need_more or digits >= max_digits:
+                    return tuple(float(x) for x in totals)
+                digits = min(max_digits, next_digits)
+
     def potential_at(self, point_m: Vector3) -> float:
+        from math import frexp
+        from .observables import _scaled_ratio_parts, _scaled_ratio_product, _sum_scaled_ratios
         pt = _position(point_m, 'sample point')
-        r = norm(difference(pt, self.sphere.center_m))
+        r_p = difference(pt, self.sphere.center_m)
+        r = norm(r_p)
         if r <= self.sphere.radius_m:
             return self.conductor_potential_v
-        contributions = []
-        for q in (*self.sites, *self.image_sources):
-            distance = norm(difference(pt, q.position_m))
-            if distance == 0:
+        a = self.sphere.radius_m
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        fixed = isinstance(self.sphere.constraint, FixedNetCharge)
+        parts = []
+        need_exact = not isfinite(r)
+        for site in self.sites:
+            dist = norm(difference(pt, site.position_m))
+            if dist == 0:
                 raise SingularField('potential is singular at an external point charge')
-            contributions.append(q.charge_c/distance)
-        central = self.central_image_charge_c
-        if central:
-            contributions.append(central/r)
-        return self._k*fsum(contributions)
+            r_src = difference(site.position_m, self.sphere.center_m)
+            d_src = norm(r_src)
+            img_off = tuple(_scaled_ratio_product((a, a, r_src[i]), (d_src, d_src)) for i in range(3))
+            reflected = tuple(r_p[i] - img_off[i] for i in range(3))
+            r_img = norm(reflected)
+            if (
+                not (isfinite(dist) and isfinite(r_img) and r_img > 0.0)
+                or any(r_src[i] != 0.0 and abs(img_off[i]) < 1e-290 for i in range(3))
+                or any(
+                    r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
+                    for i in range(3)
+                )
+            ):
+                need_exact = True
+                continue
+            parts.append(_scaled_ratio_parts((site.charge_c,), (four_pi, eps, dist)))
+            parts.append(_scaled_ratio_parts((-site.charge_c, a), (four_pi, eps, d_src, r_img)))
+            if fixed:
+                parts.append(_scaled_ratio_parts((site.charge_c, a), (four_pi, eps, d_src, r)))
+        if need_exact:
+            return self._multi_exact_eval(pt, want_field=False)
+        if fixed:
+            parts.append(_scaled_ratio_parts((self.sphere.constraint.charge_c,), (four_pi, eps, r)))
+        total = _sum_scaled_ratios(parts)
+        nonzero = [(m, e) for m, e in parts if m != 0.0]
+        if len(nonzero) >= 2 and (not isfinite(total) or total == 0.0 or frexp(abs(total))[1] < max(e for _, e in nonzero) - 10):
+            return self._multi_exact_eval(pt, want_field=False)
+        return total
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        from math import frexp
+        from .observables import _scaled_ratio_parts, _scaled_ratio_product, _sum_scaled_ratios
         pt = _position(point_m, 'sample point')
-        delta = difference(pt, self.sphere.center_m)
-        r = norm(delta)
+        r_p = difference(pt, self.sphere.center_m)
+        r = norm(r_p)
         if isclose(r, self.sphere.radius_m, rel_tol=1e-12):
             raise SingularField('electric field jumps at the conducting surface')
         if r < self.sphere.radius_m:
             return (0.0, 0.0, 0.0)
-        images = self.image_sources
+        a = self.sphere.radius_m
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        fixed = isinstance(self.sphere.constraint, FixedNetCharge)
         terms = [[], [], []]
-        for q in (*self.sites, *images):
-            displacement = difference(pt, q.position_m)
-            distance = norm(displacement)
-            if distance == 0:
+        need_exact = not isfinite(r)
+        for site in self.sites:
+            direct = difference(pt, site.position_m)
+            dist = norm(direct)
+            if dist == 0:
                 raise SingularField('electric field is singular at an external point charge')
-            for i, value in enumerate(_field(self._k, q.charge_c, displacement, distance)):
-                terms[i].append(value)
-        central = self.central_image_charge_c
-        if central:
-            for i, value in enumerate(_field(self._k, central, delta, r)):
-                terms[i].append(value)
-        return tuple(fsum(term) for term in terms)
+            r_src = difference(site.position_m, self.sphere.center_m)
+            d_src = norm(r_src)
+            img_off = tuple(_scaled_ratio_product((a, a, r_src[i]), (d_src, d_src)) for i in range(3))
+            reflected = tuple(r_p[i] - img_off[i] for i in range(3))
+            r_img = norm(reflected)
+            if (
+                not (isfinite(dist) and isfinite(r_img) and r_img > 0.0)
+                or any(r_src[i] != 0.0 and abs(img_off[i]) < 1e-290 for i in range(3))
+                or any(
+                    r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
+                    for i in range(3)
+                )
+            ):
+                need_exact = True
+                continue
+            for i in range(3):
+                terms[i].append(_scaled_ratio_parts((site.charge_c, direct[i]), (four_pi, eps, dist, dist, dist)))
+                terms[i].append(_scaled_ratio_parts((-site.charge_c, a, reflected[i]), (four_pi, eps, d_src, r_img, r_img, r_img)))
+                if fixed:
+                    terms[i].append(_scaled_ratio_parts((site.charge_c, a, r_p[i]), (four_pi, eps, d_src, r, r, r)))
+        if need_exact:
+            return self._multi_exact_eval(pt, want_field=True)
+        if fixed:
+            Q = self.sphere.constraint.charge_c
+            for i in range(3):
+                terms[i].append(_scaled_ratio_parts((Q, r_p[i]), (four_pi, eps, r, r, r)))
+        out = tuple(_sum_scaled_ratios(term) for term in terms)
+        for i in range(3):
+            nonzero = [(m, e) for m, e in terms[i] if m != 0.0]
+            if len(nonzero) >= 2 and (not isfinite(out[i]) or out[i] == 0.0 or frexp(abs(out[i]))[1] < max(e for _, e in nonzero) - 10):
+                return self._multi_exact_eval(pt, want_field=True)
+        return out
 
     def surface_charge_density_at(self, surface: Literal['outer'], point_m: Vector3) -> float:
         if surface != 'outer':
@@ -224,36 +396,16 @@ class ExternalMultiSphereSolution:
     def conductor_force_on_charge_n(self, index: int) -> Vector3:
         """Force on an active external site from the METAL only, no direct pair force."""
         from .grounded_plane import _checked_site_index
-        site = self.sites[_checked_site_index(index, len(self.sites))]
-        pt = site.position_m
-        contributions = [[],[],[]]
-        for image in self.image_sources:
-            delta = difference(pt,image.position_m)
-            r = norm(delta)
-            for k, value in enumerate(_pair_force(self._k, site.charge_c, image.charge_c, delta, r)):
-                contributions[k].append(value)
-        central = self.central_image_charge_c
-        if central:
-            delta = difference(pt,self.sphere.center_m)
-            r = norm(delta)
-            for k, value in enumerate(_pair_force(self._k, site.charge_c, central, delta, r)):
-                contributions[k].append(value)
-        return tuple(fsum(parts) for parts in contributions)
+        from .observables import _sphere_observables
+        idx = _checked_site_index(index, len(self.sites))
+        return _sphere_observables(self).charges[idx].conductor_force_n
 
     def force_on_charge_n(self, index: int) -> Vector3:
         """Total force on active site, including other REAL charges, excluding its own field."""
         from .grounded_plane import _checked_site_index
-        site = self.sites[_checked_site_index(index, len(self.sites))]
-        conductor = self.conductor_force_on_charge_n(index)
-        terms = [[conductor[k]] for k in range(3)]
-        for j,other in enumerate(self.sites):
-            if j == index:
-                continue
-            delta = difference(site.position_m,other.position_m)
-            r = norm(delta)
-            for k, value in enumerate(_pair_force(self._k, site.charge_c, other.charge_c, delta, r)):
-                terms[k].append(value)
-        return tuple(fsum(part) for part in terms)
+        from .observables import _sphere_observables
+        idx = _checked_site_index(index, len(self.sites))
+        return _sphere_observables(self).charges[idx].total_force_n
 
     @property
     def interaction_energy_j(self) -> float:
@@ -263,26 +415,8 @@ class ExternalMultiSphereSolution:
         central-monopole correction is k*((Q+S)^2-Q^2)/(2*a), S=sum(q*a/d).
         Its position derivative gives the correct total force on each charge.
         """
-        k = self._k
-        pairs = []
-        for i,source in enumerate(self.sites):
-            for other in self.sites[i+1:]:
-                r = norm(difference(source.position_m,other.position_m))
-                pairs.append((k*(source.charge_c/r))*other.charge_c)
-        images = self.image_sources
-        grounded_image = .5*fsum(
-            (k*(source.charge_c/norm(difference(source.position_m,image.position_m))))
-            * image.charge_c
-            for source in self.sites for image in images
-        )
-        central_energy = 0.0
-        if isinstance(self.sphere.constraint, FixedNetCharge):
-            Q = self.sphere.constraint.charge_c
-            S = -fsum(image.charge_c for image in images)
-            # Expanded difference of squares avoids cancelling two close large terms.
-            a = self.sphere.radius_m
-            central_energy = fsum(((k*(Q/a))*S, (k*(S/a))*S/2))
-        return fsum((*pairs,grounded_image,central_energy))
+        from .observables import _sphere_observables
+        return _sphere_observables(self).energy.total_j
 
 
 class ExternalMultiSphereBackend:

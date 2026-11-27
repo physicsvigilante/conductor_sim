@@ -457,8 +457,34 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             _scaled_ratio_product((site.charge_c, Q, delta_c[c]), (four_pi, eps, dc, dc, dc))
             for c in range(3)
         )
-        charges.append(ChargeForce(site, direct[0], induced_vec, background))
+        total_force_override = None
+        total_energy_override = None
+        if fixed and site.charge_c * Q > 0.0:
+            force_cancels = any(
+                induced_vec[c] != 0.0
+                and background[c] != 0.0
+                and abs(fsum((induced_vec[c], background[c]))) < 0.01 * max(abs(induced_vec[c]), abs(background[c]))
+                for c in range(3)
+            )
+            energy_cancels = (
+                induced_energy != 0.0
+                and bg_energy != 0.0
+                and abs(fsum((induced_energy, bg_energy))) < 0.01 * max(abs(induced_energy), abs(bg_energy))
+            )
+            if force_cancels or energy_cancels:
+                from .external_isolated import _isolated_exact_force_and_energy
+                exact_f, exact_u = _isolated_exact_force_and_energy(
+                    reference.sphere, site.position_m, site.charge_c, Q, eps
+                )
+                if force_cancels:
+                    total_force_override = exact_f
+                if energy_cancels:
+                    total_energy_override = exact_u
+        charges.append(
+            ChargeForce(site, direct[0], induced_vec, background, _total_override_n=total_force_override)
+        )
     else:
+        total_energy_override = None
         # Multi-source exterior sphere (fixed-Q or grounded): evaluate Kelvin
         # images and any central compensator in a fresh trap-isolated Decimal
         # Context (explicit rounding=ROUND_HALF_EVEN, traps=[], flags=[], so
@@ -582,7 +608,8 @@ def _sphere_observables(solution) -> ForceEnergyResult:
         ('Fixed-Q exterior sphere: mechanical interaction energy; constant sphere Q^2/(2C) '
          'and point self energies omitted; zero at infinite separation.' if fixed else
          'Grounded exterior sphere: mechanical interaction energy; point self energies '
-         'omitted; zero at infinite separation.'))
+         'omitted; zero at infinite separation.'),
+        _total_override_j=total_energy_override)
     return ForceEnergyResult(tuple(charges), energy, 'analytical exterior-sphere Kelvin images')
 
 
