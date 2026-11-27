@@ -2514,3 +2514,73 @@ def test_m45_sol_v38_plane_replace_extreme_crossings_shallow_slice_and_equilibri
     )
     eqs_zero = find_1d_equilibria(spec_zero, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-0.12, 0.10))
     assert eqs_zero == ()
+
+
+def test_m45_sol_v39_sphere_far_field_cancellation_endpoint_fold_immutable_normal_and_coincident_slice():
+    """Regression suite for all four Sol v39 findings."""
+    from dataclasses import asdict
+    from math import sqrt
+    from conductor_sim.geometry import slice_geometry
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Far-field isolated sphere (R=0.1, Q=2e-13, q=2e-7, z~17.1 m) avoids
+    #    Kelvin-vs-compensator cancellation so negative-everywhere net force gives 0 equilibria
+    sphere_far = SolidSphere(0.1, FixedNetCharge(2e-13), (0.0, 0.0, 0.0), "sphere")
+    prob_far = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 17.100168823850417)),), (sphere_far,))
+    spec_far = Motion1DSpec(
+        prob_far, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -1.47532529368e-9)),
+    )
+    assert find_1d_equilibria(spec_far, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-2.5, 2.5)) == ()
+
+    # 2. Rounded endpoint zero right at a cancelling fold peak is refused (not returned as a root)
+    sphere_fold = SolidSphere(0.1, FixedNetCharge(5e-7), (0.0, 0.0, 0.0), "sphere")
+    prob_fold = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.25)),), (sphere_fold,))
+    spec_fold = Motion1DSpec(
+        prob_fold, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.64639393301988)),
+    )
+    with pytest.raises(UnsupportedProblem, match="near-tangent"):
+        find_1d_equilibria(
+            spec_fold,
+            ExternalIsolatedSphereBackend(),
+            displacement_bounds_m=(-0.09834496336481911, -0.07834496336481911),
+        )
+
+    # 3. ConductingPlane.normal is strictly immutable (plain floats, AttributeError on _raw/__dict__)
+    #    and asdict(p) round-trips the authored direction losslessly via ConductingPlane(**...)
+    p_x = ConductingPlane(normal=(1.0, 0.0, 0.0))
+    plane_set = {p_x}
+    assert all(type(x) is float for x in p_x.normal)
+    assert not hasattr(p_x.normal, "__dict__")
+    with pytest.raises(AttributeError):
+        p_x.normal._raw = (0.0, 1.0, 0.0)
+    with pytest.raises(AttributeError):
+        _ = p_x.normal.__dict__
+    assert p_x in plane_set
+    assert p_x.signed_distance_m((1.0, 0.0, 0.0)) == 1.0
+
+    p_31 = ConductingPlane((-1e6, 3e6, 0.0), (3.0, 1.0, 0.0), Grounded())
+    d_31 = asdict(p_31)
+    p_from_dict = ConductingPlane(**{**d_31, "constraint": Grounded()})
+    assert p_from_dict == p_31
+    assert isclose(p_from_dict.signed_distance_m((1e-11, 0.0, 0.0)), 3e-11 / sqrt(10.0), rel_tol=1e-12)
+
+    # 4. Authored coincident slice (u=(1,-3,0), v=(0,0,1) on plane normal (3,1,0)) is strictly parallel:
+    #    no spurious dividing line and no line profile
+    p_orig_31 = ConductingPlane((0.0, 0.0, 0.0), (3.0, 1.0, 0.0), Grounded())
+    sp_coinc = SliceSpec(
+        origin_m=(0.0, 0.0, 0.0), u=(1.0, -3.0, 0.0), v=(0.0, 0.0, 1.0),
+        x_range_m=(-1.0, 1.0), y_range_m=(-1.0, 1.0), resolution=9,
+    )
+    geom_coinc = slice_geometry(p_orig_31, sp_coinc)
+    assert geom_coinc["visible"] is False
+    assert geom_coinc["fills_metal"] is True
+    bundle_coinc = sample_sweep(
+        [("coincident", ElectrostaticProblem((PointCharge(1e-9, (1.0, 0.0, 0.0)),), (p_orig_31,)))],
+        GroundedPlaneBackend(), plane=sp_coinc, resolution=9,
+    )
+    frame_coinc = bundle_coinc["frames"][0]
+    assert frame_coinc["geometry"][0]["visible"] is False
+    assert frame_coinc["profiles"] == []
+    assert all(r == "surface" for r in frame_coinc["grid"]["region"][4])

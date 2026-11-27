@@ -181,24 +181,33 @@ def physical_boundaries(shape):
     raise TypeError(f"unsupported physical conductor shape: {type(shape).__name__}")
 
 
+def _scaled_norm_fraction(vec: tuple[Fraction, Fraction, Fraction]) -> Fraction:
+    m = max(abs(x) for x in vec)
+    return m * Fraction(hypot(*(float(x / m) for x in vec)))
+
+
 def slice_geometry(shape, plane):
     """Serialisable cross-section (sphere rings or a planar half-space)."""
     if isinstance(shape,ConductingPlane):
         rn = _plane_raw_normal(shape.normal)
+        ru = _plane_raw_normal(plane.u)
+        rv = _plane_raw_normal(plane.v)
         fn = tuple(Fraction(x) for x in rn)
-        fu = tuple(Fraction(x) for x in plane.u)
-        fv = tuple(Fraction(x) for x in plane.v)
-        fnx = sum(fn[i] * fu[i] for i in range(3))
-        fny = sum(fn[i] * fv[i] for i in range(3))
+        fu_raw = tuple(Fraction(x) for x in ru)
+        fv_raw = tuple(Fraction(x) for x in rv)
+        raw_nx = sum(fn[i] * fu_raw[i] for i in range(3))
+        raw_ny = sum(fn[i] * fv_raw[i] for i in range(3))
         fd0 = sum(
             (Fraction(plane.origin_m[i]) - Fraction(shape.point_m[i])) * fn[i]
             for i in range(3)
         )
-        fdenom = fnx * fnx + fny * fny
-        if fdenom == 0:
+        if raw_nx == 0 and raw_ny == 0:
             return {"kind":"plane","name":shape.name,"visible":False,
                     "fills_metal":fd0<=0,
                     "point_m":[0.,0.],"normal_xy":[0.,0.]}
+        fnx = Fraction(0) if raw_nx == 0 else raw_nx / _scaled_norm_fraction(fu_raw)
+        fny = Fraction(0) if raw_ny == 0 else raw_ny / _scaled_norm_fraction(fv_raw)
+        fdenom = fnx * fnx + fny * fny
         m = max(abs(fnx), abs(fny))
         sx, sy = float(fnx / m), float(fny / m)
         snorm = hypot(sx, sy)

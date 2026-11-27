@@ -15,7 +15,15 @@ from itertools import islice
 import os
 import tempfile
 
-from .model import ConductingPlane, ElectrostaticProblem, Vector3, _position
+from .model import (
+    ConductingPlane,
+    ElectrostaticProblem,
+    Vector3,
+    _UnitDirection,
+    _canonical_exact_direction,
+    _plane_raw_normal,
+    _position,
+)
 from .geometry import SphereBoundary, CylinderSideBoundary, contains_metal, physical_boundaries, slice_geometry
 from .solver import FieldSolution, OutsideDomain, SingularField
 from ._directions import unit_direction
@@ -37,7 +45,7 @@ def unit(v):
     return unit_direction(v)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SliceSpec:
     """An orthonormal 3D plane, rectangular coordinates and square grid count."""
     origin_m: Vector3 = (0., 0., 0.)
@@ -49,11 +57,13 @@ class SliceSpec:
 
     def __post_init__(self):
         object.__setattr__(self, 'origin_m', _position(self.origin_m, 'plane origin'))
-        u, v = unit(_position(self.u, 'u')), unit(_position(self.v, 'v'))
+        raw_u = _position(self.u._raw if isinstance(self.u, _UnitDirection) else self.u, 'u')
+        raw_v = _position(self.v._raw if isinstance(self.v, _UnitDirection) else self.v, 'v')
+        u, v = unit(raw_u), unit(raw_v)
         if abs(dot(u, v)) > 1e-10:
             raise ValueError('plane axes must be orthogonal')
-        object.__setattr__(self, 'u', u)
-        object.__setattr__(self, 'v', v)
+        object.__setattr__(self, 'u', _UnitDirection(u, raw_u))
+        object.__setattr__(self, 'v', _UnitDirection(v, raw_v))
         for name in ('x_range_m', 'y_range_m'):
             bounds = getattr(self, name)
             if len(bounds) != 2 or not all(isfinite(x) for x in bounds) or bounds[0] >= bounds[1]:
@@ -61,6 +71,26 @@ class SliceSpec:
             object.__setattr__(self, name, tuple(float(x) for x in bounds))
         if isinstance(self.resolution, bool) or not isinstance(self.resolution, int) or not 9 <= self.resolution <= 201:
             raise ValueError('resolution must be an integer in [9, 201]')
+
+    def _identity_key(self):
+        return (
+            self.origin_m,
+            tuple(self.u),
+            _canonical_exact_direction(_plane_raw_normal(self.u)),
+            tuple(self.v),
+            _canonical_exact_direction(_plane_raw_normal(self.v)),
+            self.x_range_m,
+            self.y_range_m,
+            self.resolution,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SliceSpec):
+            return NotImplemented
+        return self._identity_key() == other._identity_key()
+
+    def __hash__(self) -> int:
+        return hash(self._identity_key())
 
     @property
     def normal(self):

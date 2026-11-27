@@ -462,6 +462,12 @@ def find_1d_equilibria(
         else:
             f_plus = net_force(s_eq + step)
             f_minus = net_force(s_eq - step)
+            if eq_f_scale > 0.0 and not (
+                (f_minus < 0.0 and f_plus > 0.0) or (f_minus > 0.0 and f_plus < 0.0)
+            ):
+                raise UnsupportedProblem(
+                    "near-tangent 1D equilibrium multiplicity cannot be certified within binary64 force precision"
+                )
             # k_eff = -dF/ds = d^2U/ds^2; positive k_eff => restoring force => stable equilibrium.
             stiffness = -(f_plus - f_minus) / (2.0 * step)
             force_scale = max(abs(elec_along), abs(grav_along), abs(f_plus), abs(f_minus))
@@ -476,7 +482,7 @@ def find_1d_equilibria(
                 stability = "unstable"
                 omega = None
             else:
-                # Same-sign or zero perturbations (e.g. quadratic tangent F'=0)
+                # Same-sign or zero perturbations (e.g. exact zero-scale tangent F'=0)
                 # do not certify linear stability.
                 stability = "indeterminate"
                 omega = None

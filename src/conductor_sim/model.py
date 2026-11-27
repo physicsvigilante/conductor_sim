@@ -1,6 +1,6 @@
 """Immutable, solver-independent electrostatic problem definitions (SI units)."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from math import fsum, hypot, isfinite
 from numbers import Integral
@@ -112,17 +112,40 @@ class SolidSphere:
 
 
 
-class _PlaneNormal(tuple):
-    """Unit-length float 3-tuple preserving the exact authored plane direction."""
+class _UnitDirection(tuple):
+    """Immutable unit-length float 3-tuple of plain floats preserving authored direction."""
 
-    def __new__(cls, unit: Vector3, raw: Vector3 | None = None):
-        unit_t = tuple(float(x) for x in unit)
+    def __new__(cls, items, raw: Vector3 | None = None):
+        unit_t = tuple(float(x) for x in items)
+        has_raw = raw is not None
+        raw_t = unit_t if raw is None else tuple(float(x) for x in raw)
         obj = super().__new__(cls, unit_t)
-        obj._raw = unit_t if raw is None else tuple(float(x) for x in raw)
+        store = object.__getattribute__(obj, "__dict__")
+        store["_raw"] = raw_t
+        store["_has_raw"] = has_raw
         return obj
 
+    def __getattribute__(self, name: str):
+        if name == "__dict__":
+            raise AttributeError(f"{type(self).__name__!r} object has no attribute '__dict__'")
+        return super().__getattribute__(name)
+
+    @property
+    def _raw(self) -> Vector3:
+        return object.__getattribute__(self, "__dict__")["_raw"]
+
+    @property
+    def _has_raw(self) -> bool:
+        return object.__getattribute__(self, "__dict__")["_has_raw"]
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"{type(self).__name__!r} object is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"{type(self).__name__!r} object is immutable")
+
     def __reduce__(self):
-        return (_PlaneNormal, (tuple(self), self._raw))
+        return (_UnitDirection, (tuple(self), self._raw))
 
 
 def _canonical_exact_direction(raw: Vector3) -> tuple[Fraction, Fraction, Fraction]:
@@ -134,7 +157,7 @@ def _canonical_exact_direction(raw: Vector3) -> tuple[Fraction, Fraction, Fracti
 def _plane_raw_normal(normal: Vector3, raw_normal: Vector3 | None = None) -> Vector3:
     if raw_normal is not None:
         return raw_normal
-    if isinstance(normal, _PlaneNormal):
+    if isinstance(normal, _UnitDirection):
         return normal._raw
     return normal
 
@@ -209,16 +232,23 @@ class ConductingPlane:
     normal: Vector3 = (0.0, 0.0, 1.0)
     constraint: ElectricalConstraint = Grounded()
     name: str = "plane"
+    _authored_normal: Vector3 | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "point_m", _position(self.point_m, "plane point"))
         raw_input = self.normal
-        if isinstance(raw_input, _PlaneNormal):
-            vector = _position(raw_input._raw, "plane normal")
+        if isinstance(raw_input, _UnitDirection):
+            if raw_input._has_raw:
+                vector = _position(raw_input._raw, "plane normal")
+            elif self._authored_normal is not None:
+                vector = _position(self._authored_normal, "plane normal")
+            else:
+                vector = _position(raw_input, "plane normal")
         else:
             vector = _position(raw_input, "plane normal")
         unit = unit_direction(vector, "plane normal must be finite and nonzero")
-        object.__setattr__(self, "normal", _PlaneNormal(unit, vector))
+        object.__setattr__(self, "normal", _UnitDirection(unit, vector))
+        object.__setattr__(self, "_authored_normal", vector)
         if not isinstance(self.constraint, (Grounded, FixedPotential)):
             raise TypeError("an infinite conducting plane requires Grounded() or FixedPotential(V)")
         if (not isinstance(self.name, str) or not self.name.strip()

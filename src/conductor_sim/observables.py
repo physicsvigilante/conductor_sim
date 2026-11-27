@@ -209,22 +209,66 @@ def _sphere_observables(solution) -> ForceEnergyResult:
     charges = []
     for i, site in enumerate(sources):
         terms = [[], [], []]
-        for image in images:
-            delta = difference(site.position_m, image.position_m)
-            d = norm(delta)
+        delta_c = difference(site.position_m, reference.sphere.center_m)
+        dc = norm(delta_c)
+        if fixed:
+            # Combine each site's own Kelvin image and its matching central
+            # compensator (-q_img_i = +q_i * a / d_i) algebraically so far-field
+            # (a/d)^2 cancellation cannot amplify force rounding errors:
+            #   k*q^2*a*(1/d^3 - d/(d^2 - a^2)^2) = -k*(q/d)^2*(a/d)^3*(2 - (a/d)^2)/(1 - (a/d)^2)^2
+            ratio = a / dc
+            u_denom = ((dc - a) / dc) * ((dc + a) / dc)
+            q_over_d = site.charge_c / dc
+            self_mag = (
+                -(k * q_over_d) * (q_over_d * ratio) * (ratio * ratio)
+                * (2.0 - ratio * ratio) / (u_denom * u_denom)
+            )
             for c in range(3):
-                terms[c].append(k*site.charge_c*image.charge_c*(delta[c]/d)/d/d)
-        delta = difference(site.position_m, reference.sphere.center_m)
-        d = norm(delta)
-        # Split Q from the induced central compensator S, not by subtracting
-        # two large, nearly equal total forces after the fact.
-        for c in range(3):
-            terms[c].append(k*site.charge_c*S*(delta[c]/d)/d/d)
-        background = tuple(k*site.charge_c*Q*(x/d)/d/d for x in delta)
+                terms[c].append(self_mag * (delta_c[c] / dc))
+            for j, image in enumerate(images):
+                if j == i:
+                    continue
+                delta = difference(site.position_m, image.position_m)
+                d = norm(delta)
+                s_j = -image.charge_c
+                for c in range(3):
+                    terms[c].append(k * site.charge_c * image.charge_c * (delta[c] / d) / d / d)
+                    terms[c].append(k * site.charge_c * s_j * (delta_c[c] / dc) / dc / dc)
+        else:
+            for image in images:
+                delta = difference(site.position_m, image.position_m)
+                d = norm(delta)
+                for c in range(3):
+                    terms[c].append(k * site.charge_c * image.charge_c * (delta[c] / d) / d / d)
+        background = tuple(k * site.charge_c * Q * (x / dc) / dc / dc for x in delta_c)
         charges.append(ChargeForce(site, direct[i], tuple(fsum(t) for t in terms), background))
-    kelvin_energy = .5*k*fsum(site.charge_c*image.charge_c/norm(difference(
-        site.position_m, image.position_m)) for site in sources for image in images)
-    energy = EnergyBreakdown(pair_energy, fsum((kelvin_energy, .5*k*S*S/a)), k*Q*S/a,
+    if fixed:
+        induced_terms = []
+        for i, site in enumerate(sources):
+            dc = norm(difference(site.position_m, reference.sphere.center_m))
+            ratio = a / dc
+            u_denom = ((dc - a) / dc) * ((dc + a) / dc)
+            # Combine self Kelvin image energy and self compensator energy:
+            #   0.5*k*q^2*a*(1/d^2 - 1/(d^2 - a^2)) = -0.5*k*q^2*a^3/(d^2*(d^2 - a^2))
+            induced_terms.append(
+                -0.5 * (k * (site.charge_c / dc)) * (site.charge_c * ratio) * (ratio * ratio) / u_denom
+            )
+            s_i = -images[i].charge_c
+            for j, image in enumerate(images):
+                if j == i:
+                    continue
+                s_j = -image.charge_c
+                induced_terms.append(
+                    0.5 * k * site.charge_c * image.charge_c / norm(difference(site.position_m, image.position_m))
+                )
+                induced_terms.append(0.5 * k * s_i * s_j / a)
+        induced_energy = fsum(induced_terms)
+    else:
+        induced_energy = 0.5 * k * fsum(
+            site.charge_c * image.charge_c / norm(difference(site.position_m, image.position_m))
+            for site in sources for image in images
+        )
+    energy = EnergyBreakdown(pair_energy, induced_energy, k*Q*S/a,
         ('Fixed-Q exterior sphere: mechanical interaction energy; constant sphere Q^2/(2C) '
          'and point self energies omitted; zero at infinite separation.' if fixed else
          'Grounded exterior sphere: mechanical interaction energy; point self energies '
