@@ -73,9 +73,10 @@ def external_sphere_supported(problem: ElectrostaticProblem, *, min_components: 
            for q in problem.charges):
         return False
     try:
+        from .observables import _scaled_ratio_product
         sites = active_external_sites(problem)
-        images_total = fsum(-p.charge_c*(sphere.radius_m /
-                                         norm(difference(p.position_m, sphere.center_m)))
+        images_total = fsum(_scaled_ratio_product((-p.charge_c, sphere.radius_m),
+                                                  (norm(difference(p.position_m, sphere.center_m)),))
                             for p in sites)
         Q = (0.0 if isinstance(sphere.constraint, Grounded)
              else sphere.constraint.charge_c)
@@ -101,14 +102,17 @@ class ExternalMultiSphereSolution:
 
     @property
     def image_sources(self) -> tuple[PointCharge, ...]:
+        from .observables import _scaled_ratio_product
         a = self.sphere.radius_m
         center = self.sphere.center_m
         images = []
         for site in self.sites:
             delta = difference(site.position_m, center)
             d = norm(delta)
-            images.append(PointCharge(-site.charge_c*(a/d),
-                                      tuple(center[i] + a*(a/d)*(delta[i]/d) for i in range(3))))
+            images.append(PointCharge(
+                _scaled_ratio_product((-site.charge_c, a), (d,)),
+                tuple(center[i] + _scaled_ratio_product((a, a, delta[i]), (d, d)) for i in range(3)),
+            ))
         return tuple(images)
 
     @property

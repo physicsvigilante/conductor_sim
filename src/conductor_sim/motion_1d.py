@@ -20,7 +20,7 @@ from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
 from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
-from .observables import force_energy
+from .observables import _scaled_ratio_product, force_energy
 from .solver import UnsupportedProblem
 
 
@@ -393,7 +393,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         UniformGravity(gravity.acceleration_m_s2, reference_position_m=original.position_m)
         if gravity is not None else None
     )
-    energy0=.5*spec.mass_kg*v*v
+    energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v, v))
     total_j0 = fsum((energy0, ref.total_j, ref_u_grav)) if gravity is not None else (energy0 + ref.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
@@ -403,7 +403,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
     def record(t,s,v):
         nonlocal max_drift, peak_grav_exchange, peak_disp
         force, elec_force, energy, u_grav = observe(s)
-        kinetic=.5*spec.mass_kg*v*v
+        kinetic = _scaled_ratio_product((0.5, spec.mass_kg, v, v))
         position = _add(original.position_m, spec.axis, s)
         if gravity is None:
             interaction_j = energy.total_j
@@ -441,7 +441,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                          energy.background_j-ref.background_j,
                          world_du_grav))
             v0_scalar = float(spec.initial_velocity_m_s)
-            exact_dk = 0.5 * spec.mass_kg * (v - v0_scalar) * (v + v0_scalar)
+            exact_dk = _scaled_ratio_product((0.5, spec.mass_kg, v - v0_scalar, v + v0_scalar))
             saved_dk = kinetic - energy0
             dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - ref.total_j))
             if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):

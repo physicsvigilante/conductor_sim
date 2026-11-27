@@ -205,19 +205,21 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
+        from .observables import _scaled_ratio_product
         source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
+        k = self._k
         for j, other in enumerate(self.sources):
             if include_direct and j != index:
                 v = _minus(source.position_m, other.position_m)
                 d = hypot(*v)
                 for i in range(3):
-                    items[i].append(source.charge_c*other.charge_c*v[i]/d**3)
+                    items[i].append(_scaled_ratio_product((k, source.charge_c, other.charge_c, v[i]), (d, d, d)))
             reflected = _mirror_displacement(source.position_m, other.position_m, self.plane)
             d = hypot(*reflected)
             for i in range(3):
-                items[i].append(-source.charge_c*other.charge_c*reflected[i]/d**3)
-        return tuple(self._k*fsum(x) for x in items)
+                items[i].append(_scaled_ratio_product((-k, source.charge_c, other.charge_c, reflected[i]), (d, d, d)))
+        return tuple(fsum(x) for x in items)
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:
@@ -228,13 +230,15 @@ class GroundedPlaneSolution:
     @property
     def interaction_energy_j(self) -> float:
         """External real-real Coulomb energy plus half the image interaction."""
-        direct = [self.sources[i].charge_c*self.sources[j].charge_c /
-                  hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m))
+        from .observables import _scaled_ratio_product
+        k = self._k
+        direct = [_scaled_ratio_product((k, self.sources[i].charge_c, self.sources[j].charge_c),
+                                        (hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m)),))
                   for i in range(len(self.sources)) for j in range(i+1, len(self.sources))]
-        image = [(-q.charge_c*other.charge_c / hypot(*_mirror_displacement(
-            q.position_m, other.position_m, self.plane)))
+        image = [_scaled_ratio_product((-0.5, k, q.charge_c, other.charge_c),
+                                       (hypot(*_mirror_displacement(q.position_m, other.position_m, self.plane)),))
                  for q in self.sources for other in self.sources]
-        return self._k*(fsum(direct) + 0.5*fsum(image))
+        return fsum((fsum(direct), fsum(image)))
 
 
 class GroundedPlaneBackend:

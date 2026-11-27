@@ -190,8 +190,10 @@ def _plane_observables(solution) -> ForceEnergyResult:
     direct, pair_energy = _direct(sources, k)
     charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
                     for i, site in enumerate(sources))
-    induced = -.5*k*fsum(a.charge_c*b.charge_c/hypot(*_mirror_displacement(
-        a.position_m, b.position_m, solution.plane)) for a in sources for b in sources)
+    induced = fsum(_scaled_ratio_product(
+        (-0.5, k, a.charge_c, b.charge_c),
+        (hypot(*_mirror_displacement(a.position_m, b.position_m, solution.plane)),),
+    ) for a in sources for b in sources)
     energy = EnergyBreakdown(pair_energy, induced, 0.,
         'Grounded plane: mechanical interaction energy; point self energies omitted; '
         'zero at separated charges infinitely far from the conductor.')

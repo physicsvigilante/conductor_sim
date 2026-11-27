@@ -2879,3 +2879,65 @@ def test_m45_sol_v44_bracket_overflow_far_field_underflow_sphere_admission_and_r
     sigma_pt = sol_110.surface_charge_density_at("outer", (1.0, -1.0, 0.0))
     assert isclose(sigma_rad, -1.965824743688103e-17, rel_tol=1e-12, abs_tol=0.0)
     assert isclose(sigma_rad, sigma_pt, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_m45_sol_v45_scaled_ke_sphere_far_image_near_contact_density_and_plane_underflow():
+    """Regression suite for all four Sol v45 findings."""
+    from conductor_sim import ExternalGroundedSphereBackend
+    from conductor_sim.model import EPSILON_0
+
+    # 1. Overflow/underflow-safe kinetic energy in 1D/2D integrators and validators
+    p_z = ConductingPlane((0.0, 0.0, -1.0), (0.0, 0.0, 1.0), Grounded())
+    prob_2d = ElectrostaticProblem((PointCharge(1e-150, (0.0, 0.0, 0.0)),), (p_z,))
+    spec_2d = Motion2DSpec(
+        prob_2d, 0, 1e308, (1e-165, 0.0, 0.0), 1.0, 1.0,
+        gravity=UniformGravity((1e-165, 0.0, 0.0)),
+    )
+    res_2d = integrate_motion_2d(spec_2d, GroundedPlaneBackend())
+    assert isclose(res_2d.samples[0].kinetic_energy_j, 5e-23, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(res_2d.samples[-1].kinetic_energy_j, 2e-22, rel_tol=1e-12, abs_tol=0.0)
+    assert abs(res_2d.max_abs_energy_drift_j) < 1e-34
+    validate_planar_motion(res_2d.as_dict())
+
+    p_x = ConductingPlane((-1.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    prob_1d = ElectrostaticProblem((PointCharge(1e-150, (0.0, 0.0, 0.0)),), (p_x,))
+    spec_1d = Motion1DSpec(
+        prob_1d, 0, 1e308, (1.0, 0.0, 0.0), 1e-165, 1.0, 1.0,
+        gravity=UniformGravity((1e-165, 0.0, 0.0)),
+    )
+    bundle_1d = sample_motion_1d(spec_1d, GroundedPlaneBackend(), visual_frames=2, resolution=9)
+    assert isclose(bundle_1d["motion_1d"]["samples"][0]["kinetic_energy_j"], 5e-23, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(bundle_1d["motion_1d"]["samples"][-1]["kinetic_energy_j"], 2e-22, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Grounded-sphere far-field image charge, conductor net charge, potential, and field
+    s_far = SolidSphere(1e-100, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_far = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e300, (0.0, 0.0, 1e250)),), (s_far,))
+    )
+    k_c = 1.0 / (4.0 * pi * EPSILON_0)
+    assert isclose(sol_far.image_charge_c, -1e-50, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_far.conductor_results[0].net_charge_c, -1e-50, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_far.potential_at((0.0, 0.0, 2e-100)), 0.5 * k_c * 1e50, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_far.electric_field_at((0.0, 0.0, 2e-100))[2], -0.25 * k_c * 1e150, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Near-contact grounded-sphere surface density uses exact Fraction gap (d^2 - a^2)/(d + a)
+    c_off = 5.540697455734887e-17
+    s_nc = SolidSphere(0.8838834764831843, Grounded(), (c_off, c_off, 0.0), "sphere")
+    sol_nc = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-40, (0.625, 0.625, 0.0)),), (s_nc,))
+    )
+    assert isclose(sol_nc.surface_charge_density("outer", 0.0), -2.97034e21, rel_tol=1e-4, abs_tol=0.0)
+
+    # 4. Grounded-plane equilibrium avoids (2h)^3 underflow at h=1e-110 m
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_u = ElectrostaticProblem((PointCharge(1e-115, (0.0, 0.0, 1e-110)),), (p_z0,))
+    sol_u = GroundedPlaneBackend().solve(prob_u)
+    assert isclose(sol_u.induced_force_on_charge_n[2], -0.25 * k_c * 1e-10, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_u.interaction_energy_j, -0.25 * k_c * 1e-120, rel_tol=1e-12, abs_tol=0.0)
+    spec_u = Motion1DSpec(
+        prob_u, 0, 1.0, (0.0, 0.0, 1.0), 0.0, 1e-50, 1e-51,
+        gravity=UniformGravity((0.0, 0.0, 0.25 * k_c * 1e-10)),
+    )
+    eqs_u = find_1d_equilibria(spec_u, GroundedPlaneBackend(), displacement_bounds_m=(-1e-111, 1e-111), scan_samples=9)
+    assert len(eqs_u) == 1
+    assert abs(eqs_u[0].displacement_m) < 1e-124

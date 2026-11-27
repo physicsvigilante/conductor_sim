@@ -124,12 +124,12 @@ class ExternalIsolatedSphereBackend:
                 'grounded, touching, interior, multiple-source and general '
                 'conductor geometries are not supported by this backend'
             )
+        from .observables import _scaled_ratio_product
         sphere, source = problem.conductors[0], problem.charges[0]
         Q = sphere.constraint.charge_c
-        q_image = -source.charge_c*(sphere.radius_m/_norm(
-            _diff(source.position_m, sphere.center_m)
-        ))
-        potential = ((Q-q_image)/sphere.radius_m)/(4*pi*problem.permittivity_f_per_m)
+        d = _norm(_diff(source.position_m, sphere.center_m))
+        q_image = _scaled_ratio_product((-source.charge_c, sphere.radius_m), (d,))
+        potential = ((Q - q_image) / sphere.radius_m) / (4 * pi * problem.permittivity_f_per_m)
         result = ConductorResult(sphere.name, potential, Q, 0.0, Q)
         return ExternalIsolatedSphereSolution(
             sphere, source, problem.permittivity_f_per_m, (result,)

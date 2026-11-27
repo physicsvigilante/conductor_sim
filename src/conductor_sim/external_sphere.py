@@ -49,19 +49,15 @@ def _chord(u: Vector3, n: Vector3) -> float:
 
 
 def _field(k: float, q: float, v: Vector3, r: float) -> Vector3:
-    """k*q*v/r**3 for |v| = r, formed as (k*(q/r))/r times the unit vector.
-
-    Forming k*(q/r) first means neither k*q nor q/r**2 can overflow or
-    underflow while the field itself is a normal float.
-    """
-    scale = (k*(q/r))/r
-    return tuple(scale*(x/r) for x in v)
+    """k*q*v/r**3 for |v| = r without intermediate overflow or underflow."""
+    from .observables import _scaled_ratio_product
+    return tuple(_scaled_ratio_product((k, q, x), (r, r, r)) for x in v)
 
 
 def _pair_force(k: float, q: float, q_other: float, v: Vector3, r: float) -> Vector3:
-    """Coulomb force k*q*q_other*v/r**3 as (k*(q/r))*(q_other/r)*(v/r)."""
-    scale = (k*(q/r))*(q_other/r)
-    return tuple(scale*(x/r) for x in v)
+    """Coulomb force k*q*q_other*v/r**3 without intermediate overflow or underflow."""
+    from .observables import _scaled_ratio_product
+    return tuple(_scaled_ratio_product((k, q, q_other, x), (r, r, r)) for x in v)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,12 +79,14 @@ class ExternalGroundedSphereSolution:
 
     @property
     def image_charge_c(self) -> float:
-        return -self.source.charge_c*(self.sphere.radius_m/self.source_distance_m)
+        from .observables import _scaled_ratio_product
+        return _scaled_ratio_product((-self.source.charge_c, self.sphere.radius_m), (self.source_distance_m,))
 
     @property
     def image_position_m(self) -> Vector3:
+        from .observables import _scaled_ratio_product
         a, d, n = self.sphere.radius_m, self.source_distance_m, self.symmetry_axis
-        return tuple(self.sphere.center_m[i] + a*(a/d)*n[i] for i in range(3))
+        return tuple(self.sphere.center_m[i] + _scaled_ratio_product((a, a, n[i]), (d,)) for i in range(3))
 
     @property
     def _k(self) -> float:
@@ -134,12 +132,26 @@ class ExternalGroundedSphereSolution:
         """Grounded Kelvin density at the surface point with |u-n| = chord.
 
         |a*u - d*n|**2 = (d-a)**2 + a*d*chord**2 avoids cancellation near
-        contact; the ratios avoid forming length**3 at extreme scales.
+        contact; exact Fraction (d^2 - a^2) prevents hypot rounding error in
+        the near-contact gap, and scaled ratios avoid length**3 overflow/underflow.
         """
-        a,d,q = self.sphere.radius_m, self.source_distance_m, self.source.charge_c
-        gap = d-a
-        length = hypot(gap, sqrt(d)*sqrt(a)*chord)
-        return -(q/(4*pi*a))*(gap/length)*((d+a)/length)/length
+        from .observables import _scaled_ratio_product
+        a, d, q = self.sphere.radius_m, self.source_distance_m, self.source.charge_c
+        if d - a < 0.01 * a:
+            f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
+            f_d2 = sum(x * x for x in f_delta)
+            f_a2 = Fraction(a) * Fraction(a)
+            u_denom = float((f_d2 - f_a2) / f_d2)
+            one_plus_ratio = 1.0 + a / d
+            gap = _scaled_ratio_product((u_denom, d), (one_plus_ratio,))
+        else:
+            one_plus_ratio = 1.0 + a / d
+            gap = d - a
+        chord_term = sqrt(d) * sqrt(a) * chord if chord > 0.0 else 0.0
+        if not isfinite(chord_term):
+            chord_term = _scaled_ratio_product((sqrt(d), sqrt(a), chord))
+        length = hypot(gap, chord_term)
+        return _scaled_ratio_product((-q, gap, d, one_plus_ratio), (4.0 * pi, a, length, length, length))
 
     def surface_charge_density_at(self, surface: Literal['outer'], point_m: Vector3) -> float:
         point = _position(point_m,'surface point')
@@ -215,8 +227,9 @@ class ExternalGroundedSphereBackend:
                 'external grounded-sphere solution needs exactly one nonzero point '
                 'charge strictly outside one grounded solid sphere; isolated, '
                 'interior, touching and multi-source problems are not supported')
-        sphere,source=problem.conductors[0],problem.charges[0]
-        d=_norm(_diff(source.position_m,sphere.center_m))
-        induced=-source.charge_c*(sphere.radius_m/d)
-        observed=ConductorResult(sphere.name,0.0,induced,0.0,induced)
-        return ExternalGroundedSphereSolution(sphere,source,problem.permittivity_f_per_m,(observed,))
+        from .observables import _scaled_ratio_product
+        sphere, source = problem.conductors[0], problem.charges[0]
+        d = _norm(_diff(source.position_m, sphere.center_m))
+        induced = _scaled_ratio_product((-source.charge_c, sphere.radius_m), (d,))
+        observed = ConductorResult(sphere.name, 0.0, induced, 0.0, induced)
+        return ExternalGroundedSphereSolution(sphere, source, problem.permittivity_f_per_m, (observed,))

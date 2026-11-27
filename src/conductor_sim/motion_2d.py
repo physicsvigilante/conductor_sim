@@ -19,7 +19,7 @@ from ._resources import cleanup_resources
 from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
-from .observables import force_energy
+from .observables import _scaled_ratio_product, force_energy
 from .solver import UnsupportedProblem
 
 
@@ -685,7 +685,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
         if gravity is not None else None
     )
     ref_u_grav = gravity.potential_energy_at(p0, mass_kg=spec.mass_kg) if gravity is not None else 0.0
-    energy0 = .5*spec.mass_kg*_norm(spec.initial_velocity_m_s)**2
+    v0_norm = _norm(spec.initial_velocity_m_s)
+    energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v0_norm, v0_norm))
     total_j0 = fsum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
@@ -706,7 +707,8 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             return
         position, velocity = values[:3], values[3:]
         elec_force, energy = observe(position)
-        kinetic = .5*spec.mass_kg*_norm(velocity)**2
+        v_norm = _norm(velocity)
+        kinetic = _scaled_ratio_product((0.5, spec.mass_kg, v_norm, v_norm))
         if gravity is None:
             force = elec_force
             interaction_j = energy.total_j
@@ -756,7 +758,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             v0_vec = spec.initial_velocity_m_s
             dv_vec = _sub(velocity, v0_vec)
             vsum_vec = tuple(velocity[i] + v0_vec[i] for i in range(3))
-            exact_dk = 0.5 * spec.mass_kg * _dot(dv_vec, vsum_vec)
+            exact_dk = fsum(_scaled_ratio_product((0.5, spec.mass_kg, dv_vec[i], vsum_vec[i])) for i in range(3))
             saved_dk = kinetic - energy0
             dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - reference_energy.total_j))
             if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):
