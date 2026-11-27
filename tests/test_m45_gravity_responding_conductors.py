@@ -2316,3 +2316,54 @@ def test_m45_sol_v35_exact_offset_profile_at_ulp_height():
             dy = (anchor[1] - q_pos[1]) + sy
             expected_u = -1e-12 * h_u / (2.0 * pi * (dx * dx + dy * dy) ** 1.5)
             assert isclose(sigma_val, expected_u, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_m45_sol_v36_rotated_slice_profile_and_tangential_anchor_region_mask():
+    """Regression suite for both Sol v36 findings."""
+    from fractions import Fraction
+    from conductor_sim.geometry import contains_metal, slice_geometry
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. Rotated slice (1, 1, 0) / (0, 0, 1) with origin (1e6, 1e6, 0) above z=0 plane
+    plane_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    # Place 1e-12 C charge 1e-10 m above plane at the endpoint of the rotated slice
+    sp_rot = SliceSpec(
+        origin_m=(1e6, 1e6, 0.0), u=(1.0, 1.0, 0.0), v=(0.0, 0.0, 1.0),
+        x_range_m=(-1.0, 1.0), y_range_m=(-1.0, 1.0), resolution=9,
+    )
+    geom_rot = slice_geometry(plane_z0, sp_rot)
+    nx, ny = geom_rot["normal_xy"]
+    nxy = sqrt(nx * nx + ny * ny)
+    tx, ty = (-ny / nxy, nx / nxy)
+    x0, y0 = geom_rot["point_m"]
+    span_rot = sqrt(2.0)
+    # Charge near the final sample point (d = +span_rot) at height 1e-10 m
+    q_end = (1e6 + span_rot * sp_rot.u[0], 1e6 + span_rot * sp_rot.u[1], 1e-10)
+    prob_rot = ElectrostaticProblem((PointCharge(1e-12, q_end),), (plane_z0,))
+    bundle_rot = sample_sweep([("rot", prob_rot)], GroundedPlaneBackend(), plane=sp_rot, resolution=9)
+    prof_rot = bundle_rot["frames"][0]["profiles"][0]
+    for d_coord, sigma_val in zip(prof_rot["coordinate_m"], prof_rot["sigma_c_per_m2"]):
+        fx = Fraction(x0) + Fraction(d_coord) * Fraction(tx)
+        fy = Fraction(y0) + Fraction(d_coord) * Fraction(ty)
+        delta = tuple(
+            float(Fraction(sp_rot.origin_m[i]) - Fraction(q_end[i]) + fx * Fraction(sp_rot.u[i]) + fy * Fraction(sp_rot.v[i]))
+            for i in range(3)
+        )
+        expected_rot = -1e-12 * 1e-10 / (2.0 * pi * (sum(c * c for c in delta) ** 1.5))
+        assert isclose(sigma_val, expected_rot, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Tangential re-anchoring of (2, 1, 0) plane preserves vacuum/metal classification at (1e-11, 0, 0)
+    p_orig = ConductingPlane((0.0, 0.0, 0.0), (2.0, 1.0, 0.0), Grounded())
+    p_reanch = ConductingPlane((-1e6, 2e6, 0.0), (2.0, 1.0, 0.0), Grounded())
+    pt_vac = (1e-11, 0.0, 0.0)
+    assert contains_metal(p_orig, pt_vac) is False
+    assert contains_metal(p_reanch, pt_vac) is False
+    sp_mask = SliceSpec(
+        origin_m=pt_vac, u=(1.0, 0.0, 0.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-1e-10, 1e-10), y_range_m=(-1e-10, 1e-10), resolution=9,
+    )
+    q_m = PointCharge(1e-12, (2e-10, 0.0, 0.0))
+    b_orig = sample_sweep([("orig", ElectrostaticProblem((q_m,), (p_orig,)))], GroundedPlaneBackend(), plane=sp_mask, resolution=9)
+    b_reanch = sample_sweep([("reanch", ElectrostaticProblem((q_m,), (p_reanch,)))], GroundedPlaneBackend(), plane=sp_mask, resolution=9)
+    assert b_orig["frames"][0]["grid"]["region"][4][4] == "vacuum"
+    assert b_reanch["frames"][0]["grid"]["region"][4][4] == "vacuum"

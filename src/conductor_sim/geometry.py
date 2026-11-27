@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import copysign, hypot, sqrt, isfinite
 
-from .model import ConductingPlane, SphericalShell, SolidSphere, Vector3
+from .model import ConductingPlane, SphericalShell, SolidSphere, Vector3, _plane_signed_distance
 
 
 def _sub(a, b):
@@ -56,8 +56,8 @@ class PlaneBoundary:
     kind: str = "surface"
 
     def first_hit(self,a: Vector3,b: Vector3):
-        h0 = _dot(_sub(a,self.point_m),self.normal)
-        h1 = _dot(_sub(b,self.point_m),self.normal)
+        h0 = _plane_signed_distance(a, self.point_m, self.normal)
+        h1 = _plane_signed_distance(b, self.point_m, self.normal)
         if h0 == h1 or h0*h1 > 0:
             return None
         t = h0/(h0-h1)
@@ -100,7 +100,7 @@ class CylinderSideBoundary:
 
 def contains_metal(shape, point: Vector3) -> bool:
     if isinstance(shape, ConductingPlane):
-        return _dot(_sub(point,shape.point_m),shape.normal) <= 0
+        return shape.signed_distance_m(point) <= 0
     if isinstance(shape,(SphericalShell,SolidSphere)):
         r = hypot(*_sub(point,shape.center_m))
         return shape.inner_radius_m <= r <= shape.outer_radius_m

@@ -166,7 +166,7 @@ class SamplingContext:
     notes: tuple[str, ...] = ()
     conductor_results_method: str = 'Supplied solver conductor properties; provenance not specified.'
     domain_cylinder: CylindricalDomain | None = None
-    plane_profile_at: Callable[[str, str, Vector3, Vector3], float] | None = None
+    plane_profile_at: Callable[..., float] | None = None
 
     def region(self, point):
         if self.domain_radius_m is not None and hypot(*sub(point, self.domain_center_m)) >= self.domain_radius_m:
@@ -412,10 +412,11 @@ def sample_frame(context: SamplingContext, plane: SliceSpec, *, label='Simulatio
                 values=[]
                 for d in distances:
                     if context.plane_profile_at is not None:
-                        sx, sy = x0 + d * tangent[0], y0 + d * tangent[1]
-                        offset = tuple(sx * plane.u[i] + sy * plane.v[i] for i in range(3))
                         values.append(_finite(
-                            context.plane_profile_at(conductor.name, 'outer', plane.origin_m, offset),
+                            context.plane_profile_at(
+                                conductor.name, 'outer', plane.origin_m, plane.u, plane.v,
+                                x0, y0, tangent, d,
+                            ),
                             'surface density',
                         ))
                     else:

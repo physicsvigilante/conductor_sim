@@ -112,6 +112,34 @@ class SolidSphere:
 
 
 
+def _plane_signed_distance(point: Vector3, point_m: Vector3, normal: Vector3) -> float:
+    """Cancellation-, overflow-, and subnormal-safe signed distance to a plane."""
+    max_coord = max(
+        (max(abs(point[i]), abs(point_m[i])) for i in range(3) if normal[i] != 0.0),
+        default=0.0,
+    )
+    if max_coord == 0.0:
+        return 0.0
+    if _MIN_NORMAL * 1e4 <= max_coord <= 1e150:
+        terms = tuple((point[i] - point_m[i]) * normal[i] for i in range(3))
+        if all(isfinite(t) for t in terms):
+            raw = fsum(terms)
+            bound = max(
+                (max(abs(point[i]), abs(point_m[i])) * abs(normal[i]) for i in range(3)),
+                default=0.0,
+            )
+            if isfinite(raw) and abs(raw) >= 0.01 * bound and abs(raw) >= _MIN_NORMAL * 1e4:
+                return raw
+    exact = sum(
+        (Fraction(point[i]) - Fraction(point_m[i])) * Fraction(normal[i])
+        for i in range(3)
+    )
+    try:
+        return float(exact)
+    except OverflowError:
+        return float('inf') if exact > 0 else float('-inf')
+
+
 @dataclass(frozen=True, slots=True)
 class ConductingPlane:
     """Ideal infinite conductor occupying the negative-normal half-space.
@@ -142,31 +170,7 @@ class ConductingPlane:
 
     def signed_distance_m(self, point_m: Vector3) -> float:
         """Positive in vacuum; zero at metal surface; negative inside metal."""
-        point = _position(point_m, "point")
-        max_coord = max(
-            (max(abs(point[i]), abs(self.point_m[i])) for i in range(3) if self.normal[i] != 0.0),
-            default=0.0,
-        )
-        if max_coord == 0.0:
-            return 0.0
-        if _MIN_NORMAL * 1e4 <= max_coord <= 1e150:
-            terms = tuple((point[i] - self.point_m[i]) * self.normal[i] for i in range(3))
-            if all(isfinite(t) for t in terms):
-                raw = fsum(terms)
-                bound = max(
-                    (max(abs(point[i]), abs(self.point_m[i])) * abs(self.normal[i]) for i in range(3)),
-                    default=0.0,
-                )
-                if isfinite(raw) and abs(raw) >= 0.01 * bound and abs(raw) >= _MIN_NORMAL * 1e4:
-                    return raw
-        exact = sum(
-            (Fraction(point[i]) - Fraction(self.point_m[i])) * Fraction(self.normal[i])
-            for i in range(3)
-        )
-        try:
-            return float(exact)
-        except OverflowError:
-            return float('inf') if exact > 0 else float('-inf')
+        return _plane_signed_distance(_position(point_m, "point"), self.point_m, self.normal)
 
 Conductor: TypeAlias = SphericalShell | SolidSphere | ConductingPlane
 

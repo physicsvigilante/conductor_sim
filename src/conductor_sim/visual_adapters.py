@@ -123,25 +123,27 @@ def context_for_solution(problem, solution):
             notes.append('Infinite plates at different potentials have unbounded total charge, not a finite plate Q.')
         elif isinstance(solution,GroundedPlaneSolution):
             density = lambda name,face,point: solution.surface_charge_density_at(face,point)
-            def plane_profile_at(name,face,origin_m,offset_m):
+            def plane_profile_at(name,face,origin_m,u_vec,v_vec,x0,y0,tangent,d):
                 if face != 'outer':
                     raise ValueError("the ideal plane has one exposed conducting surface")
                 n = solution.plane.normal
                 fn = tuple(Fraction(x) for x in n)
+                n_sq = sum(x * x for x in fn)
+                fx = Fraction(x0) + Fraction(d) * Fraction(tangent[0])
+                fy = Fraction(y0) + Fraction(d) * Fraction(tangent[1])
+                pos_offset = tuple(fx * Fraction(u_vec[i]) + fy * Fraction(v_vec[i]) for i in range(3))
                 h_off = sum(
-                    ((Fraction(origin_m[i]) - Fraction(solution.plane.point_m[i])) + Fraction(offset_m[i])) * fn[i]
+                    ((Fraction(origin_m[i]) - Fraction(solution.plane.point_m[i])) + pos_offset[i]) * fn[i]
                     for i in range(3)
-                )
+                ) / n_sq
                 terms = []
                 for q in solution.sources:
                     hq = solution.plane.signed_distance_m(q.position_m)
                     delta = tuple(
-                        float((Fraction(origin_m[i]) - Fraction(q.position_m[i])) + Fraction(offset_m[i]) - h_off * fn[i])
+                        float((Fraction(origin_m[i]) - Fraction(q.position_m[i])) + pos_offset[i] - h_off * fn[i])
                         for i in range(3)
                     )
-                    dn = dot(delta, n)
-                    tang = tuple(delta[i] - dn * n[i] for i in range(3))
-                    terms.append(q.charge_c * hq / (2.0 * pi * hypot(*tang, hq) ** 3))
+                    terms.append(q.charge_c * hq / (2.0 * pi * hypot(*delta) ** 3))
                 return -fsum(terms)
             method = 'exact grounded infinite-plane mirror-charge density'
         elif isinstance(solution,ExternalMultiSphereSolution):
