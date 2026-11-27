@@ -93,6 +93,7 @@ class ExternalGroundedSphereSolution:
         return 1/(4*pi*self.permittivity_f_per_m)
 
     def potential_at(self, point_m: Vector3) -> float:
+        from .observables import _exact_sum, _scaled_ratio_product
         point = _position(point_m, 'sample point')
         r = _norm(_diff(point, self.sphere.center_m))
         if r <= self.sphere.radius_m:
@@ -100,10 +101,16 @@ class ExternalGroundedSphereSolution:
         source_distance = _norm(_diff(point, self.source.position_m))
         if source_distance == 0:
             raise SingularField('point-charge potential is singular at the external source')
-        return self._k*(self.source.charge_c/source_distance+
-                        self.image_charge_c/_norm(_diff(point,self.image_position_m)))
+        r_img = _norm(_diff(point, self.image_position_m))
+        v_src = _scaled_ratio_product((self._k, self.source.charge_c), (source_distance,))
+        v_img = _scaled_ratio_product(
+            (-self._k, self.source.charge_c, self.sphere.radius_m),
+            (self.source_distance_m, r_img),
+        )
+        return _exact_sum((v_src, v_img))
 
     def electric_field_at(self, point_m: Vector3) -> Vector3:
+        from .observables import _exact_sum, _scaled_ratio_product
         point = _position(point_m, 'sample point')
         r = _norm(_diff(point, self.sphere.center_m))
         if isclose(r, self.sphere.radius_m, rel_tol=1e-12):
@@ -116,9 +123,15 @@ class ExternalGroundedSphereSolution:
             raise SingularField('electric field is singular at the external charge')
         reflected = _diff(point, self.image_position_m)
         r_img = _norm(reflected)
-        source_term = _field(self._k, self.source.charge_c, direct, dist)
-        image_term = _field(self._k, self.image_charge_c, reflected, r_img)
-        return tuple(source_term[i]+image_term[i] for i in range(3))
+        d_src = self.source_distance_m
+        a = self.sphere.radius_m
+        q = self.source.charge_c
+        source_term = _field(self._k, q, direct, dist)
+        image_term = tuple(
+            _scaled_ratio_product((-self._k, q, a, reflected[i]), (d_src, r_img, r_img, r_img))
+            for i in range(3)
+        )
+        return tuple(_exact_sum((source_term[i], image_term[i])) for i in range(3))
 
     def surface_charge_density(self, surface: Literal['outer'], theta_rad: float) -> float:
         from math import isfinite

@@ -2941,3 +2941,80 @@ def test_m45_sol_v45_scaled_ke_sphere_far_image_near_contact_density_and_plane_u
     eqs_u = find_1d_equilibria(spec_u, GroundedPlaneBackend(), displacement_bounds_m=(-1e-111, 1e-111), scan_samples=9)
     assert len(eqs_u) == 1
     assert abs(eqs_u[0].displacement_m) < 1e-124
+
+
+def test_m45_sol_v46_fsum_intermediate_overflow_direct_underflow_plane_force_and_sphere_image():
+    """Regression suite for all five Sol v46 findings."""
+    from conductor_sim import ExternalGroundedSphereBackend
+    from conductor_sim.model import EPSILON_0
+    from conductor_sim.observables import force_energy
+
+    k_c = 1.0 / (4.0 * pi * EPSILON_0)
+
+    # 1. Finite total energy (K=9.8e307, Ue=1e308, Ug=-1e308) survives intermediate fsum overflow
+    s_huge = SolidSphere(1e99, FixedNetCharge(1e258 / k_c), (0.0, 0.0, 0.0), "sphere")
+    prob_huge = ElectrostaticProblem((PointCharge(1e150, (0.0, 0.0, 1e100)),), (s_huge,))
+    spec_1d_h = Motion1DSpec(
+        prob_huge, 0, 1e308, (0.0, 0.0, 1.0), 1.4, 1e95, 1e95,
+        gravity=UniformGravity((0.0, 0.0, 1e-100), reference_position_m=(0.0, 0.0, 0.0)),
+    )
+    res_1d_h = integrate_motion_1d(spec_1d_h, ExternalIsolatedSphereBackend())
+    assert isclose(res_1d_h.samples[0].total_energy_j, 9.8e307, rel_tol=1e-3)
+    bundle_1d_h = sample_motion_1d(spec_1d_h, ExternalIsolatedSphereBackend(), visual_frames=2, resolution=9)
+    assert isclose(bundle_1d_h["motion_1d"]["samples"][0]["total_energy_j"], 9.8e307, rel_tol=1e-3)
+
+    spec_2d_h = Motion2DSpec(
+        prob_huge, 0, 1e308, (0.0, 0.0, 1.4), 1e95, 1e95,
+        gravity=UniformGravity((0.0, 0.0, 1e-100), reference_position_m=(0.0, 0.0, 0.0)),
+    )
+    res_2d_h = integrate_motion_2d(spec_2d_h, ExternalIsolatedSphereBackend())
+    assert isclose(res_2d_h.samples[0].total_energy_j, 9.8e307, rel_tol=1e-3)
+    validate_planar_motion(res_2d_h.as_dict())
+
+    # 2. Direct-pair force & energy resist q1*q2 underflow in observables._direct and 2D motion
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    prob_dir = ElectrostaticProblem(
+        (PointCharge(1e-170, (0.0, 0.0, 1e-139)), PointCharge(1e-170, (1e-140, 0.0, 1e-139))),
+        (p_z0,),
+    )
+    sol_dir = GroundedPlaneBackend().solve(prob_dir)
+    obs_dir = force_energy(sol_dir)
+    c0 = next(c for c in obs_dir.charges if c.source.position_m[0] == 0.0)
+    assert isclose(c0.total_force_n[0], -8.9864325e-51, rel_tol=1e-5, abs_tol=0.0)
+    assert isclose(obs_dir.energy.total_j, 8.08936e-191, rel_tol=1e-4, abs_tol=0.0)
+    spec_dir = Motion2DSpec(
+        prob_dir, 0, 1e100, (0.0, 0.0, 0.0), 1e4, 1e4,
+        gravity=UniformGravity((0.0, 0.0, 1e-151)),
+    )
+    res_dir = integrate_motion_2d(spec_dir, GroundedPlaneBackend())
+    assert res_dir.samples[0].force_n[0] < 0.0
+    assert res_dir.samples[-1].position_m[0] < 0.0
+
+    # 3. Grounded-plane force_on_charge_n cancels opposing 1e300*k terms without inf - inf
+    prob_opp = ElectrostaticProblem(
+        (PointCharge(1e140, (0.0, 0.0, 1e-3)), PointCharge(1e160, (1.0, 0.0, 1e-3))),
+        (p_z0,),
+    )
+    sol_opp = GroundedPlaneBackend().solve(prob_opp)
+    f_opp = sol_opp.force_on_charge_n(0)
+    assert isclose(f_opp[0], -5.39250e304, rel_tol=1e-4)
+    assert isclose(f_opp[2], -1.79750e307, rel_tol=1e-4)
+
+    # 4. Grounded sphere potential & field resist subnormal/underflowing image charge (-1e-325 C)
+    s_sub = SolidSphere(1e-155, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_sub = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e-170, (0.0, 0.0, 1.0)),), (s_sub,))
+    )
+    assert isclose(sol_sub.potential_at((0.0, 0.0, 2e-155)), 0.5 * k_c * 1e-170, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_sub.electric_field_at((0.0, 0.0, 2e-155))[2], -0.25 * k_c * 1e-15, rel_tol=1e-12, abs_tol=0.0)
+
+    # 5. Grounded-plane force & energy resist 2*h reflection overflow at z=1e308 m
+    prob_ovf = ElectrostaticProblem((PointCharge(1e154, (0.0, 0.0, 1e308)),), (p_z0,))
+    sol_ovf = GroundedPlaneBackend().solve(prob_ovf)
+    f_ovf = sol_ovf.induced_force_on_charge_n
+    assert f_ovf[0] == 0.0 and f_ovf[1] == 0.0
+    assert isclose(f_ovf[2], -0.25 * k_c * 1e-308, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_ovf.interaction_energy_j, -0.25 * k_c, rel_tol=1e-12, abs_tol=0.0)
+    obs_ovf = force_energy(sol_ovf)
+    assert isclose(obs_ovf.charges[0].induced_force_n[2], -0.25 * k_c * 1e-308, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs_ovf.energy.induced_j, -0.25 * k_c, rel_tol=1e-12, abs_tol=0.0)

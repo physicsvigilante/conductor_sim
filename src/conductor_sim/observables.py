@@ -164,49 +164,30 @@ def force_energy(solution: object) -> ForceEnergyResult:
     return result
 
 
-def _direct(sources: tuple[PointCharge, ...], k: float):
-    """Pair energy counted once; equal/opposite forces, never direct self terms."""
-    forces = [[[], [], []] for _ in sources]
-    energies = []
-    for i, a in enumerate(sources):
-        for j in range(i+1, len(sources)):
-            b = sources[j]
-            delta = tuple(a.position_m[c]-b.position_m[c] for c in range(3))
-            distance = hypot(*delta)
-            if distance == 0:
-                raise ValueError('coincident force sites must be grouped before observation')
-            pair = k*a.charge_c*b.charge_c/distance
-            energies.append(pair)
-            for c in range(3):
-                value = pair*(delta[c]/distance)/distance
-                forces[i][c].append(value)
-                forces[j][c].append(-value)
-    return tuple(tuple(fsum(c) for c in f) for f in forces), fsum(energies)
+def _exact_sum(values) -> float:
+    """Overflow-safe sum of finite floats: fast fsum with Fraction fallback on intermediate overflow."""
+    items = tuple(values)
+    try:
+        return fsum(items)
+    except OverflowError:
+        exact = sum(Fraction(x) for x in items)
+        try:
+            return float(exact)
+        except OverflowError:
+            return float('inf') if exact > 0 else float('-inf')
 
 
-def _plane_observables(solution) -> ForceEnergyResult:
-    from .grounded_plane import _mirror_displacement
-    sources, k = solution.sources, solution._k
-    direct, pair_energy = _direct(sources, k)
-    charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
-                    for i, site in enumerate(sources))
-    induced = fsum(_scaled_ratio_product(
-        (-0.5, k, a.charge_c, b.charge_c),
-        (hypot(*_mirror_displacement(a.position_m, b.position_m, solution.plane)),),
-    ) for a in sources for b in sources)
-    energy = EnergyBreakdown(pair_energy, induced, 0.,
-        'Grounded plane: mechanical interaction energy; point self energies omitted; '
-        'zero at separated charges infinitely far from the conductor.')
-    return ForceEnergyResult(charges, energy, 'analytical grounded-plane images')
-
-
-def _scaled_ratio_product(nums: tuple[float, ...], denoms: tuple[float, ...] = ()) -> float:
-    """Evaluate prod(nums) / prod(denoms) without intermediate overflow or underflow."""
+def _scaled_ratio_parts(
+    nums: tuple[float, ...],
+    denoms: tuple[float, ...] = (),
+    extra_exp: int = 0,
+) -> tuple[float, int]:
+    """Return (mantissa, exponent) for prod(nums) / prod(denoms) * 2**extra_exp."""
     mantissa = 1.0
-    exponent = 0
+    exponent = extra_exp
     for x in nums:
         if x == 0.0:
-            return 0.0
+            return 0.0, 0
         m, e = frexp(x)
         mantissa *= m
         exponent += e
@@ -218,10 +199,71 @@ def _scaled_ratio_product(nums: tuple[float, ...], denoms: tuple[float, ...] = (
         exponent -= e
         mantissa, de = frexp(mantissa)
         exponent += de
+    return mantissa, exponent
+
+
+def _scaled_ratio_product(nums: tuple[float, ...], denoms: tuple[float, ...] = (), extra_exp: int = 0) -> float:
+    """Evaluate prod(nums) / prod(denoms) * 2**extra_exp without intermediate overflow or underflow."""
+    mantissa, exponent = _scaled_ratio_parts(nums, denoms, extra_exp)
+    if mantissa == 0.0:
+        return 0.0
     try:
         return ldexp(mantissa, exponent)
     except OverflowError:
         return copysign(float('inf'), mantissa)
+
+
+def _sum_scaled_ratios(parts: list[tuple[float, int]]) -> float:
+    """Sum (mantissa, exponent) terms without intermediate overflow or underflow."""
+    nonzero = [(m, e) for m, e in parts if m != 0.0]
+    if not nonzero:
+        return 0.0
+    max_e = max(e for _, e in nonzero)
+    total = fsum(ldexp(m, e - max_e) for m, e in nonzero)
+    if total == 0.0:
+        return 0.0
+    m_tot, e_tot = frexp(total)
+    try:
+        return ldexp(m_tot, max_e + e_tot)
+    except OverflowError:
+        return copysign(float('inf'), m_tot)
+
+
+def _direct(sources: tuple[PointCharge, ...], k: float):
+    """Pair energy counted once; equal/opposite forces, never direct self terms."""
+    forces = [[[], [], []] for _ in sources]
+    energies = []
+    for i, a in enumerate(sources):
+        for j in range(i+1, len(sources)):
+            b = sources[j]
+            delta = tuple(a.position_m[c]-b.position_m[c] for c in range(3))
+            distance = hypot(*delta)
+            if distance == 0:
+                raise ValueError('coincident force sites must be grouped before observation')
+            energies.append(_scaled_ratio_parts((k, a.charge_c, b.charge_c), (distance,)))
+            for c in range(3):
+                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, delta[c]), (distance, distance, distance))
+                forces[i][c].append((m_f, e_f))
+                forces[j][c].append((-m_f, e_f))
+    return tuple(tuple(_sum_scaled_ratios(c) for c in f) for f in forces), _sum_scaled_ratios(energies)
+
+
+def _plane_observables(solution) -> ForceEnergyResult:
+    from .grounded_plane import _mirror_displacement_scaled
+    sources, k = solution.sources, solution._k
+    direct, pair_energy = _direct(sources, k)
+    charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
+                    for i, site in enumerate(sources))
+    induced_parts = []
+    for a in sources:
+        for b in sources:
+            _, dm, de = _mirror_displacement_scaled(a.position_m, b.position_m, solution.plane)
+            induced_parts.append(_scaled_ratio_parts((-0.5, k, a.charge_c, b.charge_c), (dm,), -de))
+    induced = _sum_scaled_ratios(induced_parts)
+    energy = EnergyBreakdown(pair_energy, induced, 0.,
+        'Grounded plane: mechanical interaction energy; point self energies omitted; '
+        'zero at separated charges infinitely far from the conductor.')
+    return ForceEnergyResult(charges, energy, 'analytical grounded-plane images')
 
 
 def _sphere_observables(solution) -> ForceEnergyResult:

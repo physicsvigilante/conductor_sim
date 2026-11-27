@@ -19,7 +19,7 @@ from ._resources import cleanup_resources
 from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
 from .motion_1d import MotionIntegrationError, _NONRELATIVISTIC_SPEED_LIMIT_M_S
-from .observables import _scaled_ratio_product, force_energy
+from .observables import _exact_sum, _scaled_ratio_product, force_energy
 from .solver import UnsupportedProblem
 
 
@@ -687,7 +687,7 @@ def _integrate_vector_motion(spec, geometry, observe, *,
     ref_u_grav = gravity.potential_energy_at(p0, mass_kg=spec.mass_kg) if gravity is not None else 0.0
     v0_norm = _norm(spec.initial_velocity_m_s)
     energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v0_norm, v0_norm))
-    total_j0 = fsum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
+    total_j0 = _exact_sum((energy0, reference_energy.total_j, ref_u_grav)) if gravity is not None else (energy0 + reference_energy.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
     tilted_plane = sum(x != 0.0 for x in geometry.normal) >= 2
@@ -729,10 +729,10 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 v_n_prefix = max(v_n_prefix, max(abs(velocity[i] * geometry.normal[i]) for i in range(3)))
             if not _gravity_planar_velocity_ok(velocity, geometry.normal, tilted_plane, v_n_prefix):
                 raise UnsupportedProblem('velocity left the physically invariant plane')
-            force = tuple(fsum((a, b)) for a, b in zip(elec_force, grav_force))
+            force = tuple(_exact_sum((a, b)) for a, b in zip(elec_force, grav_force))
             u_grav = gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
-            interaction_j = fsum((energy.total_j, u_grav))
-            total_j = fsum((kinetic, energy.total_j, u_grav))
+            interaction_j = _exact_sum((energy.total_j, u_grav))
+            total_j = _exact_sum((kinetic, energy.total_j, u_grav))
             # Check world-position displacement and gravitational delta strictly
             # against trajectory displacement / gravitational exchange (never
             # masking precision loss with constant launch kinetic energy).
@@ -743,14 +743,14 @@ def _integrate_vector_motion(spec, geometry, observe, *,
                 raise MotionIntegrationError('world position roundoff lost displacement resolution')
             delta_u_grav = origin_gravity.potential_energy_at(displacement, mass_kg=spec.mass_kg)
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
-            saved_du_grav = u_grav - ref_u_grav
+            saved_du_grav = _exact_sum((u_grav, -ref_u_grav))
             peak_grav_exchange = max(peak_grav_exchange, abs(delta_u_grav), abs(world_du_grav))
             du_tol = max(1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
             if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             if abs(saved_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('gravitational potential energy gauge lacks binary64 precision for trajectory energy changes')
-            drift = fsum((kinetic-energy0,
+            drift = _exact_sum((kinetic-energy0,
                           energy.direct_j-reference_energy.direct_j,
                           energy.induced_j-reference_energy.induced_j,
                           energy.background_j-reference_energy.background_j,
@@ -758,13 +758,13 @@ def _integrate_vector_motion(spec, geometry, observe, *,
             v0_vec = spec.initial_velocity_m_s
             dv_vec = _sub(velocity, v0_vec)
             vsum_vec = tuple(velocity[i] + v0_vec[i] for i in range(3))
-            exact_dk = fsum(_scaled_ratio_product((0.5, spec.mass_kg, dv_vec[i], vsum_vec[i])) for i in range(3))
-            saved_dk = kinetic - energy0
-            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - reference_energy.total_j))
+            exact_dk = _exact_sum(_scaled_ratio_product((0.5, spec.mass_kg, dv_vec[i], vsum_vec[i])) for i in range(3))
+            saved_dk = _exact_sum((kinetic, -energy0))
+            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(_exact_sum((energy.total_j, -reference_energy.total_j))))
             if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):
                 raise MotionIntegrationError('kinetic energy lacks binary64 precision to resolve trajectory energy exchange')
-            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - reference_energy.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
+            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(_exact_sum((energy.total_j, -reference_energy.total_j))))
+            if abs(_exact_sum((total_j, -total_j0)) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             if not all(isfinite(x) for x in (*position, *velocity, *force, kinetic, interaction_j, total_j, drift, u_grav)):
                 raise MotionIntegrationError('motion data became nonfinite')

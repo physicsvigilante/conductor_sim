@@ -20,7 +20,7 @@ from ._motion_rk4 import rk4_step
 from ._motion_time import output_times
 from .conservative_forces import UniformGravity
 from .model import ConductingPlane, ElectrostaticProblem, PointCharge, SolidSphere, SphericalShell, Vector3, _position
-from .observables import _scaled_ratio_product, force_energy
+from .observables import _exact_sum, _scaled_ratio_product, force_energy
 from .solver import UnsupportedProblem
 
 
@@ -394,7 +394,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         if gravity is not None else None
     )
     energy0 = _scaled_ratio_product((0.5, spec.mass_kg, v, v))
-    total_j0 = fsum((energy0, ref.total_j, ref_u_grav)) if gravity is not None else (energy0 + ref.total_j)
+    total_j0 = _exact_sum((energy0, ref.total_j, ref_u_grav)) if gravity is not None else (energy0 + ref.total_j)
     peak_grav_exchange = 0.0
     peak_disp = 0.0
     samples=[]
@@ -408,7 +408,7 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
         if gravity is None:
             interaction_j = energy.total_j
             total_j = kinetic + interaction_j
-            drift=fsum((kinetic-energy0,
+            drift=_exact_sum((kinetic-energy0,
                          energy.direct_j-ref.direct_j,
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j))
@@ -417,8 +417,8 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                                   interaction_j,total_j,drift)
         else:
             assert local_gravity is not None
-            interaction_j = fsum((energy.total_j, u_grav))
-            total_j = fsum((kinetic, energy.total_j, u_grav))
+            interaction_j = _exact_sum((energy.total_j, u_grav))
+            total_j = _exact_sum((kinetic, energy.total_j, u_grav))
             # Check world-position displacement and gravitational delta strictly
             # against trajectory displacement / gravitational exchange (never
             # masking precision loss with constant launch kinetic energy).
@@ -428,26 +428,26 @@ def integrate_motion_1d(spec: Motion1DSpec, backend) -> Motion1DResult:
                 raise MotionIntegrationError('world position roundoff lost displacement resolution')
             delta_u_grav = -grav_force_along * s
             world_du_grav = local_gravity.potential_energy_at(position, mass_kg=spec.mass_kg)
-            saved_du_grav = u_grav - ref_u_grav
+            saved_du_grav = _exact_sum((u_grav, -ref_u_grav))
             peak_grav_exchange = max(peak_grav_exchange, abs(delta_u_grav), abs(world_du_grav))
             du_tol = max(1e-6 * peak_grav_exchange, 256.0 * ulp(peak_grav_exchange))
             if abs(world_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('world position roundoff lost gravitational potential energy resolution')
             if abs(saved_du_grav - delta_u_grav) > du_tol:
                 raise MotionIntegrationError('gravitational potential energy gauge lacks binary64 precision for trajectory energy changes')
-            drift=fsum((kinetic-energy0,
+            drift=_exact_sum((kinetic-energy0,
                          energy.direct_j-ref.direct_j,
                          energy.induced_j-ref.induced_j,
                          energy.background_j-ref.background_j,
                          world_du_grav))
             v0_scalar = float(spec.initial_velocity_m_s)
             exact_dk = _scaled_ratio_product((0.5, spec.mass_kg, v - v0_scalar, v + v0_scalar))
-            saved_dk = kinetic - energy0
-            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - ref.total_j))
+            saved_dk = _exact_sum((kinetic, -energy0))
+            dk_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(_exact_sum((energy.total_j, -ref.total_j))))
             if abs(saved_dk - exact_dk) > max(1e-6 * dk_scale, 256.0 * ulp(dk_scale)):
                 raise MotionIntegrationError('kinetic energy lacks binary64 precision to resolve trajectory energy exchange')
-            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(energy.total_j - ref.total_j))
-            if abs((total_j - total_j0) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
+            total_scale = max(peak_grav_exchange, abs(exact_dk), abs(saved_dk), abs(_exact_sum((energy.total_j, -ref.total_j))))
+            if abs(_exact_sum((total_j, -total_j0)) - drift) > max(1e-6 * total_scale, 256.0 * ulp(total_scale)):
                 raise MotionIntegrationError('saved total energy lacks binary64 precision to match energy drift')
             sample = MotionSample(t,s,position,v,
                                   force/spec.mass_kg,force,kinetic,

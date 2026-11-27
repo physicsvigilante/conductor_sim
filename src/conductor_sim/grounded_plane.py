@@ -7,7 +7,7 @@ axisymmetric FEMM solve, point sources need not share a common axis.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import fsum, hypot, isclose, isfinite, pi
+from math import frexp, fsum, hypot, isclose, isfinite, ldexp, pi
 
 from .model import ConductingPlane, ElectrostaticProblem, Grounded, PointCharge, Vector3, _position
 from .solver import ConductorResult, SingularField, UnsupportedProblem
@@ -33,7 +33,67 @@ def _mirror_displacement(target: Vector3, source: Vector3, plane: ConductingPlan
     cancellation when ``|source| >> h(source)`` (including ``target == source``).
     """
     h = plane.signed_distance_m(source)
-    return tuple((target[i] - source[i]) + 2.0 * h * plane.normal[i] for i in range(3))
+    return tuple(
+        (target[i] - source[i]) + (2.0 * h * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
+        for i in range(3)
+    )
+
+
+def _mirror_displacement_scaled(
+    target: Vector3,
+    source: Vector3,
+    plane: ConductingPlane,
+) -> tuple[Vector3, float, int]:
+    """Return ``(unit_dir, dist_mantissa, dist_exp)`` for ``target - mirror(source, plane)``.
+
+    The true displacement vector equals ``unit_dir * ldexp(dist_mantissa, dist_exp)``,
+    avoiding ``2*h`` overflow and ``0*inf = nan`` tangential contamination at extreme scales.
+    """
+    h = plane.signed_distance_m(source)
+    scale = max(
+        abs(h),
+        max(abs(x) for x in target),
+        max(abs(x) for x in source),
+    )
+    if scale == 0.0:
+        return (0.0, 0.0, 0.0), 0.0, 0
+    if 1e-150 <= scale <= 1e150:
+        vec = _mirror_displacement(target, source, plane)
+        d = hypot(*vec)
+        if isfinite(d) and d > 0.0:
+            dm, de = frexp(d)
+            return tuple(x / d for x in vec), dm, de
+    if isfinite(scale):
+        _, s_exp = frexp(scale)
+        sh = ldexp(h, -s_exp)
+        vec_s = tuple(
+            (ldexp(target[i], -s_exp) - ldexp(source[i], -s_exp))
+            + (2.0 * sh * plane.normal[i] if plane.normal[i] != 0.0 else 0.0)
+            for i in range(3)
+        )
+        d_s = hypot(*vec_s)
+        if isfinite(d_s) and d_s > 0.0:
+            dm, de = frexp(d_s)
+            return tuple(x / d_s for x in vec_s), dm, s_exp + de
+    from fractions import Fraction
+    from .model import _plane_exact_numerator, _plane_raw_normal
+    rn = _plane_raw_normal(plane.normal)
+    fn = tuple(Fraction(x) for x in rn)
+    n_sq = sum(x * x for x in fn)
+    num_h = _plane_exact_numerator(source, plane.point_m, plane.normal, rn)
+    v_f = tuple(
+        (Fraction(target[i]) - Fraction(source[i])) + (2 * num_h * fn[i]) / n_sq
+        for i in range(3)
+    )
+    v_max = max(abs(x) for x in v_f)
+    if v_max == 0:
+        return (0.0, 0.0, 0.0), 0.0, 0
+    # Normalize by exact power-of-two shift of v_max
+    s_exp = v_max.numerator.bit_length() - v_max.denominator.bit_length()
+    v_s = tuple(float(x * Fraction(1, 1 << s_exp) if s_exp >= 0 else x * (1 << (-s_exp))) for x in v_f)
+    d_s = hypot(*v_s)
+    dm, de = frexp(d_s)
+    return tuple(x / d_s for x in v_s), dm, s_exp + de
 
 
 def _sites(problem: ElectrostaticProblem) -> tuple[PointCharge, ...]:
@@ -205,7 +265,7 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
         k = self._k
@@ -214,12 +274,11 @@ class GroundedPlaneSolution:
                 v = _minus(source.position_m, other.position_m)
                 d = hypot(*v)
                 for i in range(3):
-                    items[i].append(_scaled_ratio_product((k, source.charge_c, other.charge_c, v[i]), (d, d, d)))
-            reflected = _mirror_displacement(source.position_m, other.position_m, self.plane)
-            d = hypot(*reflected)
+                    items[i].append(_scaled_ratio_parts((k, source.charge_c, other.charge_c, v[i]), (d, d, d)))
+            u_ref, dm, de = _mirror_displacement_scaled(source.position_m, other.position_m, self.plane)
             for i in range(3):
-                items[i].append(_scaled_ratio_product((-k, source.charge_c, other.charge_c, reflected[i]), (d, d, d)))
-        return tuple(fsum(x) for x in items)
+                items[i].append(_scaled_ratio_parts((-k, source.charge_c, other.charge_c, u_ref[i]), (dm, dm), -2 * de))
+        return tuple(_sum_scaled_ratios(x) for x in items)
 
     @property
     def induced_force_on_charge_n(self) -> Vector3:
@@ -230,15 +289,18 @@ class GroundedPlaneSolution:
     @property
     def interaction_energy_j(self) -> float:
         """External real-real Coulomb energy plus half the image interaction."""
-        from .observables import _scaled_ratio_product
+        from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         k = self._k
-        direct = [_scaled_ratio_product((k, self.sources[i].charge_c, self.sources[j].charge_c),
-                                        (hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m)),))
-                  for i in range(len(self.sources)) for j in range(i+1, len(self.sources))]
-        image = [_scaled_ratio_product((-0.5, k, q.charge_c, other.charge_c),
-                                       (hypot(*_mirror_displacement(q.position_m, other.position_m, self.plane)),))
-                 for q in self.sources for other in self.sources]
-        return fsum((fsum(direct), fsum(image)))
+        parts = []
+        for i in range(len(self.sources)):
+            for j in range(i + 1, len(self.sources)):
+                d = hypot(*_minus(self.sources[i].position_m, self.sources[j].position_m))
+                parts.append(_scaled_ratio_parts((k, self.sources[i].charge_c, self.sources[j].charge_c), (d,)))
+        for q in self.sources:
+            for other in self.sources:
+                _, dm, de = _mirror_displacement_scaled(q.position_m, other.position_m, self.plane)
+                parts.append(_scaled_ratio_parts((-0.5, k, q.charge_c, other.charge_c), (dm,), -de))
+        return _sum_scaled_ratios(parts)
 
 
 class GroundedPlaneBackend:

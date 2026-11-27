@@ -23,8 +23,9 @@ def _vector(value):
 
 
 def _safe_fsum(values):
+    from .observables import _exact_sum
     try:
-        return fsum(values)
+        return _exact_sum(values)
     except (OverflowError, ValueError):
         return float('inf')
 
