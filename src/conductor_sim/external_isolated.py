@@ -37,7 +37,11 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
 
     @property
     def conductor_potential_v(self) -> float:
-        return self._k*(self.central_image_charge_c/self.sphere.radius_m)
+        from .observables import _scaled_ratio_product
+        return _scaled_ratio_product(
+            (self.central_image_charge_c,),
+            (4.0 * pi, self.permittivity_f_per_m, self.sphere.radius_m),
+        )
 
     def potential_at(self, point_m: Vector3) -> float:
         point = _position(point_m, 'sample point')
@@ -129,7 +133,10 @@ class ExternalIsolatedSphereBackend:
         Q = sphere.constraint.charge_c
         d = _norm(_diff(source.position_m, sphere.center_m))
         q_image = _scaled_ratio_product((-source.charge_c, sphere.radius_m), (d,))
-        potential = ((Q - q_image) / sphere.radius_m) / (4 * pi * problem.permittivity_f_per_m)
+        potential = _scaled_ratio_product(
+            (Q - q_image,),
+            (4.0 * pi, problem.permittivity_f_per_m, sphere.radius_m),
+        )
         result = ConductorResult(sphere.name, potential, Q, 0.0, Q)
         return ExternalIsolatedSphereSolution(
             sphere, source, problem.permittivity_f_per_m, (result,)

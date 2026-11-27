@@ -3144,3 +3144,52 @@ def test_m45_sol_v48_motion_events_transverse_force_sphere_translation_zero_and_
     # 5. _sum_scaled_ratios avoids subnormal double rounding on wide and narrow spreads
     assert _sum_scaled_ratios([(0.75, 0), (-0.75, 0), (0.5, -1074), (0.5, -1127)]) == 5e-324
     assert _sum_scaled_ratios([(0.5, -1074), (0.5, -1127)]) == 5e-324
+
+
+def test_m45_sol_v49_subnormal_image_offset_authored_normal_plane_cancel_and_large_eps():
+    """Regression suite for all four Sol v49 findings."""
+    from math import ulp
+    from conductor_sim import ExternalGroundedSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Subnormal Kelvin image offset (3*ulp(0)) delegates to exact evaluation without 11% rounding error
+    u = ulp(0.0)
+    s0 = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_sub = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e280, (3.0 * u, 0.0, 2.0)),), (s0,))
+    )
+    e_sub = sol_sub.electric_field_at((3.0 * u, 0.0, 3.0))
+    assert isclose(e_sub[0], -3.197117218158122e-35, rel_tol=1e-12, abs_tol=0.0)
+
+    # 2. Grounded-plane force retains underflowing authored normal component (1e-250 on 1e100)
+    p_tiny_y = ConductingPlane((0.0, 0.0, 0.0), (1e100, 1e-250, 0.0), Grounded())
+    sol_ny = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e145, (1.0, 0.0, 0.0)),), (p_tiny_y,))
+    )
+    assert isclose(sol_ny.force_on_charge_n(0)[1], -2.246887948065293e-51, rel_tol=1e-12, abs_tol=0.0)
+    obs_ny = force_energy(sol_ny)
+    assert isclose(obs_ny.charges[0].total_force_n[1], -2.246887948065293e-51, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs_ny.charges[0].induced_force_n[1], -2.246887948065293e-51, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Grounded-plane direct + image forces preserve dipole residual when r_dir and r_img round equal
+    p_z0 = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
+    sol_dip = GroundedPlaneBackend().solve(
+        ElectrostaticProblem(
+            (PointCharge(1e-6, (0.0, 0.0, 1e-9)), PointCharge(1e-6, (1.0, 0.0, 1e-9))),
+            (p_z0,),
+        )
+    )
+    idx2 = next(i for i, q in enumerate(sol_dip.sources) if q.position_m[0] == 1.0)
+    assert isclose(sol_dip.force_on_charge_n(idx2)[0], 5.392531075356703e-20, rel_tol=1e-12, abs_tol=0.0)
+    obs_dip = force_energy(sol_dip)
+    c2 = next(c for c in obs_dip.charges if c.source.position_m[0] == 1.0)
+    assert isclose(c2.total_force_n[0], 5.392531075356703e-20, rel_tol=1e-12, abs_tol=0.0)
+
+    # 4. Large permittivity (eps=1e308) with q=1e308 preserves finite Kelvin field, potential, force & energy
+    sol_eps = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 2.0)),), (s0,), permittivity_f_per_m=1e308)
+    )
+    assert isclose(sol_eps.electric_field_at((0.0, 0.0, 3.0))[2], 0.07321127382227186, rel_tol=1e-12)
+    assert isclose(sol_eps.potential_at((0.0, 0.0, 3.0)), (1.0 - 0.5 / 2.5) / (4.0 * pi), rel_tol=1e-12)
+    assert isclose(sol_eps.induced_force_on_charge_n[2], -1e308 / (4.0 * pi * 9.0 / 2.0), rel_tol=1e-12)
+    assert isclose(force_energy(sol_eps).charges[0].induced_force_n[2], sol_eps.induced_force_on_charge_n[2], rel_tol=1e-12)

@@ -39,6 +39,43 @@ def _mirror_displacement(target: Vector3, source: Vector3, plane: ConductingPlan
     )
 
 
+def _plane_unit_normal_parts(
+    plane: ConductingPlane,
+) -> tuple[tuple[float, int], tuple[float, int], tuple[float, int]]:
+    """Per-component ``(mantissa, exp)`` of the exact unit normal, preserving underflowing authored axes."""
+    from .model import _plane_raw_normal
+    from .observables import _scaled_ratio_parts, _vector_norm_parts
+    rn = _plane_raw_normal(plane.normal)
+    rn_comps = tuple(frexp(x) if x != 0.0 else (0.0, 0) for x in rn)
+    rn_m, rn_e = _vector_norm_parts(rn_comps)
+    out = []
+    for i in range(3):
+        if rn[i] == 0.0:
+            out.append((0.0, 0))
+        elif abs(plane.normal[i]) >= 1e-290:
+            out.append(frexp(plane.normal[i]))
+        else:
+            rm_i, re_i = rn_comps[i]
+            out.append(_scaled_ratio_parts((rm_i,), (rn_m,), re_i - rn_e))
+    return tuple(out)
+
+
+def _plane_height_parts(point: Vector3, plane: ConductingPlane) -> tuple[float, int]:
+    """Return ``(mantissa, exp)`` for ``plane.signed_distance_m(point)`` without overflow/underflow."""
+    from .observables import _fraction_to_parts, _scaled_ratio_parts, _vector_norm_parts
+    h = plane.signed_distance_m(point)
+    if isfinite(h) and abs(h) >= 1e-290:
+        return frexp(h)
+    from .model import _plane_exact_numerator, _plane_raw_normal
+    rn = _plane_raw_normal(plane.normal)
+    num_h = _plane_exact_numerator(point, plane.point_m, plane.normal, rn)
+    if num_h == 0:
+        return 0.0, 0
+    hm, he = _fraction_to_parts(num_h)
+    rn_m, rn_e = _vector_norm_parts(tuple(frexp(x) if x != 0.0 else (0.0, 0) for x in rn))
+    return _scaled_ratio_parts((hm,), (rn_m,), he - rn_e)
+
+
 def _mirror_displacement_parts(
     target: Vector3,
     source: Vector3,
@@ -46,10 +83,10 @@ def _mirror_displacement_parts(
 ) -> tuple[tuple[tuple[float, int], tuple[float, int], tuple[float, int]], float, int]:
     """Return ``(comp_parts, dist_mantissa, dist_exp)`` for ``target - mirror(source, plane)``.
 
-    Each component keeps its own binary exponent so tiny transverse offsets
-    (e.g. ``1e-308``) alongside huge longitudinal or normal distances never
-    underflow before charge factors restore their scale, while avoiding
-    world-coordinate translation loss, ``2*h`` overflow, and ``0*inf = nan``.
+    Each component keeps its own binary exponent so tiny transverse offsets or
+    tiny authored normal components never underflow before charge factors
+    restore their scale, while avoiding world-coordinate translation loss,
+    ``2*h`` overflow, and ``0*inf = nan``.
     """
     from .observables import (
         _component_diff_parts,
@@ -60,15 +97,16 @@ def _mirror_displacement_parts(
     h = plane.signed_distance_m(source)
     if isfinite(h) and abs(h) >= 1e-290:
         hm, he = frexp(h)
+        unit_n = _plane_unit_normal_parts(plane)
         comps = []
         exact_ctx = None
         for i in range(3):
             dm_i, de_i = _component_diff_parts(target[i], source[i])
-            ni = plane.normal[i]
-            if ni == 0.0:
+            nm_i, ne_i = unit_n[i]
+            if nm_i == 0.0:
                 comps.append((dm_i, de_i))
                 continue
-            hm_i, he_i = _scaled_ratio_parts((2.0, hm, ni), (), he)
+            hm_i, he_i = _scaled_ratio_parts((2.0, hm, nm_i), (), he + ne_i)
             if dm_i == 0.0:
                 comps.append((hm_i, he_i))
                 continue
@@ -284,28 +322,56 @@ class GroundedPlaneSolution:
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""
-        from .observables import _displacement_parts, _scaled_ratio_parts, _sum_scaled_ratios
+        from .observables import (
+            _displacement_parts,
+            _scaled_ratio_parts,
+            _scaled_ratio_product,
+            _sum_scaled_ratios,
+        )
         source = self.sources[_checked_site_index(index, len(self.sources))]
         items = [[], [], []]
-        k = self._k
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        unit_n = _plane_unit_normal_parts(self.plane) if include_direct else None
+        h_i_m, h_i_e = _plane_height_parts(source.position_m, self.plane) if include_direct else (0.0, 0)
         for j, other in enumerate(self.sources):
             if include_direct and j != index:
+                # Exact cancellation-free direct + image combination using r_img^2 - r_dir^2 = 4*h_i*h_j:
+                #   r_dir/r_dir^3 - r_img/r_img^3 = r_dir * [4*h_i*h_j*(1+rho+rho^2)/(r_dir^3*r_img^2*(1+rho))] - 2*h_j*n/r_img^3
                 comps_d, d_m, d_e = _displacement_parts(source.position_m, other.position_m)
+                _, dm, de = _mirror_displacement_parts(source.position_m, other.position_m, self.plane)
+                h_j_m, h_j_e = _plane_height_parts(other.position_m, self.plane)
+                rho = min(1.0, _scaled_ratio_product((d_m,), (dm,), d_e - de))
+                ratio_fac = (1.0 + rho + rho * rho) / (1.0 + rho)
                 for i in range(3):
                     mc, ec = comps_d[i]
                     if mc != 0.0:
                         items[i].append(
                             _scaled_ratio_parts(
-                                (k, source.charge_c, other.charge_c, mc), (d_m, d_m, d_m), ec - 3 * d_e
+                                (4.0, source.charge_c, other.charge_c, h_i_m, h_j_m, ratio_fac, mc),
+                                (four_pi, eps, d_m, d_m, d_m, dm, dm),
+                                h_i_e + h_j_e + ec - 3 * d_e - 2 * de,
                             )
                         )
+                    nm, ne = unit_n[i]
+                    if nm != 0.0:
+                        items[i].append(
+                            _scaled_ratio_parts(
+                                (-2.0, source.charge_c, other.charge_c, h_j_m, nm),
+                                (four_pi, eps, dm, dm, dm),
+                                h_j_e + ne - 3 * de,
+                            )
+                        )
+                continue
             comps_r, dm, de = _mirror_displacement_parts(source.position_m, other.position_m, self.plane)
             for i in range(3):
                 mc, ec = comps_r[i]
                 if mc != 0.0:
                     items[i].append(
                         _scaled_ratio_parts(
-                            (-k, source.charge_c, other.charge_c, mc), (dm, dm, dm), ec - 3 * de
+                            (-source.charge_c, other.charge_c, mc),
+                            (four_pi, eps, dm, dm, dm),
+                            ec - 3 * de,
                         )
                     )
         return tuple(_sum_scaled_ratios(x) for x in items)
@@ -319,17 +385,36 @@ class GroundedPlaneSolution:
     @property
     def interaction_energy_j(self) -> float:
         """External real-real Coulomb energy plus half the image interaction."""
-        from .observables import _displacement_parts, _scaled_ratio_parts, _sum_scaled_ratios
-        k = self._k
+        from .observables import (
+            _displacement_parts,
+            _scaled_ratio_parts,
+            _scaled_ratio_product,
+            _sum_scaled_ratios,
+        )
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        heights = [_plane_height_parts(q.position_m, self.plane) for q in self.sources]
         parts = []
-        for i in range(len(self.sources)):
+        for i, q in enumerate(self.sources):
+            h_i_m, h_i_e = heights[i]
+            # Self-image energy: -0.5 * k * q^2 / (2 * h_i) = -0.25 * k * q^2 / h_i
+            parts.append(
+                _scaled_ratio_parts((-0.25, q.charge_c, q.charge_c), (four_pi, eps, h_i_m), -h_i_e)
+            )
             for j in range(i + 1, len(self.sources)):
-                _, d_m, d_e = _displacement_parts(self.sources[i].position_m, self.sources[j].position_m)
-                parts.append(_scaled_ratio_parts((k, self.sources[i].charge_c, self.sources[j].charge_c), (d_m,), -d_e))
-        for q in self.sources:
-            for other in self.sources:
+                other = self.sources[j]
+                h_j_m, h_j_e = heights[j]
+                _, d_m, d_e = _displacement_parts(q.position_m, other.position_m)
                 _, dm, de = _mirror_displacement_parts(q.position_m, other.position_m, self.plane)
-                parts.append(_scaled_ratio_parts((-0.5, k, q.charge_c, other.charge_c), (dm,), -de))
+                rho = min(1.0, _scaled_ratio_product((d_m,), (dm,), d_e - de))
+                # Combined direct + cross-image pair: k*q_i*q_j*(1/r_dir - 1/r_img) = k*q_i*q_j*4*h_i*h_j/(r_dir*r_img^2*(1+rho))
+                parts.append(
+                    _scaled_ratio_parts(
+                        (4.0, q.charge_c, other.charge_c, h_i_m, h_j_m),
+                        (four_pi, eps, d_m, dm, dm, 1.0 + rho),
+                        h_i_e + h_j_e - d_e - 2 * de,
+                    )
+                )
         return _sum_scaled_ratios(parts)
 
 

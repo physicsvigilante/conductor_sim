@@ -172,17 +172,19 @@ class ExternalGroundedSphereSolution:
         r_img = _norm(reflected)
         if (
             not (isfinite(source_distance) and isfinite(r_img) and r_img > 0.0)
-            or any(r_src[i] != 0.0 and img_off[i] == 0.0 for i in range(3))
+            or any(r_src[i] != 0.0 and abs(img_off[i]) < 1e-290 for i in range(3))
             or any(
                 r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
                 for i in range(3)
             )
         ):
             return self._kelvin_exact_eval(point, want_field=False)
-        p_src = _scaled_ratio_parts((self._k, self.source.charge_c), (source_distance,))
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
+        p_src = _scaled_ratio_parts((self.source.charge_c,), (four_pi, eps, source_distance))
         p_img = _scaled_ratio_parts(
-            (-self._k, self.source.charge_c, a),
-            (d_src, r_img),
+            (-self.source.charge_c, a),
+            (four_pi, eps, d_src, r_img),
         )
         max_e = max(p_src[1], p_img[1])
         s_sum = ldexp(p_src[0], p_src[1] - max_e) + ldexp(p_img[0], p_img[1] - max_e)
@@ -212,7 +214,7 @@ class ExternalGroundedSphereSolution:
         r_img = _norm(reflected)
         if (
             not (isfinite(dist) and isfinite(r_img) and r_img > 0.0)
-            or any(r_src[i] != 0.0 and img_off[i] == 0.0 for i in range(3))
+            or any(r_src[i] != 0.0 and abs(img_off[i]) < 1e-290 for i in range(3))
             or any(
                 r_p[i] != 0.0 and img_off[i] != 0.0 and abs(reflected[i]) < 0.01 * max(abs(r_p[i]), abs(img_off[i]))
                 for i in range(3)
@@ -220,10 +222,12 @@ class ExternalGroundedSphereSolution:
         ):
             return self._kelvin_exact_eval(point, want_field=True)
         q = self.source.charge_c
+        four_pi = 4.0 * pi
+        eps = self.permittivity_f_per_m
         out = []
         for i in range(3):
-            p_src = _scaled_ratio_parts((self._k, q, direct[i]), (dist, dist, dist))
-            p_img = _scaled_ratio_parts((-self._k, q, a, reflected[i]), (d_src, r_img, r_img, r_img))
+            p_src = _scaled_ratio_parts((q, direct[i]), (four_pi, eps, dist, dist, dist))
+            p_img = _scaled_ratio_parts((-q, a, reflected[i]), (four_pi, eps, d_src, r_img, r_img, r_img))
             if p_src[0] != 0.0 and p_img[0] != 0.0:
                 max_e = max(p_src[1], p_img[1])
                 s_sum = ldexp(p_src[0], p_src[1] - max_e) + ldexp(p_img[0], p_img[1] - max_e)
@@ -294,8 +298,8 @@ class ExternalGroundedSphereSolution:
             u_denom = ((d - a) / d) * (1.0 + a / d)
         return tuple(
             _scaled_ratio_product(
-                (-self._k, self.source.charge_c, self.source.charge_c, a, delta[i]),
-                (d, d, d, d, u_denom, u_denom),
+                (-self.source.charge_c, self.source.charge_c, a, delta[i]),
+                (4.0 * pi, self.permittivity_f_per_m, d, d, d, d, u_denom, u_denom),
             )
             for i in range(3)
         )
@@ -319,8 +323,8 @@ class ExternalGroundedSphereSolution:
         else:
             u_denom = ((d - a) / d) * (1.0 + a / d)
         return _scaled_ratio_product(
-            (-0.5, self._k, self.source.charge_c, self.source.charge_c, a),
-            (d, d, u_denom),
+            (-0.5, self.source.charge_c, self.source.charge_c, a),
+            (4.0 * pi, self.permittivity_f_per_m, d, d, u_denom),
         )
 
 

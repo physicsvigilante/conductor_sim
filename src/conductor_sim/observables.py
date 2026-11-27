@@ -6,10 +6,10 @@ fail explicitly. Fixed-voltage energies are mechanical interaction potentials
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Context, Decimal, ROUND_HALF_EVEN, localcontext
 from fractions import Fraction
-from math import copysign, frexp, fsum, hypot, isfinite, ldexp
+from math import copysign, frexp, fsum, hypot, isfinite, ldexp, pi
 from typing import Protocol
 
 from .model import FixedNetCharge, PointCharge, Vector3, _position
@@ -38,12 +38,24 @@ class ChargeForce:
     direct_force_n: Vector3
     induced_force_n: Vector3
     background_force_n: Vector3 = _ZERO
+    _total_override_n: Vector3 | None = field(default=None, repr=False, compare=False)
+    _total_override_for: tuple[Vector3, Vector3, Vector3] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.source, PointCharge):
             raise TypeError('force source must be a PointCharge')
         for name in ('direct_force_n', 'induced_force_n', 'background_force_n'):
             object.__setattr__(self, name, _position(getattr(self, name), name))
+        key = (self.direct_force_n, self.induced_force_n, self.background_force_n)
+        if self._total_override_n is not None:
+            if self._total_override_for is None:
+                object.__setattr__(self, '_total_override_n', _position(self._total_override_n, 'total_force_n'))
+                object.__setattr__(self, '_total_override_for', key)
+            elif self._total_override_for != key:
+                object.__setattr__(self, '_total_override_n', None)
+                object.__setattr__(self, '_total_override_for', None)
+            else:
+                object.__setattr__(self, '_total_override_n', _position(self._total_override_n, 'total_force_n'))
 
     @property
     def conductor_force_n(self) -> Vector3:
@@ -51,6 +63,8 @@ class ChargeForce:
 
     @property
     def total_force_n(self) -> Vector3:
+        if self._total_override_n is not None:
+            return self._total_override_n
         return _sum_vectors(self.direct_force_n, self.induced_force_n, self.background_force_n)
 
 
@@ -66,15 +80,30 @@ class EnergyBreakdown:
     induced_j: float
     background_j: float
     reference: str
+    _total_override_j: float | None = field(default=None, repr=False, compare=False)
+    _total_override_for: tuple[float, float, float] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not all(isfinite(x) for x in (self.direct_j, self.induced_j, self.background_j)):
             raise ValueError('energy contributions must be finite')
+        key = (self.direct_j, self.induced_j, self.background_j)
+        if self._total_override_j is not None:
+            if self._total_override_for is None:
+                if not isfinite(self._total_override_j):
+                    raise ValueError('total energy must be finite')
+                object.__setattr__(self, '_total_override_for', key)
+            elif self._total_override_for != key:
+                object.__setattr__(self, '_total_override_j', None)
+                object.__setattr__(self, '_total_override_for', None)
+            elif not isfinite(self._total_override_j):
+                raise ValueError('total energy must be finite')
         if not isinstance(self.reference, str) or not self.reference:
             raise ValueError('energy reference must be explicit')
 
     @property
     def total_j(self) -> float:
+        if self._total_override_j is not None:
+            return self._total_override_j
         return fsum((self.direct_j, self.induced_j, self.background_j))
 
 
@@ -296,8 +325,9 @@ def _sum_scaled_ratios(parts: list[tuple[float, int]]) -> float:
         return copysign(float('inf'), -1.0 if neg else 1.0)
 
 
-def _direct(sources: tuple[PointCharge, ...], k: float):
+def _direct(sources: tuple[PointCharge, ...], permittivity_f_per_m: float):
     """Pair energy counted once; equal/opposite forces, never direct self terms."""
+    four_pi = 4.0 * pi
     forces = [[[], [], []] for _ in sources]
     energies = []
     for i, a in enumerate(sources):
@@ -306,12 +336,18 @@ def _direct(sources: tuple[PointCharge, ...], k: float):
             comps, dm, de = _displacement_parts(a.position_m, b.position_m)
             if dm == 0.0:
                 raise ValueError('coincident force sites must be grouped before observation')
-            energies.append(_scaled_ratio_parts((k, a.charge_c, b.charge_c), (dm,), -de))
+            energies.append(
+                _scaled_ratio_parts((a.charge_c, b.charge_c), (four_pi, permittivity_f_per_m, dm), -de)
+            )
             for c in range(3):
                 mc, ec = comps[c]
                 if mc == 0.0:
                     continue
-                m_f, e_f = _scaled_ratio_parts((k, a.charge_c, b.charge_c, mc), (dm, dm, dm), ec - 3 * de)
+                m_f, e_f = _scaled_ratio_parts(
+                    (a.charge_c, b.charge_c, mc),
+                    (four_pi, permittivity_f_per_m, dm, dm, dm),
+                    ec - 3 * de,
+                )
                 forces[i][c].append((m_f, e_f))
                 forces[j][c].append((-m_f, e_f))
     return tuple(tuple(_sum_scaled_ratios(c) for c in f) for f in forces), _sum_scaled_ratios(energies)
@@ -319,19 +355,34 @@ def _direct(sources: tuple[PointCharge, ...], k: float):
 
 def _plane_observables(solution) -> ForceEnergyResult:
     from .grounded_plane import _mirror_displacement_parts
-    sources, k = solution.sources, solution._k
-    direct, pair_energy = _direct(sources, k)
-    charges = tuple(ChargeForce(site, direct[i], solution.force_on_charge_n(i, include_direct=False))
-                    for i, site in enumerate(sources))
+    sources, eps = solution.sources, solution.permittivity_f_per_m
+    four_pi = 4.0 * pi
+    direct, pair_energy = _direct(sources, eps)
+    charges = tuple(
+        ChargeForce(
+            site,
+            direct[i],
+            solution.force_on_charge_n(i, include_direct=False),
+            _total_override_n=solution.force_on_charge_n(i, include_direct=True),
+        )
+        for i, site in enumerate(sources)
+    )
     induced_parts = []
     for a in sources:
         for b in sources:
             _, dm, de = _mirror_displacement_parts(a.position_m, b.position_m, solution.plane)
-            induced_parts.append(_scaled_ratio_parts((-0.5, k, a.charge_c, b.charge_c), (dm,), -de))
+            induced_parts.append(
+                _scaled_ratio_parts((-0.5, a.charge_c, b.charge_c), (four_pi, eps, dm), -de)
+            )
     induced = _sum_scaled_ratios(induced_parts)
-    energy = EnergyBreakdown(pair_energy, induced, 0.,
+    energy = EnergyBreakdown(
+        pair_energy,
+        induced,
+        0.,
         'Grounded plane: mechanical interaction energy; point self energies omitted; '
-        'zero at separated charges infinitely far from the conductor.')
+        'zero at separated charges infinitely far from the conductor.',
+        _total_override_j=solution.interaction_energy_j,
+    )
     return ForceEnergyResult(charges, energy, 'analytical grounded-plane images')
 
 
@@ -343,8 +394,10 @@ def _sphere_observables(solution) -> ForceEnergyResult:
     else:
         reference = ExternalMultiSphereSolution(solution.sphere, (solution.source,),
                         solution.permittivity_f_per_m, solution.conductor_results)
-    sources, images, k = reference.sites, reference.image_sources, reference._k
-    direct, pair_energy = _direct(sources, k)
+    sources, images = reference.sites, reference.image_sources
+    eps = reference.permittivity_f_per_m
+    four_pi = 4.0 * pi
+    direct, pair_energy = _direct(sources, eps)
     fixed = isinstance(reference.sphere.constraint, FixedNetCharge)
     Q = reference.sphere.constraint.charge_c if fixed else 0.
     S = -fsum(image.charge_c for image in images) if fixed else 0.
@@ -374,33 +427,36 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             ratio_sq = _scaled_ratio_product((a, a), (dc, dc))
             induced_vec = tuple(
                 _scaled_ratio_product(
-                    (-k, site.charge_c, site.charge_c, a, a, a, 2.0 - ratio_sq, delta_c[c]),
-                    (dc, dc, dc, dc, dc, dc, u_denom, u_denom),
+                    (-site.charge_c, site.charge_c, a, a, a, 2.0 - ratio_sq, delta_c[c]),
+                    (four_pi, eps, dc, dc, dc, dc, dc, dc, u_denom, u_denom),
                 )
                 for c in range(3)
             )
             induced_energy = _scaled_ratio_product(
-                (-0.5, k, site.charge_c, site.charge_c, a, a, a),
-                (dc, dc, dc, dc, u_denom),
+                (-0.5, site.charge_c, site.charge_c, a, a, a),
+                (four_pi, eps, dc, dc, dc, dc, u_denom),
             )
-            bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
+            bg_energy = _scaled_ratio_product((Q, site.charge_c), (four_pi, eps, dc))
         else:
             # Exact near-contact- and far-field-safe grounded-sphere polarization:
             #   F_ind = -k * q^2 * a / (d^3 * (1 - (a/d)^2)^2) * r_hat
             #   U_ind = -0.5 * k * q^2 * a / (d^2 * (1 - (a/d)^2))
             induced_vec = tuple(
                 _scaled_ratio_product(
-                    (-k, site.charge_c, site.charge_c, a, delta_c[c]),
-                    (dc, dc, dc, dc, u_denom, u_denom),
+                    (-site.charge_c, site.charge_c, a, delta_c[c]),
+                    (four_pi, eps, dc, dc, dc, dc, u_denom, u_denom),
                 )
                 for c in range(3)
             )
             induced_energy = _scaled_ratio_product(
-                (-0.5, k, site.charge_c, site.charge_c, a),
-                (dc, dc, u_denom),
+                (-0.5, site.charge_c, site.charge_c, a),
+                (four_pi, eps, dc, dc, u_denom),
             )
             bg_energy = 0.0
-        background = tuple(_scaled_ratio_product((k, site.charge_c, Q, delta_c[c]), (dc, dc, dc)) for c in range(3))
+        background = tuple(
+            _scaled_ratio_product((site.charge_c, Q, delta_c[c]), (four_pi, eps, dc, dc, dc))
+            for c in range(3)
+        )
         charges.append(ChargeForce(site, direct[0], induced_vec, background))
     else:
         # Multi-source exterior sphere (fixed-Q or grounded): evaluate Kelvin
@@ -531,8 +587,8 @@ def _sphere_observables(solution) -> ForceEnergyResult:
 
 
 def _plate_observables(solution) -> ForceEnergyResult:
-    sources, k = solution.sources, solution._k
-    direct, pair_energy = _direct(sources, k)
+    sources = solution.sources
+    direct, pair_energy = _direct(sources, solution.permittivity_f_per_m)
     from .parallel_plates import _voltage
     e0 = -(_voltage(solution.upper)-_voltage(solution.lower))/solution.gap_m
     charges, induced_energy, background_energy = [], [], []
@@ -614,7 +670,7 @@ def _cavity_observables(solution) -> ForceEnergyResult:
         raise TypeError('cavity observation requires an analytical shell solution')
 
     k = solution._k
-    direct, direct_energy = _direct(sources, k)
+    direct, direct_energy = _direct(sources, solution.permittivity_f_per_m)
     charges = []
     image_energies = []
     for i, site in enumerate(sources):
