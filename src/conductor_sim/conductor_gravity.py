@@ -243,9 +243,10 @@ def find_1d_equilibria(
     def zero_band(f_scale: float) -> float:
         if f_scale <= 0.0:
             return 0.0
-        # Cap at 1e-12 * f_scale so subnormal forces (where ulp(f_scale) is a
-        # large fraction of f_scale) never erase genuine sign-changing brackets.
-        return min(64.0 * ulp(f_scale), 1e-12 * f_scale)
+        # Tight binary64 evaluation/cancellation uncertainty band (above ~few
+        # ULPs of force_energy rounding), capped at 1e-12 * f_scale so small
+        # normal forces retain resolution.
+        return min(16.0 * ulp(f_scale), 1e-12 * f_scale)
 
     grid = [
         s_lo if i == 0 else (
@@ -305,14 +306,24 @@ def find_1d_equilibria(
         _, elec_e, _, _, _, _ = observe(s_ext)
         # Use only the local force cancellation scale at s_ext; distant
         # singular-boundary grid samples must never inflate the zero band.
-        band = zero_band(max(abs(elec_e), abs(grav_along)))
-        if f_ext == 0.0 or abs(f_ext) <= band:
-            # Treat extremum values inside the floating-point cancellation band
-            # (whether +/- a few ULPs) as a single tangent equilibrium rather
-            # than splitting roundoff noise into two spurious close roots.
-            if allow_tangent and (crossed or is_strict_interior or f_ext == 0.0):
+        f_scale = max(abs(elec_e), abs(grav_along))
+        band = zero_band(f_scale)
+        if abs(f_ext) <= band:
+            if not allow_tangent:
+                return
+            if f_ext == 0.0 and f_scale == 0.0:
                 add_root(s_ext)
-        elif crossed:
+                return
+            if crossed or is_strict_interior or f_ext == 0.0:
+                # When large opposing electrostatic and gravitational forces
+                # cancel to within binary64 force rounding at an extremum,
+                # binary64 cannot certify whether the true root count is 0, 1,
+                # or 2; refuse explicitly rather than altering the root count.
+                raise UnsupportedProblem(
+                    "near-tangent 1D equilibrium multiplicity cannot be certified within binary64 force precision"
+                )
+            return
+        if crossed:
             if (left_v < 0.0 < f_ext) or (f_ext < 0.0 < left_v):
                 add_root(_refine_bracket(net_force, left_s, left_v, s_ext, f_ext, local_root_scale))
             if (f_ext < 0.0 < right_v) or (right_v < 0.0 < f_ext):

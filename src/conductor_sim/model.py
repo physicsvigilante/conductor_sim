@@ -112,6 +112,46 @@ class SolidSphere:
 
 
 
+class _PlaneNormal(tuple):
+    """Unit-length float 3-tuple preserving the exact authored plane direction."""
+
+    def __new__(cls, unit: Vector3, raw: Vector3 | None = None):
+        unit_t = tuple(float(x) for x in unit)
+        obj = super().__new__(cls, unit_t)
+        obj._raw = unit_t if raw is None else tuple(float(x) for x in raw)
+        return obj
+
+    def __reduce__(self):
+        return (_PlaneNormal, (tuple(self), self._raw))
+
+
+def _canonical_exact_direction(raw: Vector3) -> tuple[Fraction, Fraction, Fraction]:
+    fr = tuple(Fraction(x) for x in raw)
+    m = max(abs(x) for x in fr)
+    return tuple(x / m for x in fr)
+
+
+def _plane_raw_normal(normal: Vector3, raw_normal: Vector3 | None = None) -> Vector3:
+    if raw_normal is not None:
+        return raw_normal
+    if isinstance(normal, _PlaneNormal):
+        return normal._raw
+    return normal
+
+
+def _plane_exact_numerator(
+    point: Vector3,
+    point_m: Vector3,
+    normal: Vector3,
+    raw_normal: Vector3 | None = None,
+) -> Fraction:
+    rn = _plane_raw_normal(normal, raw_normal)
+    return sum(
+        (Fraction(point[i]) - Fraction(point_m[i])) * Fraction(rn[i])
+        for i in range(3)
+    )
+
+
 def _plane_signed_distance(
     point: Vector3,
     point_m: Vector3,
@@ -119,13 +159,17 @@ def _plane_signed_distance(
     raw_normal: Vector3 | None = None,
 ) -> float:
     """Cancellation-, overflow-, and subnormal-safe signed distance to a plane."""
+    rn = _plane_raw_normal(normal, raw_normal)
     max_coord = max(
-        (max(abs(point[i]), abs(point_m[i])) for i in range(3) if normal[i] != 0.0),
+        (max(abs(point[i]), abs(point_m[i])) for i in range(3) if rn[i] != 0.0),
         default=0.0,
     )
     if max_coord == 0.0:
         return 0.0
-    if _MIN_NORMAL * 1e4 <= max_coord <= 1e150:
+    if (
+        _MIN_NORMAL * 1e4 <= max_coord <= 1e150
+        and all((rn[i] == 0.0) or (abs(normal[i]) >= _MIN_NORMAL * 1e4) for i in range(3))
+    ):
         terms = tuple((point[i] - point_m[i]) * normal[i] for i in range(3))
         if all(isfinite(t) for t in terms):
             raw = fsum(terms)
@@ -135,26 +179,22 @@ def _plane_signed_distance(
             )
             if isfinite(raw) and abs(raw) >= 0.01 * bound and abs(raw) >= _MIN_NORMAL * 1e4:
                 return raw
-    rn = raw_normal if raw_normal is not None else normal
     exact_num = sum(
         (Fraction(point[i]) - Fraction(point_m[i])) * Fraction(rn[i])
         for i in range(3)
     )
     if exact_num == 0:
         return 0.0
-    if raw_normal is None:
-        exact = exact_num
-    else:
-        r_max = max(abs(Fraction(x)) for x in rn)
-        r_norm_scaled = hypot(*(float(Fraction(x) / r_max) for x in rn))
-        exact = exact_num / (r_max * Fraction(r_norm_scaled))
+    r_max = max(abs(Fraction(x)) for x in rn)
+    r_norm_scaled = hypot(*(float(Fraction(x) / r_max) for x in rn))
+    exact = exact_num / (r_max * Fraction(r_norm_scaled))
     try:
         return float(exact)
     except OverflowError:
         return float('inf') if exact > 0 else float('-inf')
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class ConductingPlane:
     """Ideal infinite conductor occupying the negative-normal half-space.
 
@@ -172,10 +212,13 @@ class ConductingPlane:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "point_m", _position(self.point_m, "plane point"))
-        vector = _position(self.normal, "plane normal")
-        object.__setattr__(self, "_raw_normal", vector)
-        object.__setattr__(self, "normal", unit_direction(
-            vector, "plane normal must be finite and nonzero"))
+        raw_input = self.normal
+        if isinstance(raw_input, _PlaneNormal):
+            vector = _position(raw_input._raw, "plane normal")
+        else:
+            vector = _position(raw_input, "plane normal")
+        unit = unit_direction(vector, "plane normal must be finite and nonzero")
+        object.__setattr__(self, "normal", _PlaneNormal(unit, vector))
         if not isinstance(self.constraint, (Grounded, FixedPotential)):
             raise TypeError("an infinite conducting plane requires Grounded() or FixedPotential(V)")
         if (not isinstance(self.name, str) or not self.name.strip()
@@ -183,13 +226,34 @@ class ConductingPlane:
                 or any(ord(c) < 32 or c in '"\\' for c in self.name)):
             raise ValueError("invalid conducting-plane name")
 
+    @property
+    def _raw_normal(self) -> Vector3:
+        return _plane_raw_normal(self.normal)
+
+    def _identity_key(self):
+        return (
+            self.point_m,
+            tuple(self.normal),
+            _canonical_exact_direction(self._raw_normal),
+            self.constraint,
+            self.name,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ConductingPlane):
+            return NotImplemented
+        return self._identity_key() == other._identity_key()
+
+    def __hash__(self) -> int:
+        return hash(self._identity_key())
+
     def signed_distance_m(self, point_m: Vector3) -> float:
         """Positive in vacuum; zero at metal surface; negative inside metal."""
         return _plane_signed_distance(
             _position(point_m, "point"),
             self.point_m,
             self.normal,
-            getattr(self, "_raw_normal", None),
+            self._raw_normal,
         )
 
 Conductor: TypeAlias = SphericalShell | SolidSphere | ConductingPlane

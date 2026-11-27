@@ -526,7 +526,8 @@ def test_m45_sol_v2_boundary_cell_false_root_tangent_and_subnormal():
     )
     assert eq_none == ()
 
-    # (c) Exact off-grid quadratic tangent (F_peak == mg) is ALWAYS indeterminate across scan_samples
+    # (c) Cancelling near-tangent fold (|F_peak - mg| <= 16 ulp) is honestly
+    #     refused across all scan_samples rather than fabricating a root count.
     m_tan = f_peak / g_mag
     spec_tan = Motion1DSpec(
         ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25)),), (sphere,)),
@@ -534,14 +535,12 @@ def test_m45_sol_v2_boundary_cell_false_root_tangent_and_subnormal():
         gravity=UniformGravity((0.0, 0.0, -g_mag)),
     )
     for n_scan in (17, 33, 65, 129, 257):
-        eq_tan = find_1d_equilibria(
-            spec_tan, backend,
-            displacement_bounds_m=(0.13 - 0.25, 0.35 - 0.25),
-            scan_samples=n_scan,
-        )
-        assert len(eq_tan) == 1
-        assert eq_tan[0].stability == "indeterminate"
-        assert eq_tan[0].small_oscillation_angular_frequency_rad_s is None
+        with pytest.raises(UnsupportedProblem, match="near-tangent"):
+            find_1d_equilibria(
+                spec_tan, backend,
+                displacement_bounds_m=(0.13 - 0.25, 0.35 - 0.25),
+                scan_samples=n_scan,
+            )
 
     # 2. Subnormal out-of-plane gravity (5e-324, 0, 0) cannot bypass 2D plane checks!
     plane_xy = ConductingPlane((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), Grounded())
@@ -587,21 +586,19 @@ def test_m45_sol_v3_exact_boundary_root_grid_aligned_tangent_opposing_overflow_a
     assert eq_b[0].stability == "unstable"
     assert eq_b[1].stability == "stable"
 
-    # 2. Grid-aligned tangent (9 samples centered exactly on r_peak) returns 1 indeterminate root
+    # 2. Grid-aligned cancelling near-tangent (within binary64 force rounding) is honestly refused
     r_tan = 0.17165503777020558
     spec_tan_aligned = Motion1DSpec(
         ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.25)),), (sphere,)),
         0, 0.002173618447146783, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
         gravity=UniformGravity((0.0, 0.0, -9.81)),
     )
-    eq_aligned = find_1d_equilibria(
-        spec_tan_aligned, backend,
-        displacement_bounds_m=(r_tan - 0.002 - 0.25, r_tan + 0.002 - 0.25),
-        scan_samples=9,
-    )
-    assert len(eq_aligned) == 1
-    assert eq_aligned[0].stability == "indeterminate"
-    assert eq_aligned[0].small_oscillation_angular_frequency_rad_s is None
+    with pytest.raises(UnsupportedProblem, match="near-tangent"):
+        find_1d_equilibria(
+            spec_tan_aligned, backend,
+            displacement_bounds_m=(r_tan - 0.002 - 0.25, r_tan + 0.002 - 0.25),
+            scan_samples=9,
+        )
 
     # 3. Opposing overflow (+inf and -inf products) falls cleanly into exact Fraction fallback -> -3.0 J
     g_cancel_ovf = UniformGravity((2.0, 2.0, 1.0))
@@ -629,20 +626,18 @@ def test_m45_sol_v4_exact_tangent_grid_zero_subnormal_bracket_translated_axis_an
     """Regression suite for all 4 Sol v4 findings."""
     from math import ulp
 
-    # 1. Exact grid zero at the tangent peak must return 1 indeterminate root, never split into 3
+    # 1. Exact grid zero at a binary64-cancelling fold peak is honestly refused, never split into 3
     sphere = SolidSphere(center_m=(0.0, 0.0, 0.0), radius_m=0.10, constraint=FixedNetCharge(5.0e-7))
     spec_t0 = Motion1DSpec(
         ElectrostaticProblem((PointCharge(2.0e-7, (0.0, 0.0, 0.1716550374351809)),), (sphere,)),
         0, 0.021323196966509944, (0.0, 0.0, 1.0), 0.0, 0.05, 0.01,
         gravity=UniformGravity((0.0, 0.0, -1.0)),
     )
-    eq_t0 = find_1d_equilibria(
-        spec_t0, ExternalIsolatedSphereBackend(),
-        displacement_bounds_m=(-0.005, 0.005), scan_samples=9,
-    )
-    assert len(eq_t0) == 1
-    assert eq_t0[0].stability == "indeterminate"
-    assert eq_t0[0].small_oscillation_angular_frequency_rad_s is None
+    with pytest.raises(UnsupportedProblem, match="near-tangent"):
+        find_1d_equilibria(
+            spec_t0, ExternalIsolatedSphereBackend(),
+            displacement_bounds_m=(-0.005, 0.005), scan_samples=9,
+        )
 
     # 2. Subnormal forces (42*ulp(0.0)) cannot be resolved accurately in binary64:
     #    both (-0.2, 0.2) and the subnormal plateau (0.036, 0.038) must honestly refuse,
@@ -2416,3 +2411,106 @@ def test_m45_sol_v37_exact_slice_intercept_authored_normal_and_boundary_extremes
     pb_x0 = PlaneBoundary((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
     assert pb_x0.first_hit((1e-160, 0.0, 0.0), (1e-200, 0.0, 0.0)) is None
     assert pb_x0.first_hit((1e308, 0.0, 0.0), (-1e308, 0.0, 0.0)) == 0.5
+
+
+def test_m45_sol_v38_plane_replace_extreme_crossings_shallow_slice_and_equilibrium_band():
+    """Regression suite for all five Sol v38 findings."""
+    import copy
+    import pickle
+    from dataclasses import asdict, replace
+    from math import sqrt, ulp
+    from conductor_sim.geometry import PlaneBoundary, contains_metal, physical_boundaries, slice_geometry
+    from conductor_sim.visualization import SliceSpec, sample_sweep
+
+    # 1. dataclasses.replace / copy / pickle preserve exact authored plane geometry,
+    #    while replacing normal explicitly updates it and rounded tuples do not compare equal
+    p = ConductingPlane((-1e6, 3e6, 0.0), (3.0, 1.0, 0.0), Grounded())
+    p_rep = replace(p)
+    p_ren = replace(p, name="renamed")
+    p_copy = copy.deepcopy(p)
+    p_pkl = pickle.loads(pickle.dumps(p))
+    pt = (1e-11, 0.0, 0.0)
+    expected_d = 3e-11 / sqrt(10.0)
+    assert p == p_rep == p_copy == p_pkl
+    assert hash(p) == hash(p_rep) == hash(p_copy) == hash(p_pkl)
+    for plane_obj in (p, p_rep, p_ren, p_copy, p_pkl):
+        assert isclose(plane_obj.signed_distance_m(pt), expected_d, rel_tol=1e-12, abs_tol=0.0)
+        assert GroundedPlaneBackend().supports(ElectrostaticProblem((PointCharge(1e-12, pt),), (plane_obj,)))
+    # Explicit plain-tuple rounded normal creates a distinct plane (never falsely equal)
+    p_rounded = ConductingPlane((-1e6, 3e6, 0.0), tuple(p.normal), Grounded())
+    assert p != p_rounded
+    # Explicitly replacing normal updates the plane cleanly
+    p_new_n = replace(p, normal=(1.0, 0.0, 0.0))
+    assert p_new_n.normal == (1.0, 0.0, 0.0)
+    assert isclose(p_new_n.signed_distance_m((1e6, 0.0, 0.0)), 2e6, rel_tol=1e-15)
+    assert isinstance(asdict(p)["normal"], tuple)
+
+    # 2. PlaneBoundary.first_hit handles overflowing endpoint distances and subnormal underflow-to-zero
+    p_ovf = ConductingPlane((1e308, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    assert isclose(
+        physical_boundaries(p_ovf)[0].first_hit((-1e308, 0.0, 0.0), (1.5e308, 0.0, 0.0)),
+        0.8,
+        rel_tol=1e-15,
+    )
+    u0 = ulp(0.0)
+    p_14 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 4.0, 0.0), Grounded())
+    assert contains_metal(p_14, (u0, 0.0, 0.0)) is False
+    assert isclose(
+        physical_boundaries(p_14)[0].first_hit((u0, 0.0, 0.0), (-4.0 * u0, 0.0, 0.0)),
+        0.2,
+        rel_tol=1e-15,
+    )
+
+    # 3. Underflowed normal component (1e300, 1e-100, 0) is preserved in signed_distance_m and contains_metal
+    p_tiny_comp = ConductingPlane((0.0, 0.0, 0.0), (1e300, 1e-100, 0.0), Grounded())
+    assert p_tiny_comp != ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    assert replace(p_tiny_comp, normal=(1.0, 0.0, 0.0)) == ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), Grounded())
+    assert isclose(p_tiny_comp.signed_distance_m((0.0, 1e300, 0.0)), 1e-100, rel_tol=1e-12, abs_tol=0.0)
+    assert contains_metal(p_tiny_comp, (0.0, 1e300, 0.0)) is False
+    assert contains_metal(p_tiny_comp, (0.0, -1e300, 0.0)) is True
+
+    # 4. Shallow slice (normal (1, 0, 1e-11), u=(0,0,1), v=(0,1,0)) stays visible with accurate profile
+    p_shallow = ConductingPlane((0.0, 0.0, 0.0), (1.0, 0.0, 1e-11), Grounded())
+    sp_shallow = SliceSpec(
+        origin_m=(0.0, 0.0, 0.0), u=(0.0, 0.0, 1.0), v=(0.0, 1.0, 0.0),
+        x_range_m=(-10.0, 10.0), y_range_m=(-1.0, 1.0), resolution=9,
+    )
+    geom_sh = slice_geometry(p_shallow, sp_shallow)
+    assert geom_sh["visible"] is True
+    assert geom_sh.get("fills_metal", False) is False
+    assert isclose(geom_sh["normal_xy"][0], 1.0, rel_tol=1e-12)
+    assert isclose(geom_sh["normal_xy"][1], 0.0, abs_tol=1e-12)
+    bundle_sh = sample_sweep(
+        [("shallow", ElectrostaticProblem((PointCharge(1e-12, (1.0, 0.0, 0.0)),), (p_shallow,)))],
+        GroundedPlaneBackend(), plane=sp_shallow, resolution=9,
+    )
+    frame_sh = bundle_sh["frames"][0]
+    center_row = frame_sh["grid"]["region"][4]
+    assert center_row.count("metal") == 4
+    assert center_row.count("surface") == 1
+    assert center_row.count("vacuum") == 4
+    assert frame_sh["geometry"][0]["visible"] is True
+    assert len(frame_sh["profiles"]) == 1
+    assert isclose(frame_sh["profiles"][0]["sigma_c_per_m2"][45], -1e-12 / (2.0 * pi), rel_tol=1e-10)
+
+    # 5. Tight cancellation band preserves true 2-root and 0-root counts outside ~16 ULP noise
+    sphere = SolidSphere(0.1, FixedNetCharge(5e-7), (0.0, 0.0, 0.0), "sphere")
+    prob_eq = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.25)),), (sphere,))
+    spec_two = Motion1DSpec(
+        prob_eq, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.64639393301955)),
+    )
+    eqs_two = find_1d_equilibria(spec_two, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-0.12, 0.10))
+    assert len(eqs_two) == 2
+    assert isclose(eqs_two[0].position_m[2], 0.171655032154766, rel_tol=1e-9)
+    assert isclose(eqs_two[1].position_m[2], 0.171655043115597, rel_tol=1e-9)
+    assert eqs_two[0].stability == "unstable"
+    assert eqs_two[1].stability == "stable"
+    assert eqs_two[1].small_oscillation_angular_frequency_rad_s is not None
+
+    spec_zero = Motion1DSpec(
+        prob_eq, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        gravity=UniformGravity((0.0, 0.0, -42.646393933020235)),
+    )
+    eqs_zero = find_1d_equilibria(spec_zero, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-0.12, 0.10))
+    assert eqs_zero == ()
