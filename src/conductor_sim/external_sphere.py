@@ -16,15 +16,20 @@ from .solver import ConductorResult, SingularField, UnsupportedProblem
 
 
 def _sphere_strictly_outside(point: Vector3, center: Vector3, radius: float) -> bool:
-    """Exact |point - center|^2 > radius^2 check, immune to hypot rounding near surface."""
+    """Require binary64 radial separation d > radius AND exact |point - center|^2 > radius^2.
+
+    Refuses both truly interior points whose hypot rounds up to > radius and
+    binary64-unresolved near-surface points where hypot rounds down to <= radius
+    (so every admitted source has positive radial clearance across all sphere APIs).
+    """
     delta = tuple(point[i] - center[i] for i in range(3))
-    if all(isfinite(x) for x in delta):
-        d = hypot(*delta)
-        if isfinite(d):
-            if d > radius * (1.0 + 1e-12):
-                return True
-            if d < radius * (1.0 - 1e-12):
-                return False
+    if not all(isfinite(x) for x in delta):
+        return False
+    d = hypot(*delta)
+    if not isfinite(d) or d <= radius:
+        return False
+    if d > radius * (1.0 + 1e-12):
+        return True
     f_delta = tuple(Fraction(point[i]) - Fraction(center[i]) for i in range(3))
     return sum(x * x for x in f_delta) > Fraction(radius) * Fraction(radius)
 
@@ -152,20 +157,22 @@ class ExternalGroundedSphereSolution:
     @property
     def induced_force_on_charge_n(self) -> Vector3:
         """Exact physical force on source due to the grounded conductor, excluding self-field."""
-        v = _diff(self.source.position_m, self.image_position_m)
-        r = _norm(v)
+        from .observables import _scaled_ratio_product
         d = self.source_distance_m
         a = self.sphere.radius_m
-        if r == 0.0 or d - a < 0.01 * a:
-            from .observables import _scaled_ratio_product
-            delta = _diff(self.source.position_m, self.sphere.center_m)
+        delta = _diff(self.source.position_m, self.sphere.center_m)
+        if d - a < 0.01 * a:
             f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
             f_d2 = sum(x * x for x in f_delta)
             f_a2 = Fraction(a) * Fraction(a)
             u_denom = float((f_d2 - f_a2) / f_d2)
-            mag = _scaled_ratio_product((-self._k, self.source.charge_c, self.source.charge_c, a / d), (d, d, u_denom, u_denom))
-            return tuple(mag * (delta[i] / d) for i in range(3))
-        return _pair_force(self._k, self.source.charge_c, self.image_charge_c, v, r)
+        else:
+            u_denom = ((d - a) / d) * (1.0 + a / d)
+        mag = _scaled_ratio_product(
+            (-self._k, self.source.charge_c, self.source.charge_c, a),
+            (d, d, d, u_denom, u_denom),
+        )
+        return tuple(mag * (delta[i] / d) for i in range(3))
 
     @property
     def force_on_charge_n(self) -> Vector3:
@@ -175,17 +182,20 @@ class ExternalGroundedSphereSolution:
     @property
     def interaction_energy_j(self) -> float:
         """Induced-charge interaction energy, with its physical factor 1/2."""
-        r = _norm(_diff(self.source.position_m, self.image_position_m))
+        from .observables import _scaled_ratio_product
         d = self.source_distance_m
         a = self.sphere.radius_m
-        if r == 0.0 or d - a < 0.01 * a:
-            from .observables import _scaled_ratio_product
+        if d - a < 0.01 * a:
             f_delta = tuple(Fraction(self.source.position_m[i]) - Fraction(self.sphere.center_m[i]) for i in range(3))
             f_d2 = sum(x * x for x in f_delta)
             f_a2 = Fraction(a) * Fraction(a)
             u_denom = float((f_d2 - f_a2) / f_d2)
-            return _scaled_ratio_product((-0.5, self._k, self.source.charge_c, self.source.charge_c, a / d), (d, u_denom))
-        return (self._k * (self.source.charge_c / r)) * self.image_charge_c / 2
+        else:
+            u_denom = ((d - a) / d) * (1.0 + a / d)
+        return _scaled_ratio_product(
+            (-0.5, self._k, self.source.charge_c, self.source.charge_c, a),
+            (d, d, u_denom),
+        )
 
 
 class ExternalGroundedSphereBackend:

@@ -572,9 +572,12 @@ def test_m45_sol_v3_exact_boundary_root_grid_aligned_tangent_opposing_overflow_a
     backend = ExternalIsolatedSphereBackend()
 
     # 1. Exact root on scan boundary z=0.17164 must NOT hide the second stable root inside [grid[0], grid[1]]
+    from conductor_sim.observables import force_energy
+    prob_b = ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.17164)),), (sphere,))
+    m_boundary_exact = force_energy(backend.solve(prob_b)).charges[0].total_force_n[2]
     spec_b = Motion1DSpec(
-        ElectrostaticProblem((PointCharge(q, (0.0, 0.0, 0.17164)),), (sphere,)),
-        0, 0.02132319569394952, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
+        prob_b,
+        0, m_boundary_exact, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
         gravity=UniformGravity((0.0, 0.0, -1.0)),
     )
     eq_b = find_1d_equilibria(
@@ -2534,8 +2537,8 @@ def test_m45_sol_v39_sphere_far_field_cancellation_endpoint_fold_immutable_norma
     assert find_1d_equilibria(spec_far, ExternalIsolatedSphereBackend(), displacement_bounds_m=(-2.5, 2.5)) == ()
 
     # 2. Endpoint near/at a cancelling fold peak never returns a bogus root:
-    #    -42.64639393301988 gives 0 roots (matching 85-digit Decimal), and an exact
-    #    binary64 endpoint zero right at the fold peak is refused explicitly.
+    #    -42.64639393301988 either returns 0 roots or refuses explicitly (never 1 root),
+    #    and an exact binary64 endpoint zero right at the fold peak is always refused.
     from conductor_sim.observables import force_energy
     sphere_fold = SolidSphere(0.1, FixedNetCharge(5e-7), (0.0, 0.0, 0.0), "sphere")
     prob_fold = ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, 0.25)),), (sphere_fold,))
@@ -2543,11 +2546,12 @@ def test_m45_sol_v39_sphere_far_field_cancellation_endpoint_fold_immutable_norma
         prob_fold, 0, 5e-4, (0.0, 0.0, 1.0), 0.0, 0.1, 0.01,
         gravity=UniformGravity((0.0, 0.0, -42.64639393301988)),
     )
-    assert find_1d_equilibria(
-        spec_fold,
-        ExternalIsolatedSphereBackend(),
-        displacement_bounds_m=(-0.09834496336481911, -0.07834496336481911),
-    ) == ()
+    with pytest.raises(UnsupportedProblem, match="near-tangent"):
+        find_1d_equilibria(
+            spec_fold,
+            ExternalIsolatedSphereBackend(),
+            displacement_bounds_m=(-0.09834496336481911, -0.07834496336481911),
+        )
     z_fold = 0.25 - 0.07834496336481911
     fe_fold = force_energy(ExternalIsolatedSphereBackend().solve(
         ElectrostaticProblem((PointCharge(2e-7, (0.0, 0.0, z_fold)),), (sphere_fold,))
@@ -2770,22 +2774,24 @@ def test_m45_sol_v43_sphere_admission_compensator_precision_subnormal_height_and
     from conductor_sim import ExternalGroundedSphereBackend, ExternalMultiSphereBackend
     from conductor_sim.observables import force_energy
 
-    # 1. Exact exterior admission: interior point refused, strictly exterior off-axis point accepted
+    # 1. Exact exterior admission: both truly interior points whose hypot rounds up AND
+    #    binary64-unresolved surface points (hypot <= R) are refused consistently across backends.
     s_in = SolidSphere(0.8838834764831843, FixedNetCharge(0.0), (2.0**-54, 2.0**-54, 0.0), "sphere")
     p_in = ElectrostaticProblem((PointCharge(1e-8, (0.625, 0.625, 0.0)),), (s_in,))
     assert ExternalIsolatedSphereBackend().supports(p_in) is False
     assert ExternalMultiSphereBackend().supports(p_in) is False
 
     s_out = SolidSphere(1.0, FixedNetCharge(0.0), (0.0, 0.0, 0.0), "sphere")
-    p_out = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_out,))
-    assert ExternalIsolatedSphereBackend().supports(p_out) is True
-    obs_out = force_energy(ExternalIsolatedSphereBackend().solve(p_out))
-    assert obs_out.energy.induced_j < 0.0
-    assert obs_out.charges[0].induced_force_n[2] < 0.0
+    p_unres = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_out,))
+    assert ExternalIsolatedSphereBackend().supports(p_unres) is False
+    assert ExternalMultiSphereBackend().supports(p_unres) is False
     s_gnd = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
-    p_gnd = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_gnd,))
-    assert ExternalGroundedSphereBackend().supports(p_gnd) is True
-    assert force_energy(ExternalGroundedSphereBackend().solve(p_gnd)).energy.induced_j < 0.0
+    p_gnd_unres = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0)),), (s_gnd,))
+    assert ExternalGroundedSphereBackend().supports(p_gnd_unres) is False
+    # Resolved near-contact exterior point (hypot > R and exact d^2 > R^2) is admitted cleanly
+    p_res = ElectrostaticProblem((PointCharge(1e-8, (2.0**-26, 0.0, 1.0000000000000002)),), (s_gnd,))
+    assert ExternalGroundedSphereBackend().supports(p_res) is True
+    assert force_energy(ExternalGroundedSphereBackend().solve(p_res)).energy.induced_j < 0.0
 
     # 2. Adaptive precision tracks center coordinate offset and compensator S cancellation
     s_off = SolidSphere(1.0, FixedNetCharge(1e-8), (1e-100, 0.0, 0.0), "sphere")
@@ -2816,3 +2822,60 @@ def test_m45_sol_v43_sphere_admission_compensator_precision_subnormal_height_and
     finally:
         decimal.DefaultContext.traps[decimal.Inexact] = prev_trap
     assert isclose(obs_u.energy.induced_j, -2.995850597420391e-08, rel_tol=1e-12, abs_tol=0.0)
+
+
+def test_m45_sol_v44_bracket_overflow_far_field_underflow_sphere_admission_and_radial_density():
+    """Regression suite for all four Sol v44 findings."""
+    from math import sqrt
+    from conductor_sim import ExternalGroundedSphereBackend, ExternalMultiSphereBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Equilibrium refinement avoids 0.5*(lo + hi) overflow at 1e308 displacement scale
+    s_big = SolidSphere(9e306, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    prob_big = ElectrostaticProblem((PointCharge(1e300, (1e307, 0.0, 0.0)),), (s_big,))
+    spec_big = Motion1DSpec(
+        prob_big, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        gravity=UniformGravity((5.3668225790849527e-08, 0.0, 0.0)),
+    )
+    eqs_big = find_1d_equilibria(
+        spec_big, ExternalGroundedSphereBackend(),
+        displacement_bounds_m=(9e307, 1.3e308), scan_samples=9,
+    )
+    assert len(eqs_big) == 1
+    assert isclose(eqs_big[0].displacement_m, 1.051234567e308, rel_tol=1e-6)
+
+    # 2. Grounded sphere avoids a/d underflow (R=1e-200, q=1e308, d=1e150) and refuses unresolved (1e-170, 0, 1)
+    s_tiny = SolidSphere(1e-200, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    sol_tiny = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (0.0, 0.0, 1e150)),), (s_tiny,))
+    )
+    from conductor_sim.model import EPSILON_0
+    k_coul = 1.0 / (4.0 * pi * EPSILON_0)
+    obs_tiny = force_energy(sol_tiny)
+    assert isclose(obs_tiny.charges[0].induced_force_n[2], -k_coul * 1e-34, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(obs_tiny.energy.induced_j, -0.5 * k_coul * 1e116, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_tiny.induced_force_on_charge_n[2], -k_coul * 1e-34, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sol_tiny.interaction_energy_j, -0.5 * k_coul * 1e116, rel_tol=1e-12, abs_tol=0.0)
+
+    # 3. Unresolved binary64-surface sources ((1e-170, 0, 1) and (2**-26, 0, 1) on unit sphere)
+    #    are consistently refused so no sphere API can see zero clearance or singular image coincidence
+    s_u = SolidSphere(1.0, Grounded(), (0.0, 0.0, 0.0), "sphere")
+    assert ExternalGroundedSphereBackend().supports(
+        ElectrostaticProblem((PointCharge(1e-193, (1e-170, 0.0, 1.0)),), (s_u,))
+    ) is False
+    assert ExternalMultiSphereBackend().supports(
+        ElectrostaticProblem(
+            (PointCharge(1e-8, (2.0**-26, 0.0, 1.0)), PointCharge(1e-8, (0.0, 0.0, -2.0))),
+            (s_u,),
+        )
+    ) is False
+
+    # 4. Grounded-plane radial surface_charge_density avoids subnormal height rounding (matches point density)
+    p_110 = ConductingPlane((0.0, 0.0, 0.0), (1.0, 1.0, 0.0), Grounded())
+    sol_110 = GroundedPlaneBackend().solve(
+        ElectrostaticProblem((PointCharge(1e308, (5e-324, 0.0, 0.0)),), (p_110,))
+    )
+    sigma_rad = sol_110.surface_charge_density("outer", sqrt(2.0))
+    sigma_pt = sol_110.surface_charge_density_at("outer", (1.0, -1.0, 0.0))
+    assert isclose(sigma_rad, -1.965824743688103e-17, rel_tol=1e-12, abs_tol=0.0)
+    assert isclose(sigma_rad, sigma_pt, rel_tol=1e-12, abs_tol=0.0)

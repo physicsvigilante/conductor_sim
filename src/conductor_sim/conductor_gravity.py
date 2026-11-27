@@ -52,22 +52,38 @@ def _scaled_sqrt_ratio(numerator: float, denominator: float) -> float:
     return omega
 
 
+def _midpoint(lo: float, hi: float) -> float:
+    """Overflow-safe midpoint of [lo, hi]."""
+    return 0.5 * lo + 0.5 * hi
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+    """Overflow-safe convex combination (1 - t) * a + t * b for t in [0, 1]."""
+    return (1.0 - t) * a + t * b
+
+
 def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: float) -> float:
     """Robust regula-falsi / bisection hybrid preserving exact bracketing down to ULP scale."""
     lo, hi = a, b
     flo, fhi = fa, fb
     converged = False
     for iteration in range(2048):
-        width = hi - lo
-        if width <= 4.0 * ulp(max(abs(lo), abs(hi), scale)):
+        half_width = 0.5 * hi - 0.5 * lo
+        if half_width <= 2.0 * ulp(max(abs(lo), abs(hi), scale)):
             converged = True
             break
         if iteration % 2 == 0 and fhi != flo:
-            mid = lo - flo * width / (fhi - flo)
-            if not (lo + 0.05 * width < mid < hi - 0.05 * width):
-                mid = 0.5 * (lo + hi)
+            fscale = max(abs(flo), abs(fhi))
+            sflo, sfhi = flo / fscale, fhi / fscale
+            frac = (-sflo) / (sfhi - sflo)
+            if 0.05 < frac < 0.95:
+                mid = _lerp(lo, hi, frac)
+            else:
+                mid = _midpoint(lo, hi)
         else:
-            mid = 0.5 * (lo + hi)
+            mid = _midpoint(lo, hi)
+        if not (lo < mid < hi):
+            mid = _midpoint(lo, hi)
         fmid = eval_net(mid)
         if fmid == 0.0:
             return mid
@@ -75,9 +91,9 @@ def _refine_bracket(eval_net, a: float, fa: float, b: float, fb: float, scale: f
             hi, fhi = mid, fmid
         else:
             lo, flo = mid, fmid
-    if not converged and (hi - lo) > 16.0 * ulp(max(abs(lo), abs(hi), scale)):
+    if not converged and (0.5 * hi - 0.5 * lo) > 8.0 * ulp(max(abs(lo), abs(hi), scale)):
         raise UnsupportedProblem("1D equilibrium bracket failed to converge to binary64 precision")
-    mid = 0.5 * (lo + hi)
+    mid = _midpoint(lo, hi)
     fmid = eval_net(mid)
     return min(((abs(flo), lo), (abs(fmid), mid), (abs(fhi), hi)), key=lambda item: item[0])[1]
 
@@ -95,12 +111,12 @@ def _locate_extremum(
     lo, hi = a, b
     flo = eval_net(lo)
     fhi = eval_net(hi)
-    c = hi - _INV_PHI * (hi - lo)
-    d = lo + _INV_PHI * (hi - lo)
+    c = _lerp(hi, lo, _INV_PHI)
+    d = _lerp(lo, hi, _INV_PHI)
     fc = eval_net(c)
     fd = eval_net(d)
     for _ in range(3000):
-        if hi - lo <= 16.0 * ulp(max(abs(lo), abs(hi), scale)):
+        if 0.5 * hi - 0.5 * lo <= 8.0 * ulp(max(abs(lo), abs(hi), scale)):
             break
         if fc != fd:
             better_c = (fc > fd) if maximize else (fc < fd)
@@ -116,11 +132,11 @@ def _locate_extremum(
             better_c = prefer_left
         if better_c:
             hi, fhi, d, fd = d, fd, c, fc
-            c = hi - _INV_PHI * (hi - lo)
+            c = _lerp(hi, lo, _INV_PHI)
             fc = eval_net(c)
         else:
             lo, flo, c, fc = c, fc, d, fd
-            d = lo + _INV_PHI * (hi - lo)
+            d = _lerp(lo, hi, _INV_PHI)
             fd = eval_net(d)
     s_best = c if ((fc >= fd) if maximize else (fc <= fd)) else d
     return s_best, (fc if s_best == c else fd)
@@ -345,7 +361,7 @@ def find_1d_equilibria(
                 "net force vanishes or underflows across the entire equilibrium scan interval"
             )
         if run_end > run_idx and any(
-            values[k] == 0.0 and values[k + 1] == 0.0 and net_force(0.5 * (grid[k] + grid[k + 1])) == 0.0
+            values[k] == 0.0 and values[k + 1] == 0.0 and net_force(_midpoint(grid[k], grid[k + 1])) == 0.0
             for k in range(run_idx, run_end)
         ):
             raise UnsupportedProblem(

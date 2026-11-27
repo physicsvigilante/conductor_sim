@@ -174,9 +174,34 @@ class GroundedPlaneSolution:
             raise ValueError("radial_distance_m must be finite and nonnegative")
         q = self.sources[0]
         h = self.plane.signed_distance_m(q.position_m)
-        # Radial coordinate is measured from the charge's projection onto
-        # the infinite plane, independent of the author's arbitrary point_m.
-        return -q.charge_c*h/(2*pi*(h*h + radial_distance_m**2)**1.5)
+        from fractions import Fraction
+        from sys import float_info
+        from .model import _plane_exact_numerator, _plane_raw_normal
+        from .observables import _scaled_ratio_product
+        min_normal = float_info.min * 1e4
+        r_tot = hypot(h, radial_distance_m) if isfinite(h) else float("inf")
+        if isfinite(h) and abs(h) >= min_normal and isfinite(r_tot) and r_tot >= min_normal:
+            return -_scaled_ratio_product((q.charge_c, h), (2.0 * pi, r_tot, r_tot, r_tot))
+        if isfinite(h) and abs(h) >= min_normal:
+            exact_hq = Fraction(h)
+        else:
+            rn = _plane_raw_normal(self.plane.normal)
+            r_max = max(abs(Fraction(x)) for x in rn)
+            r_norm = hypot(*(float(Fraction(x) / r_max) for x in rn))
+            exact_hq = _plane_exact_numerator(q.position_m, self.plane.point_m, self.plane.normal, rn) / (r_max * Fraction(r_norm))
+        exact_r = Fraction(radial_distance_m)
+        d_max = max(abs(exact_hq), exact_r)
+        if d_max == 0:
+            raise ZeroDivisionError("surface-density point coincides with point source")
+        r_scaled = hypot(float(exact_hq / d_max), float(exact_r / d_max))
+        exact_term = (
+            Fraction(q.charge_c) * exact_hq
+            / (Fraction(2.0 * pi) * (d_max ** 3) * Fraction(r_scaled) ** 3)
+        )
+        try:
+            return -float(exact_term)
+        except OverflowError:
+            return float("-inf") if exact_term > 0 else float("inf")
 
     def force_on_charge_n(self, index: int, *, include_direct: bool = True) -> Vector3:
         """Net force on one *grouped* active point charge, excluding self-field."""

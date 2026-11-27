@@ -256,28 +256,29 @@ def _sphere_observables(solution) -> ForceEnergyResult:
             u_denom = ((dc - a) / dc) * (1.0 + ratio)
         if fixed:
             # Exact cancellation-, overflow-, and underflow-free isolated-sphere polarization:
-            #   F_ind = -k * q^2 * (a/d)^3 * (2 - (a/d)^2) / (d^2 * (1 - (a/d)^2)^2) * r_hat
-            #   U_ind = -0.5 * k * q^2 * a * (a/d)^2 / (d^2 * (1 - (a/d)^2))
+            #   F_ind = -k * q^2 * a^3 * (2 - (a/d)^2) / (d^5 * (1 - (a/d)^2)^2) * r_hat
+            #   U_ind = -0.5 * k * q^2 * a^3 / (d^4 * (1 - (a/d)^2))
+            ratio_sq = _scaled_ratio_product((a, a), (dc, dc))
             self_mag = _scaled_ratio_product(
-                (-k, site.charge_c, site.charge_c, ratio, ratio, ratio, 2.0 - ratio * ratio),
-                (dc, dc, u_denom, u_denom),
+                (-k, site.charge_c, site.charge_c, a, a, a, 2.0 - ratio_sq),
+                (dc, dc, dc, dc, dc, u_denom, u_denom),
             )
             induced_energy = _scaled_ratio_product(
-                (-0.5, k, site.charge_c, site.charge_c, a, ratio, ratio),
-                (dc, dc, u_denom),
+                (-0.5, k, site.charge_c, site.charge_c, a, a, a),
+                (dc, dc, dc, dc, u_denom),
             )
             bg_energy = _scaled_ratio_product((k, Q, site.charge_c), (dc,))
         else:
-            # Exact near-contact-safe grounded-sphere polarization:
-            #   F_ind = -k * q^2 * (a/d) / (d^2 * (1 - (a/d)^2)^2) * r_hat
-            #   U_ind = -0.5 * k * q^2 * (a/d) / (d * (1 - (a/d)^2))
+            # Exact near-contact- and far-field-safe grounded-sphere polarization:
+            #   F_ind = -k * q^2 * a / (d^3 * (1 - (a/d)^2)^2) * r_hat
+            #   U_ind = -0.5 * k * q^2 * a / (d^2 * (1 - (a/d)^2))
             self_mag = _scaled_ratio_product(
-                (-k, site.charge_c, site.charge_c, ratio),
-                (dc, dc, u_denom, u_denom),
+                (-k, site.charge_c, site.charge_c, a),
+                (dc, dc, dc, u_denom, u_denom),
             )
             induced_energy = _scaled_ratio_product(
-                (-0.5, k, site.charge_c, site.charge_c, ratio),
-                (dc, u_denom),
+                (-0.5, k, site.charge_c, site.charge_c, a),
+                (dc, dc, u_denom),
             )
             bg_energy = 0.0
         induced_vec = tuple(self_mag * r0_hat[c] for c in range(3))
