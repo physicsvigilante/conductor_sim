@@ -168,7 +168,11 @@ def contains_metal(shape, point: Vector3) -> bool:
         return _plane_exact_numerator(point, shape.point_m, shape.normal, rn) <= 0
     if isinstance(shape,(SphericalShell,SolidSphere)):
         r = hypot(*_sub(point,shape.center_m))
-        return shape.inner_radius_m <= r <= shape.outer_radius_m
+        lo, hi = shape.inner_radius_m, shape.outer_radius_m
+        if (lo > 0.0 and abs(r - lo) <= 1e-12 * max(r, lo)) or abs(r - hi) <= 1e-12 * max(r, hi):
+            rp2 = sum((Fraction(point[i]) - Fraction(shape.center_m[i])) ** 2 for i in range(3))
+            return Fraction(lo) ** 2 <= rp2 <= Fraction(hi) ** 2
+        return lo <= r <= hi
     raise TypeError(f"unsupported physical conductor shape: {type(shape).__name__}")
 
 

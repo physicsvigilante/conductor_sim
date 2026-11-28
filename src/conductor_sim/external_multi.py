@@ -389,11 +389,20 @@ class ExternalMultiSphereSolution:
         pt = _position(point_m, 'sample point')
         r_p = difference(pt, self.sphere.center_m)
         r = norm(r_p)
-        if isclose(r, self.sphere.radius_m, rel_tol=1e-12):
-            raise SingularField('electric field jumps at the conducting surface')
-        if r < self.sphere.radius_m:
-            return (0.0, 0.0, 0.0)
         a = self.sphere.radius_m
+        if r <= a or isclose(r, a, rel_tol=1e-12):
+            from fractions import Fraction
+            fa = Fraction(a)
+            rp2_exact = sum((Fraction(pt[i]) - Fraction(self.sphere.center_m[i])) ** 2 for i in range(3))
+            if rp2_exact == fa * fa:
+                raise SingularField('electric field jumps at the conducting surface')
+            if rp2_exact < fa * fa:
+                return (0.0, 0.0, 0.0)
+            if r <= a:
+                for site in self.sites:
+                    if pt == site.position_m:
+                        raise SingularField('electric field is singular at an external point charge')
+                return self._multi_exact_eval(pt, want_field=True)
         four_pi = 4.0 * pi
         eps = self.permittivity_f_per_m
         fixed = isinstance(self.sphere.constraint, FixedNetCharge)

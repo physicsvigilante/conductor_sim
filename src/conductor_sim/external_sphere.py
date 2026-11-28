@@ -206,15 +206,23 @@ class ExternalGroundedSphereSolution:
         point = _position(point_m, 'sample point')
         r_p = _diff(point, self.sphere.center_m)
         r = _norm(r_p)
-        if isclose(r, self.sphere.radius_m, rel_tol=1e-12):
-            raise SingularField('field has distinct one-sided limits at sphere surface')
-        if r < self.sphere.radius_m:
-            return (0.0,0.0,0.0)
+        a = self.sphere.radius_m
+        if r <= a or isclose(r, a, rel_tol=1e-12):
+            from fractions import Fraction
+            fa = Fraction(a)
+            rp2_exact = sum((Fraction(point[i]) - Fraction(self.sphere.center_m[i])) ** 2 for i in range(3))
+            if rp2_exact == fa * fa:
+                raise SingularField('field has distinct one-sided limits at sphere surface')
+            if rp2_exact < fa * fa:
+                return (0.0,0.0,0.0)
+            if r <= a:
+                if point == self.source.position_m:
+                    raise SingularField('electric field is singular at the external charge')
+                return self._kelvin_exact_eval(point, want_field=True)
         direct = _diff(point, self.source.position_m)
         dist = _norm(direct)
         if dist == 0:
             raise SingularField('electric field is singular at the external charge')
-        a = self.sphere.radius_m
         r_src = _diff(self.source.position_m, self.sphere.center_m)
         d_src = _norm(r_src)
         img_off = tuple(_scaled_ratio_product((a, a, r_src[i]), (d_src, d_src)) for i in range(3))

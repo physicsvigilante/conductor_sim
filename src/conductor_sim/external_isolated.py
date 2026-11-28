@@ -266,6 +266,7 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         total = base + central
         if (
             not (isfinite(base) and isfinite(central) and isfinite(total))
+            or ((self.source.charge_c != 0.0 or Q != 0.0) and (abs(base) < 1e-300 or abs(central) < 1e-300 or abs(total) < 1e-300))
             or (base != 0.0 and central != 0.0 and abs(total) < 0.01 * max(abs(base), abs(central)))
             or (c_parts[0][0] != 0.0 and c_parts[1][0] != 0.0 and (central == 0.0 or abs(central) < 0.01 * max(abs(_sum_scaled_ratios([c_parts[0]])), abs(_sum_scaled_ratios([c_parts[1]])))))
         ):
@@ -275,18 +276,28 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
     def electric_field_at(self, point_m: Vector3) -> Vector3:
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
-        base = super().electric_field_at(point)
         delta = _diff(point, self.sphere.center_m)
         r = _norm(delta)
-        if r < self.sphere.radius_m:
-            return base
+        a = self.sphere.radius_m
+        if r <= a or isclose(r, a, rel_tol=1e-12):
+            from fractions import Fraction
+            fa = Fraction(a)
+            rp2_exact = sum((Fraction(point[i]) - Fraction(self.sphere.center_m[i])) ** 2 for i in range(3))
+            if rp2_exact == fa * fa:
+                raise SingularField('field has distinct one-sided limits at sphere surface')
+            if rp2_exact < fa * fa:
+                return (0.0, 0.0, 0.0)
+            if r <= a:
+                if point == self.source.position_m:
+                    raise SingularField('electric field is singular at the external charge')
+                return self._isolated_exact_eval(point, want_field=True)
+        base = super().electric_field_at(point)
         if not isfinite(r):
             return self._isolated_exact_eval(point, want_field=True)
         four_pi = 4.0 * pi
         eps = self.permittivity_f_per_m
         Q = self.conductor_results[0].net_charge_c
         q = self.source.charge_c
-        a = self.sphere.radius_m
         d_src = self.source_distance_m
         out = []
         for i in range(3):
@@ -296,6 +307,11 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
             tot_i = base[i] + central_i
             if (
                 not (isfinite(base[i]) and isfinite(central_i) and isfinite(tot_i))
+                or (
+                    (q != 0.0 or Q != 0.0)
+                    and (delta[i] != 0.0 or point[i] != self.source.position_m[i])
+                    and (abs(base[i]) < 1e-300 or abs(central_i) < 1e-300 or abs(tot_i) < 1e-300)
+                )
                 or (base[i] != 0.0 and central_i != 0.0 and abs(tot_i) < 0.01 * max(abs(base[i]), abs(central_i)))
                 or (c_Q[0] != 0.0 and c_ind[0] != 0.0 and (central_i == 0.0 or abs(central_i) < 0.01 * max(abs(_sum_scaled_ratios([c_Q])), abs(_sum_scaled_ratios([c_ind])))))
             ):

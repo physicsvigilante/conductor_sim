@@ -176,10 +176,12 @@ def find_1d_equilibria(
     def _endpoint_admitted(s: float) -> bool:
         if not domain.safe(s):
             return False
-        if callable(supports):
-            _, prob = _problem_at(s)
-            if not supports(prob):
-                return False
+        position, prob = _problem_at(s)
+        s_eff = _dot(_minus(position, original.position_m), spec.axis)
+        if not domain.safe(s_eff):
+            return False
+        if callable(supports) and not supports(prob):
+            return False
         return True
 
     def _tightest_admitted(edge: float, direction: float, limit: float) -> float:
@@ -434,7 +436,9 @@ def find_1d_equilibria(
                 )
         else:
             for k in range(run_idx, run_end + 1):
-                if values[k] == 0.0:
+                if values[k] == 0.0 and (
+                    scales[k] == 0.0 or displacement_bounds_m is not None or 0 < k < n_grid - 1
+                ):
                     add_root(grid[k])
             if run_idx == 0 and run_end + 1 < n_grid:
                 rv = values[run_end + 1]

@@ -270,6 +270,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         axial=_dot(delta,axis)
         if _norm(_minus(delta,tuple(axial*u for u in axis)))>1e-10*radius:
             raise UnsupportedProblem('cavity motion must lie on a line through the cavity centre')
+        if spec.gravity is not None and _norm(delta) > 0.0:
+            if any(axis[i] == 0.0 and delta[i] != 0.0 for i in range(3)):
+                raise UnsupportedProblem('cavity motion must lie on a line through the cavity centre')
+            sin_d, _ = _exact_transverse(delta, axis)
+            if sin_d > 64.0 * ulp(1.0):
+                raise UnsupportedProblem('cavity motion must lie on a line through the cavity centre')
         if _norm(delta)>=radius:
             raise UnsupportedProblem('charge must begin strictly inside innermost cavity')
         lower,upper=-radius-axial,radius-axial
@@ -280,6 +286,12 @@ def _geometry(spec: Motion1DSpec) -> _Domain:
         axial=_dot(delta,axis)
         if _norm(_minus(delta,tuple(axial*u for u in axis)))>1e-10*c.radius_m:
             raise UnsupportedProblem('exterior sphere motion must be radial')
+        if spec.gravity is not None and _norm(delta) > 0.0:
+            if any(axis[i] == 0.0 and delta[i] != 0.0 for i in range(3)):
+                raise UnsupportedProblem('exterior sphere motion must be radial')
+            sin_d, _ = _exact_transverse(delta, axis)
+            if sin_d > 64.0 * ulp(1.0):
+                raise UnsupportedProblem('exterior sphere motion must be radial')
         if _norm(delta)<=c.radius_m:
             raise UnsupportedProblem('moving charge must start outside solid sphere')
         if axial>0:lower=c.radius_m-axial

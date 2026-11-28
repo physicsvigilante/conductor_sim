@@ -3624,3 +3624,61 @@ def test_m45_sol_v56_admitted_default_bounds_and_single_source_sphere_exterior_p
     )
     assert isclose(sol_g.potential_at((1.0, h, 0.0)), 17523733958640.062, rel_tol=1e-11)
     assert isclose(sol_i.potential_at((1.0, h, 0.0)), 17523733958641.062, rel_tol=1e-11)
+
+
+def test_m45_sol_v57_guard_endpoint_sphere_field_nonradial_gravity_and_subnormal_isolated():
+    """Regression suite for all four Sol v57 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalGroundedSphereBackend, ImageChargeShellBackend
+    from conductor_sim.visualization import SamplingContext
+
+    # 1. Default equilibrium scan excludes endpoints whose world position rounds onto the guard
+    prob_guard = ElectrostaticProblem(
+        (PointCharge(1.25, (0.25, 0.0, 0.0)),),
+        (SphericalShell(1.0, 2.0, Grounded()),),
+        permittivity_f_per_m=1.0,
+    )
+    spec_guard = Motion1DSpec(
+        prob_guard, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=0.5, gravity=UniformGravity((-0.11052426603603845, 0.0, 0.0)),
+    )
+    assert find_1d_equilibria(spec_guard, ImageChargeShellBackend()) == ()
+
+    # 2. Sphere electric_field_at and SamplingContext.region agree with exact exterior classification
+    h = 2.0**-30
+    prob_ext = ElectrostaticProblem(
+        (PointCharge(1.0, (nextafter(1.0, inf), h, 0.0)),),
+        (SolidSphere(1.0, Grounded()),),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    sol_ext = ExternalGroundedSphereBackend().solve(prob_ext)
+    x_ext = (1.0, h, 0.0)
+    assert SamplingContext(prob_ext, sol_ext, "Kelvin").region(x_ext) == "vacuum"
+    e_ext = sol_ext.electric_field_at(x_ext)
+    assert isclose(e_ext[0], -4.04073e31, rel_tol=1e-4)
+    assert isclose(e_ext[1], -3.74126e22, rel_tol=1e-4)
+    assert e_ext[2] == 0.0
+
+    # 3. Gravity-coupled 1D motion rejects nonradial sphere offset (2, 1e-11, 0) along x
+    prob_nr = ElectrostaticProblem(
+        (PointCharge(1.0, (2.0, 1e-11, 0.0)),),
+        (SolidSphere(1.0, Grounded()),),
+        permittivity_f_per_m=1.0,
+    )
+    with pytest.raises(UnsupportedProblem, match="radial"):
+        spec_nr = Motion1DSpec(
+            prob_nr, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.5,
+            gravity=UniformGravity((0.1, 0.0, 0.0)),
+        )
+        integrate_motion_1d(spec_nr, ExternalGroundedSphereBackend())
+
+    # 4. Isolated-sphere potential_at and electric_field_at preserve representable subnormal totals
+    q_sub = 2.0**-1074
+    prob_sub = ElectrostaticProblem(
+        (PointCharge(q_sub, (1.0, 0.0, 0.0)),),
+        (SolidSphere(0.5, FixedNetCharge(0.0)),),
+        permittivity_f_per_m=1.0 / (4.0 * pi * 0.55),
+    )
+    sol_sub = ExternalIsolatedSphereBackend().solve(prob_sub)
+    assert sol_sub.potential_at((2.0, 0.0, 0.0)) == 5e-324
+    assert sol_sub.electric_field_at((2.0, 0.0, 0.0)) == (5e-324, 0.0, 0.0)
