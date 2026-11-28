@@ -1036,21 +1036,46 @@ def _cavity_observables(solution) -> ForceEnergyResult:
         raise TypeError('cavity observation requires an analytical shell solution')
 
     k = solution._k
-    direct, direct_energy = _direct(sources, solution.permittivity_f_per_m)
+    eps = solution.permittivity_f_per_m
+    four_pi = 4.0 * pi
+    direct, direct_energy = _direct(sources, eps)
     charges = []
     image_energies = []
-    for i, site in enumerate(sources):
-        f_terms = [[], [], []]
-        potential_terms = []
-        for other in sources:
-            potential, field = image_term(site.position_m, other.position_m,
-                                          shell.center_m, shell.inner_radius_m)
-            potential_terms.append(other.charge_c*potential)
-            for axis in range(3):
-                f_terms[axis].append(other.charge_c*field[axis])
-        induced = tuple(k*site.charge_c*fsum(axis) for axis in f_terms)
-        image_energies.append(.5*k*site.charge_c*fsum(potential_terms))
-        charges.append(ChargeForce(site, direct[i], induced, _ZERO))
+    if len(sources) == 1:
+        site = sources[0]
+        a = shell.inner_radius_m
+        delta = tuple(site.position_m[c] - shell.center_m[c] for c in range(3))
+        d = hypot(*delta)
+        if d == 0.0:
+            induced = _ZERO
+            image_energies.append(_scaled_ratio_product((-0.5, site.charge_c, site.charge_c), (four_pi, eps, a)))
+        else:
+            gap = a - d
+            sum_r = a + d
+            induced = tuple(
+                _scaled_ratio_product(
+                    (site.charge_c, site.charge_c, a, delta[c]),
+                    (four_pi, eps, gap, sum_r, gap, sum_r),
+                )
+                for c in range(3)
+            )
+            image_energies.append(
+                _scaled_ratio_product((-0.5, site.charge_c, site.charge_c, a), (four_pi, eps, gap, sum_r))
+            )
+        charges.append(ChargeForce(site, direct[0], induced, _ZERO))
+    else:
+        for i, site in enumerate(sources):
+            f_terms = [[], [], []]
+            potential_terms = []
+            for other in sources:
+                potential, field = image_term(site.position_m, other.position_m,
+                                              shell.center_m, shell.inner_radius_m)
+                potential_terms.append(other.charge_c*potential)
+                for axis in range(3):
+                    f_terms[axis].append(other.charge_c*field[axis])
+            induced = tuple(k*site.charge_c*fsum(axis) for axis in f_terms)
+            image_energies.append(.5*k*site.charge_c*fsum(potential_terms))
+            charges.append(ChargeForce(site, direct[i], induced, _ZERO))
 
     total_q = fsum(site.charge_c for site in sources)
     uniform_induced, background_v = _cavity_voltage_parts(radial_shells, total_q, k)

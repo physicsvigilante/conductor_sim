@@ -240,7 +240,7 @@ def find_1d_equilibria(
                 raise ValueError("displacement_bounds_m must be a pair of finite numbers")
             bounds_f.append(fv)
         s_lo, s_hi = bounds_f[0], bounds_f[1]
-        if s_lo <= safe_lo or s_hi >= safe_hi:
+        if s_lo <= safe_lo or s_hi >= safe_hi or not (_endpoint_admitted(s_lo) and _endpoint_admitted(s_hi)):
             raise UnsupportedProblem("displacement_bounds_m must stay strictly inside the safe vacuum domain")
     if s_hi <= s_lo:
         raise ValueError("displacement_bounds_m must satisfy s_min < s_max inside the safe domain")
@@ -255,11 +255,9 @@ def find_1d_equilibria(
     def observe(s: float):
         if not domain.safe(s):
             raise UnsupportedProblem("equilibrium probe crossed the conductor surface guard")
-        position = _add(original.position_m, spec.axis, s)
-        charges = list(spec.problem.charges)
-        charges[spec.charge_index] = PointCharge(original.charge_c, position)
-        problem = replace(spec.problem, charges=tuple(charges))
-        supports = getattr(backend, "supports", None)
+        position, problem = _problem_at(s)
+        if not domain.safe(_dot(_minus(position, original.position_m), spec.axis)):
+            raise UnsupportedProblem("equilibrium probe crossed the conductor surface guard")
         if callable(supports) and not supports(problem):
             raise UnsupportedProblem("selected analytical backend does not support this equilibrium state")
         solution = backend.solve(problem)
@@ -436,9 +434,7 @@ def find_1d_equilibria(
                 )
         else:
             for k in range(run_idx, run_end + 1):
-                if values[k] == 0.0 and (
-                    scales[k] == 0.0 or displacement_bounds_m is not None or 0 < k < n_grid - 1
-                ):
+                if values[k] == 0.0:
                     add_root(grid[k])
             if run_idx == 0 and run_end + 1 < n_grid:
                 rv = values[run_end + 1]

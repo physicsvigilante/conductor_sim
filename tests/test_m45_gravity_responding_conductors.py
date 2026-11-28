@@ -3682,3 +3682,39 @@ def test_m45_sol_v57_guard_endpoint_sphere_field_nonradial_gravity_and_subnormal
     sol_sub = ExternalIsolatedSphereBackend().solve(prob_sub)
     assert sol_sub.potential_at((2.0, 0.0, 0.0)) == 5e-324
     assert sol_sub.electric_field_at((2.0, 0.0, 0.0)) == (5e-324, 0.0, 0.0)
+
+
+def test_m45_opus_v58_explicit_guard_bounds_and_default_endpoint_root_parity():
+    """Regression suite for both Opus v58 findings (explicit guard check & default-endpoint root parity)."""
+    from math import inf, nextafter
+    from conductor_sim import ImageChargeShellBackend
+    from conductor_sim.observables import force_energy
+
+    prob = ElectrostaticProblem(
+        (PointCharge(1.25, (0.25, 0.0, 0.0)),),
+        (SphericalShell(1.0, 2.0, Grounded()),),
+        permittivity_f_per_m=1.0,
+    )
+    backend = ImageChargeShellBackend()
+
+    # 1. Explicit bounds whose world position rounds onto the guard are refused
+    spec_guard = Motion1DSpec(
+        prob, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=0.5, gravity=UniformGravity((-0.11052426603603845, 0.0, 0.0)),
+    )
+    with pytest.raises(UnsupportedProblem, match="safe vacuum domain"):
+        find_1d_equilibria(spec_guard, backend, displacement_bounds_m=(-0.5, nextafter(0.25, -inf)))
+
+    # 2. Exact equilibrium at a safe default endpoint (0.5, 0, 0) is returned consistently in both modes
+    f_at_half = force_energy(backend.solve(
+        ElectrostaticProblem((PointCharge(1.25, (0.5, 0.0, 0.0)),), (SphericalShell(1.0, 2.0, Grounded()),), permittivity_f_per_m=1.0)
+    )).charges[0].total_force_n[0]
+    spec_in = Motion1DSpec(
+        prob, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=nextafter(0.5, 0.0), gravity=UniformGravity((-f_at_half, 0.0, 0.0)),
+    )
+    eq_default = find_1d_equilibria(spec_in, backend)
+    eq_explicit = find_1d_equilibria(spec_in, backend, displacement_bounds_m=(-0.5, 0.25))
+    assert len(eq_default) == len(eq_explicit) == 1
+    assert eq_default[0].position_m == eq_explicit[0].position_m == (0.5, 0.0, 0.0)
+    assert eq_default[0].net_force_n == 0.0
