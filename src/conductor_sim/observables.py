@@ -482,28 +482,41 @@ def _sphere_observables(solution) -> ForceEnergyResult:
         total_force_override = None
         conductor_force_override = None
         total_energy_override = None
-        same_sign = Q != 0.0 and ((site.charge_c > 0.0) == (Q > 0.0))
-        if fixed and same_sign:
-            force_cancels = any(
-                induced_vec[c] != 0.0
-                and background[c] != 0.0
-                and abs(fsum((induced_vec[c], background[c]))) < 0.01 * max(abs(induced_vec[c]), abs(background[c]))
+        if fixed:
+            def _single_pair_needs_exact(a_val: float, b_val: float, a_nz: bool, b_nz: bool) -> bool:
+                if (a_nz and abs(a_val) < 1e-300) or (b_nz and abs(b_val) < 1e-300):
+                    return True
+                if a_val == 0.0 or b_val == 0.0:
+                    return False
+                try:
+                    s_val = fsum((a_val, b_val))
+                except OverflowError:
+                    return True
+                return abs(s_val) < 0.01 * max(abs(a_val), abs(b_val))
+
+            q_nz = site.charge_c != 0.0
+            Q_nz = Q != 0.0
+            force_needs_exact = any(
+                _single_pair_needs_exact(
+                    induced_vec[c],
+                    background[c],
+                    q_nz and delta_c[c] != 0.0,
+                    q_nz and Q_nz and delta_c[c] != 0.0,
+                )
                 for c in range(3)
             )
-            energy_cancels = (
-                induced_energy != 0.0
-                and bg_energy != 0.0
-                and abs(fsum((induced_energy, bg_energy))) < 0.01 * max(abs(induced_energy), abs(bg_energy))
+            energy_needs_exact = _single_pair_needs_exact(
+                induced_energy, bg_energy, q_nz, q_nz and Q_nz
             )
-            if force_cancels or energy_cancels:
+            if force_needs_exact or energy_needs_exact:
                 from .external_isolated import _isolated_exact_force_and_energy
                 exact_f, exact_u = _isolated_exact_force_and_energy(
                     reference.sphere, site.position_m, site.charge_c, Q, eps
                 )
-                if force_cancels:
+                if force_needs_exact:
                     total_force_override = exact_f
                     conductor_force_override = exact_f
-                if energy_cancels:
+                if energy_needs_exact:
                     total_energy_override = exact_u
         charges.append(
             ChargeForce(

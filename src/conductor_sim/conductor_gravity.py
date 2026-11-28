@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from math import frexp, fsum, isfinite, ldexp, sqrt, ulp
+from math import frexp, fsum, inf, isfinite, ldexp, nextafter, sqrt, ulp
 from sys import float_info
 from typing import Literal
 
@@ -169,12 +169,12 @@ def find_1d_equilibria(
             raise UnsupportedProblem(
                 "unbounded 1D domain requires explicit finite displacement_bounds_m=(s_min, s_max)"
             )
-        margin = max(
-            1e-12 * (safe_hi - safe_lo),
-            64.0 * ulp(max(abs(domain.lower), abs(domain.upper), abs(safe_lo), abs(safe_hi), domain.scale)),
-        )
-        s_lo = safe_lo + margin
-        s_hi = safe_hi - margin
+        s_lo = nextafter(safe_lo, inf)
+        while s_lo < safe_hi and not domain.safe(s_lo):
+            s_lo = nextafter(s_lo, inf)
+        s_hi = nextafter(safe_hi, -inf)
+        while s_hi > s_lo and not domain.safe(s_hi):
+            s_hi = nextafter(s_hi, -inf)
     else:
         if not isinstance(displacement_bounds_m, (tuple, list)) or len(displacement_bounds_m) != 2:
             raise ValueError("displacement_bounds_m must be a pair of finite numbers")

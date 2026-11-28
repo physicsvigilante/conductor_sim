@@ -3542,3 +3542,51 @@ def test_m45_sol_v54_fsum_overflow_subnormal_deep_potential_and_default_scan_bou
     assert len(eqs_default) == 1
     assert isclose(eqs_default[0].displacement_m, x_eq, rel_tol=1e-12, abs_tol=0.0)
     assert eqs_default[0].stability == "unstable"
+
+
+def test_m45_sol_v55_tight_default_bounds_single_site_subnormal_and_exterior_potential():
+    """Regression suite for all three Sol v55 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalMultiSphereBackend, ImageChargeShellBackend
+    from conductor_sim.observables import force_energy
+
+    # 1. Default find_1d_equilibria scan reaches representable roots 2**-42 inside the safe guard
+    x_eq = 0.5 - 2.0**-42
+    g_eq = -x_eq / (4.0 * pi * (1.0 - x_eq * x_eq) ** 2)
+    prob_cav = ElectrostaticProblem(
+        (PointCharge(1.0, (0.0, 0.0, 0.0)),),
+        (SphericalShell(1.0, 2.0, Grounded()),),
+        permittivity_f_per_m=1.0,
+    )
+    spec_cav = Motion1DSpec(
+        prob_cav, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=0.5, gravity=UniformGravity((g_eq, 0.0, 0.0)),
+    )
+    eqs_tight = find_1d_equilibria(spec_cav, ImageChargeShellBackend())
+    assert len(eqs_tight) == 1
+    assert isclose(eqs_tight[0].displacement_m, x_eq, rel_tol=1e-12, abs_tol=0.0)
+    assert eqs_tight[0].stability == "unstable"
+
+    # 2. Single-site fixed-Q sphere ledger preserves representable subnormal total force & energy
+    q_sub = 2.0**-538
+    prob_sub = ElectrostaticProblem(
+        (PointCharge(q_sub, (0.0, 0.0, 1.0)),),
+        (SolidSphere(0.5, FixedNetCharge(-1.9375 * q_sub)),),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    sol_sub = ExternalIsolatedSphereBackend().solve(prob_sub)
+    obs_sub = force_energy(sol_sub)
+    assert sol_sub.induced_force_on_charge_n[2] == -5e-324
+    assert sol_sub.interaction_energy_j == -5e-324
+    assert obs_sub.charges[0].total_force_n[2] == -5e-324
+    assert obs_sub.energy.total_j == -5e-324
+
+    # 3. Multi-sphere potential_at classifies exterior point (1, 2**-30, 0) via exact Fraction radius
+    h = 2.0**-30
+    prob_ext = ElectrostaticProblem(
+        (PointCharge(1.0, (nextafter(1.0, inf), h, 0.0)), PointCharge(1.0, (2.0, 0.0, 0.0))),
+        (SolidSphere(1.0, Grounded()),),
+        permittivity_f_per_m=1.0 / (4.0 * pi),
+    )
+    sol_ext = ExternalMultiSphereBackend().solve(prob_ext)
+    assert isclose(sol_ext.potential_at((1.0, h, 0.0)), 1.7523733958640064e13, rel_tol=1e-11)
