@@ -6,14 +6,14 @@ prescribed voltage). This independent reference never calls FEMM.
 """
 from __future__ import annotations
 
-from math import isfinite, pi
+from math import isclose, isfinite, pi
 
 from .external_sphere import (
     ExternalGroundedSphereBackend, ExternalGroundedSphereSolution, _diff, _field, _norm,
     _pair_force, _sphere_strictly_outside,
 )
 from .model import ElectrostaticProblem, FixedNetCharge, SolidSphere, Vector3, _position
-from .solver import ConductorResult, UnsupportedProblem
+from .solver import ConductorResult, SingularField, UnsupportedProblem
 from .external_multi import ExternalMultiSphereBackend
 
 
@@ -241,8 +241,17 @@ class ExternalIsolatedSphereSolution(ExternalGroundedSphereSolution):
         from .observables import _scaled_ratio_parts, _sum_scaled_ratios
         point = _position(point_m, 'sample point')
         r = _norm(_diff(point, self.sphere.center_m))
-        if r <= self.sphere.radius_m:
-            return self.conductor_potential_v
+        a = self.sphere.radius_m
+        if r <= a or isclose(r, a, rel_tol=1e-12):
+            from fractions import Fraction
+            fa = Fraction(a)
+            rp2_exact = sum((Fraction(point[i]) - Fraction(self.sphere.center_m[i])) ** 2 for i in range(3))
+            if rp2_exact <= fa * fa:
+                return self.conductor_potential_v
+            if r <= a:
+                if point == self.source.position_m:
+                    raise SingularField('point-charge potential is singular at the external source')
+                return self._isolated_exact_eval(point, want_field=False)
         base = super().potential_at(point)
         if not isfinite(r):
             return self._isolated_exact_eval(point, want_field=False)

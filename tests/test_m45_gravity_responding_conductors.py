@@ -3590,3 +3590,37 @@ def test_m45_sol_v55_tight_default_bounds_single_site_subnormal_and_exterior_pot
     )
     sol_ext = ExternalMultiSphereBackend().solve(prob_ext)
     assert isclose(sol_ext.potential_at((1.0, h, 0.0)), 1.7523733958640064e13, rel_tol=1e-11)
+
+
+def test_m45_sol_v56_admitted_default_bounds_and_single_source_sphere_exterior_potential():
+    """Regression suite for both Sol v56 findings."""
+    from math import inf, nextafter
+    from conductor_sim import ExternalGroundedSphereBackend, ImageChargeShellBackend
+
+    # 1. Default find_1d_equilibria bounds respect backend.supports at translated cavity endpoints
+    prob_tr = ElectrostaticProblem(
+        (PointCharge(1.0, (0.0, 0.0, 0.0)),),
+        (SphericalShell(1.0, 2.0, Grounded(), center_m=(-0.75, 0.0, 0.0)),),
+        permittivity_f_per_m=1.0,
+    )
+    g_tr = -0.75 / (4.0 * pi * (1.0 - 0.75**2) ** 2)
+    spec_tr = Motion1DSpec(
+        prob_tr, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=1e-18, gravity=UniformGravity((g_tr, 0.0, 0.0)),
+    )
+    eqs_tr = find_1d_equilibria(spec_tr, ImageChargeShellBackend())
+    assert len(eqs_tr) == 1
+    assert abs(eqs_tr[0].displacement_m) < 1e-12
+    assert eqs_tr[0].stability == "unstable"
+
+    # 2. Single-source grounded & isolated sphere potential_at classify exterior (1, 2**-30, 0) via exact Fraction radius
+    h = 2.0**-30
+    q = PointCharge(1.0, (nextafter(1.0, inf), h, 0.0))
+    sol_g = ExternalGroundedSphereBackend().solve(
+        ElectrostaticProblem((q,), (SolidSphere(1.0, Grounded()),), permittivity_f_per_m=1.0 / (4.0 * pi))
+    )
+    sol_i = ExternalIsolatedSphereBackend().solve(
+        ElectrostaticProblem((q,), (SolidSphere(1.0, FixedNetCharge(0.0)),), permittivity_f_per_m=1.0 / (4.0 * pi))
+    )
+    assert isclose(sol_g.potential_at((1.0, h, 0.0)), 17523733958640.062, rel_tol=1e-11)
+    assert isclose(sol_i.potential_at((1.0, h, 0.0)), 17523733958641.062, rel_tol=1e-11)

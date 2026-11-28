@@ -164,17 +164,65 @@ def find_1d_equilibria(
     domain = _geometry(spec)
     safe_lo = domain.lower + domain.guard
     safe_hi = domain.upper - domain.guard
+    original = spec.selected_charge
+    supports = getattr(backend, "supports", None)
+
+    def _problem_at(s: float):
+        position = _add(original.position_m, spec.axis, s)
+        charges = list(spec.problem.charges)
+        charges[spec.charge_index] = PointCharge(original.charge_c, position)
+        return position, replace(spec.problem, charges=tuple(charges))
+
+    def _endpoint_admitted(s: float) -> bool:
+        if not domain.safe(s):
+            return False
+        if callable(supports):
+            _, prob = _problem_at(s)
+            if not supports(prob):
+                return False
+        return True
+
+    def _tightest_admitted(edge: float, direction: float, limit: float) -> float:
+        s = nextafter(edge, direction)
+        in_range = (lambda x: x < limit) if direction > 0.0 else (lambda x: x > limit)
+        for _ in range(32):
+            if not in_range(s):
+                return s
+            if _endpoint_admitted(s):
+                return s
+            s = nextafter(s, direction)
+        span = abs(limit - edge)
+        step = max(abs(s - edge), ulp(max(abs(edge), domain.scale)))
+        lo_bad = s
+        hi_good = None
+        while step < span:
+            cand = edge + step if direction > 0.0 else edge - step
+            if not in_range(cand):
+                break
+            if _endpoint_admitted(cand):
+                hi_good = cand
+                break
+            lo_bad = cand
+            step *= 2.0
+        if hi_good is None:
+            return lo_bad
+        for _ in range(60):
+            mid = _midpoint(lo_bad, hi_good)
+            if mid == lo_bad or mid == hi_good:
+                break
+            if _endpoint_admitted(mid):
+                hi_good = mid
+            else:
+                lo_bad = mid
+        return hi_good
+
     if displacement_bounds_m is None:
         if not (isfinite(safe_lo) and isfinite(safe_hi)):
             raise UnsupportedProblem(
                 "unbounded 1D domain requires explicit finite displacement_bounds_m=(s_min, s_max)"
             )
-        s_lo = nextafter(safe_lo, inf)
-        while s_lo < safe_hi and not domain.safe(s_lo):
-            s_lo = nextafter(s_lo, inf)
-        s_hi = nextafter(safe_hi, -inf)
-        while s_hi > s_lo and not domain.safe(s_hi):
-            s_hi = nextafter(s_hi, -inf)
+        s_lo = _tightest_admitted(safe_lo, inf, safe_hi)
+        s_hi = _tightest_admitted(safe_hi, -inf, s_lo)
     else:
         if not isinstance(displacement_bounds_m, (tuple, list)) or len(displacement_bounds_m) != 2:
             raise ValueError("displacement_bounds_m must be a pair of finite numbers")
@@ -195,7 +243,6 @@ def find_1d_equilibria(
     if s_hi <= s_lo:
         raise ValueError("displacement_bounds_m must satisfy s_min < s_max inside the safe domain")
 
-    original = spec.selected_charge
     gravity = spec.gravity
     grav_vec = (
         gravity.force_at(original.position_m, mass_kg=spec.mass_kg)
