@@ -203,6 +203,13 @@ class ExternalMultiSphereSolution:
         rp2 = sum(x * x for x in r_p)
         fixed = isinstance(self.sphere.constraint, FixedNetCharge)
         Q_val = self.sphere.constraint.charge_c if fixed else 0.0
+        def _frac_dec_exp(val: Fraction) -> int:
+            return ((abs(val.numerator).bit_length() - val.denominator.bit_length()) * 30103) // 100000
+
+        geom_exps = [_frac_dec_exp(a)]
+        for val in (*c, *p, *r_p):
+            if val != 0:
+                geom_exps.append(_frac_dec_exp(val))
         site_data = []
         for site in self.sites:
             s = tuple(Fraction(x) for x in site.position_m)
@@ -212,9 +219,14 @@ class ExternalMultiSphereSolution:
             dist2 = sum(x * x for x in v_dir)
             v_ref = tuple(r_p[i] - (a2 / d2) * r_src[i] for i in range(3))
             r_img2 = sum(x * x for x in v_ref)
+            for val in (*s, *r_src, *v_dir):
+                if val != 0:
+                    geom_exps.append(_frac_dec_exp(val))
             site_data.append((site.charge_c, d2, v_dir, dist2, v_ref, r_img2))
 
         max_digits = 5000
+        geom_spread = (max(geom_exps) - min(geom_exps) + 20) if len(geom_exps) >= 2 else 0
+        zero_req = min(max_digits, max(480, 4 * geom_spread + 120))
         digits = 120
         while True:
             ctx = Context(prec=digits, rounding=ROUND_HALF_EVEN, Emax=999999999, Emin=-999999999, traps=[], flags=[])
@@ -238,15 +250,15 @@ class ExternalMultiSphereSolution:
                     for idx, (qc, d2, _, _, _, _) in enumerate(site_data):
                         dq = Decimal.from_float(qc)
                         terms.append(
-                            dk * dq * _fdec((d2 - a2) * (rp2 - a2)) / (
+                            dq * _fdec((d2 - a2) * (rp2 - a2)) / (
                                 d_srcs[idx] * dists[idx] * r_imgs[idx] * (d_srcs[idx] * r_imgs[idx] + da * dists[idx])
                             )
                         )
                     if fixed:
                         if Q_val != 0.0:
-                            terms.append(dk * Decimal.from_float(Q_val) / r_p_norm)
+                            terms.append(Decimal.from_float(Q_val) / r_p_norm)
                         for qi in q_imgs:
-                            terms.append(-dk * qi / r_p_norm)
+                            terms.append(-qi / r_p_norm)
                     nz = [abs(t) for t in terms if t != 0]
                     if not nz:
                         return 0.0
@@ -257,13 +269,14 @@ class ExternalMultiSphereSolution:
                         continue
                     total = sum(terms, Decimal(0))
                     if total == 0:
-                        if digits >= max(480, span_need) or digits >= max_digits:
+                        req = max(zero_req, span_need)
+                        if digits >= req or digits >= max_digits:
                             return 0.0
-                        digits = min(max_digits, max(480, span_need, 2 * digits))
+                        digits = min(max_digits, max(req, 2 * digits))
                         continue
                     lost = max(0, max_t.adjusted() - total.adjusted())
                     if digits - lost >= 40 or digits >= max_digits:
-                        return float(total)
+                        return float(dk * total)
                     digits = min(max_digits, max(2 * digits, lost + 80))
                     continue
 
@@ -275,16 +288,16 @@ class ExternalMultiSphereSolution:
                     r_img3 = r_imgs[idx] * r_imgs[idx] * r_imgs[idx]
                     for i in range(3):
                         if v_dir[i] != 0:
-                            term_lists[i].append(dk * dq * _fdec(v_dir[i]) / dist3)
+                            term_lists[i].append(dq * _fdec(v_dir[i]) / dist3)
                         if v_ref[i] != 0:
-                            term_lists[i].append(dk * q_imgs[idx] * _fdec(v_ref[i]) / r_img3)
+                            term_lists[i].append(q_imgs[idx] * _fdec(v_ref[i]) / r_img3)
                         if fixed and r_p[i] != 0:
-                            term_lists[i].append(-dk * q_imgs[idx] * _fdec(r_p[i]) / rp3)
+                            term_lists[i].append(-q_imgs[idx] * _fdec(r_p[i]) / rp3)
                 if fixed and Q_val != 0.0:
                     dQ = Decimal.from_float(Q_val)
                     for i in range(3):
                         if r_p[i] != 0:
-                            term_lists[i].append(dk * dQ * _fdec(r_p[i]) / rp3)
+                            term_lists[i].append(dQ * _fdec(r_p[i]) / rp3)
                 totals = [Decimal(0), Decimal(0), Decimal(0)]
                 need_more = False
                 next_digits = digits
@@ -301,7 +314,7 @@ class ExternalMultiSphereSolution:
                     tot = sum(term_lists[i], Decimal(0))
                     totals[i] = tot
                     if tot == 0:
-                        req = max(480, span_need)
+                        req = max(zero_req, span_need)
                         if digits < req and digits < max_digits:
                             need_more = True
                             next_digits = max(next_digits, max(req, 2 * digits))
@@ -311,7 +324,7 @@ class ExternalMultiSphereSolution:
                             need_more = True
                             next_digits = max(next_digits, max(2 * digits, lost + 80))
                 if not need_more or digits >= max_digits:
-                    return tuple(float(x) for x in totals)
+                    return tuple(float(dk * x) for x in totals)
                 digits = min(max_digits, next_digits)
 
     def potential_at(self, point_m: Vector3) -> float:

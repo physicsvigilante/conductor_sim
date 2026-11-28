@@ -582,6 +582,8 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                             max_lost = lost
                 induced_vecs = []
                 backgrounds = []
+                induced_nz = []
+                bg_nz = []
                 for i in range(len(sources)):
                     ri, di, qi = drs[i], dds[i], dqs[i]
                     di3 = di * di * di
@@ -610,6 +612,8 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                                 max_lost = lost
                     induced_vecs.append(tuple(float(dk * x) for x in f_ind))
                     backgrounds.append(tuple(float(dk * qi * dQ * ri[m] / di3) for m in range(3)))
+                    induced_nz.append(tuple(x != 0 for x in f_ind))
+                    bg_nz.append(tuple(fixed and qi != 0 and dQ != 0 and ri[m] != 0 for m in range(3)))
                 kelvin_u = Decimal(0)
                 u_sc = Decimal(0)
                 for i in range(len(sources)):
@@ -631,31 +635,52 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                         max_lost = lost
                 induced_energy = float(dk * u_raw)
                 bg_energy = float(dk * dQ * dS / da) if fixed else 0.0
+                u_ind_nz = u_raw != 0
+                u_bg_nz = fixed and dQ != 0 and dS != 0
                 if prec - max_lost >= 35 or prec >= 3200:
                     break
                 prec = min(3200, max(2 * prec, max_lost + 60))
+
+        def _fsum_needs_exact(
+            terms: tuple[float, ...],
+            exact_nonzero: tuple[bool, ...],
+        ) -> bool:
+            if not all(isfinite(x) for x in terms):
+                return True
+            if any(nz and abs(x) < 1e-300 for x, nz in zip(terms, exact_nonzero)):
+                return True
+            if sum(x != 0.0 for x in terms) < 2:
+                return False
+            try:
+                total_val = fsum(terms)
+            except OverflowError:
+                return True
+            return abs(total_val) < 0.01 * max(abs(x) for x in terms)
+
         for i, site in enumerate(sources):
             cond_ov = None
             tot_ov = None
+            direct_nz = tuple(
+                any(
+                    site.charge_c != 0.0
+                    and sources[j].charge_c != 0.0
+                    and site.position_m[c] != sources[j].position_m[c]
+                    for j in range(len(sources))
+                    if j != i
+                )
+                for c in range(3)
+            )
             cond_cancel = any(
-                (induced_vecs[i][c] != 0.0 or backgrounds[i][c] != 0.0)
-                and (
-                    not (isfinite(induced_vecs[i][c]) and isfinite(backgrounds[i][c]))
-                    or (
-                        induced_vecs[i][c] != 0.0
-                        and backgrounds[i][c] != 0.0
-                        and abs(fsum((induced_vecs[i][c], backgrounds[i][c])))
-                        < 0.01 * max(abs(induced_vecs[i][c]), abs(backgrounds[i][c]))
-                    )
+                _fsum_needs_exact(
+                    (induced_vecs[i][c], backgrounds[i][c]),
+                    (induced_nz[i][c], bg_nz[i][c]),
                 )
                 for c in range(3)
             )
             tot_cancel = any(
-                sum(x != 0.0 for x in (direct[i][c], induced_vecs[i][c], backgrounds[i][c])) >= 2
-                and (
-                    not all(isfinite(x) for x in (direct[i][c], induced_vecs[i][c], backgrounds[i][c]))
-                    or abs(fsum((direct[i][c], induced_vecs[i][c], backgrounds[i][c])))
-                    < 0.01 * max(abs(direct[i][c]), abs(induced_vecs[i][c]), abs(backgrounds[i][c]))
+                _fsum_needs_exact(
+                    (direct[i][c], induced_vecs[i][c], backgrounds[i][c]),
+                    (direct_nz[c], induced_nz[i][c], bg_nz[i][c]),
                 )
                 for c in range(3)
             )
@@ -673,10 +698,14 @@ def _sphere_observables(solution) -> ForceEnergyResult:
                     _conductor_override_n=cond_ov,
                 )
             )
-        if sum(x != 0.0 for x in (pair_energy, induced_energy, bg_energy)) >= 2 and (
-            not all(isfinite(x) for x in (pair_energy, induced_energy, bg_energy))
-            or abs(fsum((pair_energy, induced_energy, bg_energy)))
-            < 0.01 * max(abs(pair_energy), abs(induced_energy), abs(bg_energy))
+        pair_u_nz = any(
+            sources[i].charge_c != 0.0 and sources[j].charge_c != 0.0
+            for i in range(len(sources))
+            for j in range(i + 1, len(sources))
+        )
+        if _fsum_needs_exact(
+            (pair_energy, induced_energy, bg_energy),
+            (pair_u_nz, u_ind_nz, u_bg_nz),
         ):
             total_energy_override = _sphere_energy_only(reference)
     energy = EnergyBreakdown(pair_energy, induced_energy, bg_energy,

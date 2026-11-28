@@ -169,7 +169,10 @@ def find_1d_equilibria(
             raise UnsupportedProblem(
                 "unbounded 1D domain requires explicit finite displacement_bounds_m=(s_min, s_max)"
             )
-        margin = max(0.05 * domain.guard, 1e-9 * domain.scale)
+        margin = max(
+            1e-12 * (safe_hi - safe_lo),
+            64.0 * ulp(max(abs(domain.lower), abs(domain.upper), abs(safe_lo), abs(safe_hi), domain.scale)),
+        )
         s_lo = safe_lo + margin
         s_hi = safe_hi - margin
     else:

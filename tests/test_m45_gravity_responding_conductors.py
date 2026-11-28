@@ -3490,3 +3490,55 @@ def test_m45_sol_v53_translated_sphere_geom_zero_checks_equator_density_and_mult
     assert isclose(sol_mc.force_on_charge_n(0)[2], 4.554868432713184e-18, rel_tol=1e-11, abs_tol=0.0)
     obs_mc = force_energy(sol_mc)
     assert isclose(obs_mc.charges[0].total_force_n[2], 4.554868432713184e-18, rel_tol=1e-11, abs_tol=0.0)
+
+
+def test_m45_sol_v54_fsum_overflow_subnormal_deep_potential_and_default_scan_bounds():
+    """Regression suite for all four Sol v54 findings."""
+    from conductor_sim import ExternalMultiSphereBackend, ImageChargeShellBackend
+    from conductor_sim.observables import force_energy
+
+    def solve_pair(q, radius, constraint):
+        return ExternalMultiSphereBackend().solve(ElectrostaticProblem(
+            (PointCharge(q, (0.0, 0.0, 1.0)), PointCharge(q, (0.0, 0.0, 1.5))),
+            (SolidSphere(radius, constraint),),
+            permittivity_f_per_m=1.0 / (4.0 * pi * 0.4),
+        ))
+
+    # 1. force_energy handles intermediate fsum overflow on a finite representable total force
+    sol_ovf = solve_pair(1e154, 0.5, FixedNetCharge(1e154))
+    assert isclose(sol_ovf.force_on_charge_n(0)[2], -1.4142222222222221e308, rel_tol=1e-12)
+    obs_ovf = force_energy(sol_ovf)
+    assert isclose(obs_ovf.charges[0].total_force_n[2], -1.4142222222222221e308, rel_tol=1e-12)
+
+    # 2. Multi-site force_energy preserves representable subnormal total force when parts underflow
+    sol_sub = solve_pair(2.0**-538, 0.7, Grounded())
+    assert sol_sub.force_on_charge_n(0)[2] == -5e-324
+    obs_sub = force_energy(sol_sub)
+    assert obs_sub.charges[0].total_force_n[2] == -5e-324
+
+    # 3. Exterior multi-site potential resolves >480-digit transverse geometric residual
+    d, dx, q = 1e160, 1e-100, 1e307
+    sol_pot = ExternalMultiSphereBackend().solve(ElectrostaticProblem(
+        (PointCharge(q, (0.0, 0.0, d)), PointCharge(-q, (dx, 0.0, d))),
+        (SolidSphere(1.0, Grounded()),),
+        permittivity_f_per_m=1e-320,
+    ))
+    assert isclose(sol_pot.potential_at((0.0, 0.0, 2.0 * d)), 3.978917873863192e-55, rel_tol=1e-11, abs_tol=0.0)
+
+    # 4. Default find_1d_equilibria scan covers the full safe interval without trimming 5% of guard
+    x_eq = 0.49
+    g_eq = -x_eq / (4.0 * pi * (1.0 - x_eq * x_eq) ** 2)
+    prob_cav = ElectrostaticProblem(
+        (PointCharge(1.0, (0.0, 0.0, 0.0)),),
+        (SphericalShell(1.0, 2.0, Grounded()),),
+        permittivity_f_per_m=1.0,
+    )
+    spec_cav = Motion1DSpec(
+        prob_cav, 0, 1.0, (1.0, 0.0, 0.0), 0.0, 1.0, 0.1,
+        surface_guard_m=0.5, gravity=UniformGravity((g_eq, 0.0, 0.0)),
+    )
+    backend_cav = ImageChargeShellBackend()
+    eqs_default = find_1d_equilibria(spec_cav, backend_cav)
+    assert len(eqs_default) == 1
+    assert isclose(eqs_default[0].displacement_m, x_eq, rel_tol=1e-12, abs_tol=0.0)
+    assert eqs_default[0].stability == "unstable"
